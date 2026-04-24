@@ -1,0 +1,20 @@
+{
+  "scriptModel": "gemini-3-flash-preview",
+  "ttsModel": "gemini-2.5-flash-preview-tts",
+  "language": "id-ID",
+  "maxVideoSeconds": 60,
+  "safetyMode": "safe_marketing",
+  "concurrency": 1,
+  "genderVoices": [
+    {
+      "gender": "male",
+      "voiceName": "Charon",
+      "speechRate": 1
+    },
+    {
+      "gender": "female",
+      "voiceName": "Leda",
+      "speechRate": 1
+    }
+  ]
+}

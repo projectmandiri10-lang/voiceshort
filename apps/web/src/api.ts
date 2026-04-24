@@ -1,0 +1,179 @@
+import type {
+  AppSettings,
+  ContentType,
+  ExcitedVoicePreset,
+  JobRecord,
+  JobVoiceGender,
+  TtsVoiceOption
+} from "./types";
+
+const DEV_BACKEND_PORT = "8788";
+
+function trimTrailingSlash(url: string): string {
+  return url.replace(/\/+$/, "");
+}
+
+function resolveApiBase(): string {
+  const envBase = import.meta.env.VITE_API_BASE?.trim();
+  if (envBase) {
+    return trimTrailingSlash(envBase);
+  }
+  if (typeof window === "undefined") {
+    return `http://localhost:${DEV_BACKEND_PORT}`;
+  }
+  if (import.meta.env.DEV) {
+    return `${window.location.protocol}//${window.location.hostname}:${DEV_BACKEND_PORT}`;
+  }
+  return window.location.origin;
+}
+
+const API_BASE = resolveApiBase();
+
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+async function parseResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`;
+    try {
+      const body = (await response.json()) as { message?: string; error?: string };
+      message = body.error ? `${body.message || "Error"}: ${body.error}` : body.message || message;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, message);
+  }
+  return (await response.json()) as T;
+}
+
+export async function fetchSettings(): Promise<AppSettings> {
+  const res = await fetch(`${API_BASE}/api/settings`);
+  return parseResponse<AppSettings>(res);
+}
+
+export async function updateSettings(settings: AppSettings): Promise<AppSettings> {
+  const res = await fetch(`${API_BASE}/api/settings`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(settings)
+  });
+  return parseResponse<AppSettings>(res);
+}
+
+export async function createJob(input: {
+  video: File;
+  title: string;
+  description: string;
+  contentType: ContentType;
+  voiceGender: JobVoiceGender;
+  tone: string;
+  ctaText?: string;
+  referenceLink?: string;
+}): Promise<{ jobId: string; status: string }> {
+  const form = new FormData();
+  form.append("video", input.video);
+  form.append("title", input.title);
+  form.append("description", input.description);
+  form.append("contentType", input.contentType);
+  form.append("voiceGender", input.voiceGender);
+  form.append("tone", input.tone);
+  if (input.ctaText?.trim()) {
+    form.append("ctaText", input.ctaText.trim());
+  }
+  if (input.referenceLink?.trim()) {
+    form.append("referenceLink", input.referenceLink.trim());
+  }
+  const res = await fetch(`${API_BASE}/api/jobs`, {
+    method: "POST",
+    body: form
+  });
+  return parseResponse<{ jobId: string; status: string }>(res);
+}
+
+export async function fetchJobs(): Promise<JobRecord[]> {
+  const res = await fetch(`${API_BASE}/api/jobs`);
+  return parseResponse<JobRecord[]>(res);
+}
+
+export async function fetchJobDetail(jobId: string): Promise<JobRecord> {
+  const res = await fetch(`${API_BASE}/api/jobs/${jobId}`);
+  return parseResponse<JobRecord>(res);
+}
+
+export async function updateJob(
+  jobId: string,
+  input: {
+    title: string;
+    description: string;
+    contentType: ContentType;
+    voiceGender: JobVoiceGender;
+    tone: string;
+    ctaText?: string;
+    referenceLink?: string;
+  }
+): Promise<JobRecord> {
+  const res = await fetch(`${API_BASE}/api/jobs/${jobId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+  return parseResponse<JobRecord>(res);
+}
+
+export async function deleteJob(jobId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/jobs/${jobId}`, {
+    method: "DELETE"
+  });
+  await parseResponse<{ ok: boolean }>(res);
+}
+
+export async function retryJob(jobId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/jobs/${jobId}/retry`, {
+    method: "POST"
+  });
+  await parseResponse<{ ok: boolean }>(res);
+}
+
+export async function openJobOutputLocation(jobId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/jobs/${jobId}/open-location`, {
+    method: "POST"
+  });
+  await parseResponse<{ ok: boolean }>(res);
+}
+
+export async function fetchTtsVoices(): Promise<{
+  voices: TtsVoiceOption[];
+  excitedPresets: ExcitedVoicePreset[];
+}> {
+  const res = await fetch(`${API_BASE}/api/tts/voices`);
+  return parseResponse<{
+    voices: TtsVoiceOption[];
+    excitedPresets: ExcitedVoicePreset[];
+  }>(res);
+}
+
+export async function previewTtsVoice(input: {
+  voiceName: string;
+  speechRate: number;
+  text?: string;
+}): Promise<{ voiceName: string; previewPath: string }> {
+  const res = await fetch(`${API_BASE}/api/tts/preview`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+  return parseResponse<{ voiceName: string; previewPath: string }>(res);
+}
