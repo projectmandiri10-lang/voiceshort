@@ -159,6 +159,8 @@ export class JobProcessor implements IJobProcessor {
       ...current,
       updatedAt: nowIso(),
       status: "running",
+      progress: 10,
+      progressLabel: "Mengupload dan menyiapkan video.",
       errorMessage: undefined,
       output: {
         ...current.output,
@@ -169,6 +171,7 @@ export class JobProcessor implements IJobProcessor {
     let uploadedVideo;
     try {
       uploadedVideo = await this.gemini.uploadVideo(job.videoPath, job.videoMimeType);
+      await this.updateProgress(item.jobId, 20, "Video siap dianalisis.");
     } catch (error) {
       await this.failJob(item.jobId, this.toErrorMessage(error));
       return;
@@ -204,6 +207,7 @@ export class JobProcessor implements IJobProcessor {
       let scriptText = "";
       let rawSocialMetadata = { caption: "", hashtags: [] as string[] };
       try {
+        await this.updateProgress(item.jobId, 30, "Menganalisis visual video.");
         const visualBriefPrompt = buildVisualBriefPrompt(promptInput);
         const visualBrief = await this.gemini.generateVisualBrief({
           model: settings.scriptModel,
@@ -211,6 +215,7 @@ export class JobProcessor implements IJobProcessor {
           video: uploadedVideo
         });
 
+        await this.updateProgress(item.jobId, 45, "Membuat script voice over.");
         const scriptPrompt = buildScriptPrompt({
           ...promptInput,
           visualBrief
@@ -220,6 +225,7 @@ export class JobProcessor implements IJobProcessor {
           prompt: scriptPrompt
         });
 
+        await this.updateProgress(item.jobId, 60, "Membuat caption dan metadata.");
         const captionPrompt = buildCaptionPrompt({
           ...promptInput,
           scriptText,
@@ -239,6 +245,7 @@ export class JobProcessor implements IJobProcessor {
           "Visual brief tidak valid, memakai fallback multimodal langsung."
         );
 
+        await this.updateProgress(item.jobId, 40, "Membuat script voice over.");
         const scriptPrompt = buildScriptPrompt(promptInput);
         scriptText = await this.gemini.generateScript({
           model: settings.scriptModel,
@@ -246,6 +253,7 @@ export class JobProcessor implements IJobProcessor {
           video: uploadedVideo
         });
 
+        await this.updateProgress(item.jobId, 60, "Membuat caption dan metadata.");
         const captionPrompt = buildCaptionPrompt({
           ...promptInput,
           scriptText
@@ -263,6 +271,7 @@ export class JobProcessor implements IJobProcessor {
         buildFallbackHashtags(job.contentType)
       );
       await writeFile(captionPath, formatSocialMetadataFile(socialMetadata), "utf8");
+      await this.updateProgress(item.jobId, 70, "Caption selesai. Membuat voice over.");
 
       const voiceProfile = await this.settingsStore.getVoiceForGender(job.voiceGender);
       const audio = await this.gemini.generateSpeech({
@@ -272,6 +281,7 @@ export class JobProcessor implements IJobProcessor {
         speechRate: voiceProfile.speechRate
       });
       await writeWav24kMono(audio.data, audio.mimeType, voicePath, voiceProfile.speechRate);
+      await this.updateProgress(item.jobId, 85, "Voice over selesai. Menggabungkan audio dan video.");
       await combineVideoWithVoiceOver(job.videoPath, voicePath, finalPath, job.videoDurationSec);
       await rm(voiceTempDir, { recursive: true, force: true });
       voiceTempDir = "";
@@ -285,6 +295,8 @@ export class JobProcessor implements IJobProcessor {
         ...current,
         updatedAt: nowIso(),
         status: "success",
+        progress: 100,
+        progressLabel: "Sukses. Voice over dan video final selesai dibuat.",
         errorMessage: undefined,
         output: {
           captionPath: artifactUrls[0],
@@ -312,6 +324,8 @@ export class JobProcessor implements IJobProcessor {
       ...current,
       updatedAt: nowIso(),
       status: "failed",
+      progress: current.progress ?? 0,
+      progressLabel: "Generate voice over gagal.",
       errorMessage: message,
       output: {
         captionPath: undefined,
@@ -321,6 +335,19 @@ export class JobProcessor implements IJobProcessor {
         artifactPaths: [],
         updatedAt: nowIso()
       }
+    }));
+  }
+
+  private async updateProgress(
+    jobId: string,
+    progress: number,
+    progressLabel: string
+  ): Promise<void> {
+    await this.jobsStore.update(jobId, (current) => ({
+      ...current,
+      updatedAt: nowIso(),
+      progress,
+      progressLabel
     }));
   }
 

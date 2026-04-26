@@ -120,6 +120,7 @@ export class JobsStore {
               ...job,
               updatedAt: nowIso(),
               status: "interrupted",
+              progressLabel: "Generate voice over terhenti karena server restart.",
               errorMessage: "Server restart saat job berjalan.",
               output: {
                 ...job.output,

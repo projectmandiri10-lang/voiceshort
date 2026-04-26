@@ -3,7 +3,11 @@ import { createJob } from "../api";
 import { CONTENT_LABEL, GENDER_LABEL, TONE_OPTIONS } from "../job-form-options";
 import { CONTENT_TYPES, type ContentType, type JobVoiceGender } from "../types";
 
-export function GeneratePage() {
+interface GeneratePageProps {
+  onJobCreated?: (jobId: string) => void;
+}
+
+export function GeneratePage({ onJobCreated }: GeneratePageProps) {
   const [video, setVideo] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -53,8 +57,12 @@ export function GeneratePage() {
         ctaText: ctaText.trim(),
         referenceLink: referenceLink.trim()
       });
-      setMessage(`Job ${result.jobId} dibuat dengan status ${result.status}.`);
       resetForm();
+      if (onJobCreated) {
+        onJobCreated(result.jobId);
+      } else {
+        setMessage(`Job ${result.jobId} dibuat dengan status ${result.status}.`);
+      }
     } catch (submitError) {
       setError((submitError as Error).message);
     } finally {

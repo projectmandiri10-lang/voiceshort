@@ -98,6 +98,8 @@ function buildJob(
     videoMimeType: "video/mp4",
     videoDurationSec: 20,
     status: "failed",
+    progress: 100,
+    progressLabel: "Generate voice over gagal.",
     errorMessage: "fetch failed",
     output: {
       captionPath: "/outputs/job-1/caption.txt",

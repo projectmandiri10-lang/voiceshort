@@ -59,6 +59,8 @@ export interface JobRecord {
   videoMimeType: string;
   videoDurationSec: number;
   status: JobStatus;
+  progress: number;
+  progressLabel: string;
   errorMessage?: string;
   output: JobOutput;
 }

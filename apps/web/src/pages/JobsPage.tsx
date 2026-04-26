@@ -36,6 +36,11 @@ const EMPTY_EDIT_FORM: EditFormState = {
 
 const EDITABLE_STATUSES: JobStatus[] = ["queued", "failed", "interrupted"];
 const RETRYABLE_STATUSES: JobStatus[] = ["failed", "interrupted"];
+const PROCESSING_STATUSES: JobStatus[] = ["queued", "running"];
+
+interface JobsPageProps {
+  preferredJobId?: string;
+}
 
 function isJobEditable(status: JobStatus): boolean {
   return EDITABLE_STATUSES.includes(status);
@@ -82,7 +87,43 @@ function getEditAvailabilityNote(status: JobStatus): string | undefined {
   return undefined;
 }
 
-export function JobsPage() {
+function isJobProcessing(status: JobStatus): boolean {
+  return PROCESSING_STATUSES.includes(status);
+}
+
+function getProgressValue(job: JobRecord): number {
+  if (job.status === "success") {
+    return 100;
+  }
+  return Math.max(0, Math.min(100, Math.round(job.progress ?? 0)));
+}
+
+function getProgressText(job: JobRecord): string {
+  if (job.status === "success") {
+    return "Sukses. Voice over dan video final selesai dibuat.";
+  }
+  return job.progressLabel || "Menunggu update progress generate voice over.";
+}
+
+function JobProgress({ job }: { job: JobRecord }) {
+  const progress = getProgressValue(job);
+  return (
+    <div className={`progress-card progress-card-${job.status}`}>
+      <div className="row-head">
+        <strong>Progress Generate Voice Over</strong>
+        <span className="progress-percent">{progress}%</span>
+      </div>
+      <div className="progress-track" aria-label="Progress generate voice over">
+        <div className="progress-fill" style={{ width: `${progress}%` }} />
+      </div>
+      <p className={job.status === "success" ? "ok-text" : "section-note"}>
+        {getProgressText(job)}
+      </p>
+    </div>
+  );
+}
+
+export function JobsPage({ preferredJobId = "" }: JobsPageProps) {
   const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [panelMode, setPanelMode] = useState<PanelMode>("view");
@@ -141,6 +182,9 @@ export function JobsPage() {
   const syncSelectedJob = async (jobId: string) => {
     try {
       const detail = await fetchJobDetail(jobId);
+      if (!detail) {
+        return await loadJobs(jobId);
+      }
       setJobInList(detail);
       setSelectedId(detail.jobId);
       return detail;
@@ -157,8 +201,11 @@ export function JobsPage() {
         if (!mounted) {
           return;
         }
+        const hasPreferred = preferredJobId
+          ? nextJobs.some((job) => job.jobId === preferredJobId)
+          : false;
         setJobs(nextJobs);
-        setSelectedId(nextJobs[0]?.jobId ?? "");
+        setSelectedId(hasPreferred && preferredJobId ? preferredJobId : nextJobs[0]?.jobId ?? "");
       } catch (loadError) {
         if (mounted) {
           setActionError((loadError as Error).message);
@@ -173,7 +220,82 @@ export function JobsPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [preferredJobId]);
+
+  useEffect(() => {
+    if (!preferredJobId) {
+      return;
+    }
+    let cancelled = false;
+    const focusPreferredJob = async () => {
+      try {
+        const detail = await fetchJobDetail(preferredJobId);
+        if (cancelled) {
+          return;
+        }
+        if (!detail) {
+          return;
+        }
+        setJobInList(detail);
+        setSelectedId(detail.jobId);
+        setPanelMode("view");
+      } catch (focusError) {
+        if (!cancelled) {
+          setActionError((focusError as Error).message);
+        }
+      }
+    };
+    void focusPreferredJob();
+    return () => {
+      cancelled = true;
+    };
+  }, [preferredJobId]);
+
+  useEffect(() => {
+    if (!selected || !isJobProcessing(selected.status)) {
+      return;
+    }
+
+    let cancelled = false;
+    const pollSelectedJob = async () => {
+      try {
+        const detail = await fetchJobDetail(selected.jobId);
+        if (cancelled) {
+          return;
+        }
+        if (!detail) {
+          return;
+        }
+        setJobInList(detail);
+        setSelectedId(detail.jobId);
+
+        if (panelMode === "edit" && !isJobEditable(detail.status)) {
+          setPanelMode("view");
+          setActionError("Job ini sudah tidak bisa diedit karena statusnya berubah.");
+        }
+        if (detail.status === "success") {
+          setActionMessage("Generate voice over sukses. Video final siap digunakan.");
+        }
+        if (detail.status === "failed") {
+          setActionError(detail.errorMessage || "Generate voice over gagal.");
+        }
+      } catch {
+        if (!cancelled) {
+          await loadJobs(selected.jobId).catch(() => undefined);
+        }
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void pollSelectedJob();
+    }, 2000);
+    void pollSelectedJob();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [selected?.jobId, selected?.status, panelMode]);
 
   useEffect(() => {
     if (!selected) {
@@ -198,6 +320,9 @@ export function JobsPage() {
     setPanelMode("view");
     try {
       const detail = await fetchJobDetail(jobId);
+      if (!detail) {
+        return;
+      }
       setJobInList(detail);
     } catch {
       // keep list state if detail fetch fails
@@ -419,6 +544,8 @@ export function JobsPage() {
                 </div>
               </div>
 
+              <JobProgress job={selected} />
+
               {hasPreviousAttemptContext ? (
                 <div className="notice-box notice-box-warning">
                   <strong>Percobaan terakhir</strong>
@@ -573,6 +700,8 @@ export function JobsPage() {
                   <strong className="break-anywhere">#{selected.jobId}</strong>
                 </div>
               </div>
+
+              <JobProgress job={selected} />
 
               {hasPreviousAttemptContext ? (
                 <div className="notice-box notice-box-warning">

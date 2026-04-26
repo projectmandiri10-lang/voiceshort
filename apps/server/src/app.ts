@@ -63,6 +63,32 @@ function createEmptyOutput(): JobOutput {
   };
 }
 
+function getDefaultProgress(job: Pick<JobRecord, "status">): number {
+  if (job.status === "success") {
+    return 100;
+  }
+  if (job.status === "running") {
+    return 10;
+  }
+  return 0;
+}
+
+function getDefaultProgressLabel(job: Pick<JobRecord, "status">): string {
+  if (job.status === "success") {
+    return "Sukses. Voice over dan video final selesai dibuat.";
+  }
+  if (job.status === "running") {
+    return "Generate voice over sedang diproses.";
+  }
+  if (job.status === "failed") {
+    return "Generate voice over gagal.";
+  }
+  if (job.status === "interrupted") {
+    return "Generate voice over terhenti karena server restart.";
+  }
+  return "Menunggu antrean generate voice over.";
+}
+
 function normalizeJobOutputForApi(output: JobOutput): JobOutput {
   return {
     ...output,
@@ -73,6 +99,8 @@ function normalizeJobOutputForApi(output: JobOutput): JobOutput {
 function normalizeJobForApi(job: JobRecord): JobRecord {
   return {
     ...job,
+    progress: job.progress ?? getDefaultProgress(job),
+    progressLabel: job.progressLabel ?? getDefaultProgressLabel(job),
     output: normalizeJobOutputForApi(job.output)
   };
 }
@@ -369,6 +397,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       ...current,
       updatedAt: nowIso(),
       status: "queued",
+      progress: 0,
+      progressLabel: "Menunggu antrean generate voice over.",
       errorMessage: undefined,
       output: createEmptyOutput()
     }));
@@ -480,6 +510,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         videoMimeType,
         videoDurationSec: durationSec,
         status: "queued",
+        progress: 0,
+        progressLabel: "Menunggu antrean generate voice over.",
         output: createEmptyOutput()
       };
       await options.jobsStore.create(job);

@@ -62,6 +62,8 @@ function buildJobRecord(
     videoMimeType: "video/mp4",
     videoDurationSec: 20,
     status: "failed",
+    progress: 100,
+    progressLabel: "Generate voice over gagal.",
     errorMessage: "gagal",
     output: {
       captionPath: "/outputs/job-1/caption.txt",

@@ -248,6 +248,76 @@ button:hover {
   background: #fff7f7;
 }
 
+.progress-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+  background: #f8fbff;
+}
+
+.progress-card p {
+  margin: 0;
+}
+
+.progress-percent {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.progress-track {
+  height: 12px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e8edf7;
+  border: 1px solid var(--line);
+}
+
+.progress-fill {
+  height: 100%;
+  min-width: 4px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary), #18a999);
+  transition: width 350ms ease;
+}
+
+.progress-card-queued .progress-fill,
+.progress-card-running .progress-fill {
+  background-image:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.35) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.35) 50%, rgba(255, 255, 255, 0.35) 75%, transparent 75%, transparent),
+    linear-gradient(90deg, var(--primary), #18a999);
+  background-size: 28px 28px, 100% 100%;
+  animation: progress-stripes 1s linear infinite;
+}
+
+.progress-card-success {
+  border-color: #9bd9ad;
+  background: #f3fff7;
+}
+
+.progress-card-failed,
+.progress-card-interrupted {
+  border-color: #f1bbbb;
+  background: #fff7f7;
+}
+
+.progress-card-failed .progress-fill,
+.progress-card-interrupted .progress-fill {
+  background: var(--danger);
+}
+
+@keyframes progress-stripes {
+  from {
+    background-position: 0 0, 0 0;
+  }
+
+  to {
+    background-position: 28px 0, 0 0;
+  }
+}
+
 .section-divider {
   margin-top: 16px;
   padding-top: 16px;

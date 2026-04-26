@@ -71,6 +71,8 @@ function buildJob(jobId: string): JobRecord {
     videoMimeType: "video/mp4",
     videoDurationSec: 18,
     status: "queued",
+    progress: 0,
+    progressLabel: "Menunggu antrean generate voice over.",
     output: {
       artifactPaths: [],
       updatedAt: new Date().toISOString()
