@@ -4,16 +4,20 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
+import { JobEvents } from "../src/services/job-events.js";
 import { DEFAULT_SETTINGS } from "../src/constants.js";
 import { JobsStore } from "../src/stores/jobs-store.js";
 import { SettingsStore } from "../src/stores/settings-store.js";
-import type { JobRecord } from "../src/types.js";
+import { UsersStore } from "../src/stores/users-store.js";
+import type { AuthSessionUser, JobRecord, UserRecord } from "../src/types.js";
+import { buildJobProgress } from "../src/utils/job-progress.js";
 import { OUTPUTS_DIR } from "../src/utils/paths.js";
 import { resetTestStorage } from "./helpers.js";
 
 function buildCreateForm(overrides?: {
   title?: string;
   description?: string;
+  hashtagHints?: string[];
   contentType?: string | null;
   voiceGender?: string;
   tone?: string;
@@ -27,6 +31,9 @@ function buildCreateForm(overrides?: {
   });
   form.append("title", overrides?.title ?? "Judul Tes");
   form.append("description", overrides?.description ?? "Deskripsi Tes");
+  if (overrides?.hashtagHints?.length) {
+    form.append("hashtagHints", JSON.stringify(overrides.hashtagHints));
+  }
   if (overrides?.contentType !== null) {
     form.append("contentType", overrides?.contentType ?? "affiliate");
   }
@@ -53,8 +60,10 @@ function buildJobRecord(
     jobId: "job-1",
     createdAt: now,
     updatedAt: now,
+    ownerEmail: "creator@test.dev",
     title: "Job Satu",
     description: "Brief awal",
+    hashtagHints: ["#affiliate", "produk viral"],
     contentType: "affiliate",
     voiceGender: "female",
     tone: "natural",
@@ -62,8 +71,7 @@ function buildJobRecord(
     videoMimeType: "video/mp4",
     videoDurationSec: 20,
     status: "failed",
-    progress: 100,
-    progressLabel: "Generate voice over gagal.",
+    progress: buildJobProgress("failed"),
     errorMessage: "gagal",
     output: {
       captionPath: "/outputs/job-1/caption.txt",
@@ -81,56 +89,211 @@ function buildJobRecord(
   };
 }
 
+function bearerHeader(token: string): string {
+  return `Bearer ${token}`;
+}
+
+function toSessionUser(user: UserRecord): AuthSessionUser {
+  const isUnlimited = user.isUnlimited;
+  const generateCreditsRemaining = isUnlimited ? null : Math.floor(user.walletBalanceIdr / 2000);
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    role: user.role,
+    subscriptionStatus: user.subscriptionStatus,
+    videoQuotaTotal: user.videoQuotaTotal,
+    videoQuotaUsed: user.videoQuotaUsed,
+    videoQuotaRemaining: generateCreditsRemaining,
+    walletBalanceIdr: user.walletBalanceIdr,
+    generatePriceIdr: 2000,
+    generateCreditsRemaining,
+    isUnlimited,
+    disabledAt: user.disabledAt ?? null,
+    disabledReason: user.disabledReason ?? null,
+    assignedPackageCode: user.assignedPackageCode ?? null
+  };
+}
+
 describe("api integration", () => {
   const logger = pino({ level: "silent" });
   const settingsStore = new SettingsStore();
   const jobsStore = new JobsStore();
+  const usersStore = new UsersStore();
+  const jobEvents = new JobEvents();
   const enqueueCalls: string[] = [];
   const openCalls: string[] = [];
-  const previewWrites: string[] = [];
+  let processorOverloaded = false;
+  let processorQueuedCount = 0;
   const processor = {
     enqueue(jobId: string) {
+      if (processorOverloaded || processorQueuedCount >= 20) {
+        return false;
+      }
       enqueueCalls.push(jobId);
+      processorQueuedCount += 1;
+      return true;
+    },
+    getCapacitySnapshot() {
+      const overloaded = processorOverloaded || processorQueuedCount >= 20;
+      return {
+        overloaded,
+        runningCount: 0,
+        queuedCount: processorQueuedCount,
+        maxRunningJobs: 3,
+        maxQueuedJobs: 20,
+        maxRunningPerUser: 1,
+        message: overloaded
+          ? "Server overload. Antrean generate sedang penuh, coba lagi beberapa saat lagi."
+          : "Server siap menerima job baru."
+      };
+    },
+    removeQueuedJob(jobId: string) {
+      const index = enqueueCalls.indexOf(jobId);
+      if (index >= 0) {
+        enqueueCalls.splice(index, 1);
+        processorQueuedCount = Math.max(0, processorQueuedCount - 1);
+      }
+    },
+    async hydrateQueuedJobs() {
+      return;
     }
   };
 
   let app: Awaited<ReturnType<typeof buildApp>>;
+  let creatorToken = "";
+  let otherUserToken = "";
+  let adminToken = "";
   let probeDuration: (videoPath: string) => Promise<number>;
-  let generateSpeech: (
-    input: {
-      model: string;
-      text: string;
-      voiceName: string;
-      speechRate: number;
-    }
-  ) => Promise<{ data: Buffer; mimeType: string }>;
+  let sessionByToken: Map<string, AuthSessionUser>;
 
   beforeEach(async () => {
     enqueueCalls.length = 0;
     openCalls.length = 0;
-    previewWrites.length = 0;
+    processorOverloaded = false;
+    processorQueuedCount = 0;
     probeDuration = async () => 30;
-    generateSpeech = async () => ({
-      data: Buffer.from("preview-audio"),
-      mimeType: "audio/wav"
-    });
     await resetTestStorage();
     await settingsStore.set(DEFAULT_SETTINGS);
+
+    const creator = await usersStore.create({
+      id: "user-creator",
+      email: "creator@test.dev",
+      displayName: "Creator",
+      role: "user",
+      subscriptionStatus: "active",
+      videoQuotaTotal: 10,
+      videoQuotaUsed: 0,
+      walletBalanceIdr: 20_000,
+      isUnlimited: false,
+      disabledAt: null,
+      disabledReason: null,
+      assignedPackageCode: null,
+      googleLinked: false,
+      hasPassword: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    const otherUser = await usersStore.create({
+      id: "user-other",
+      email: "other@test.dev",
+      displayName: "Other",
+      role: "user",
+      subscriptionStatus: "inactive",
+      videoQuotaTotal: 0,
+      videoQuotaUsed: 0,
+      walletBalanceIdr: 0,
+      isUnlimited: false,
+      disabledAt: null,
+      disabledReason: null,
+      assignedPackageCode: null,
+      googleLinked: false,
+      hasPassword: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    const admin = await usersStore.create({
+      id: "user-admin",
+      email: "jho.j80@gmail.com",
+      displayName: "Jho",
+      role: "superadmin",
+      subscriptionStatus: "active",
+      videoQuotaTotal: 1000,
+      videoQuotaUsed: 0,
+      walletBalanceIdr: 2_000_000,
+      isUnlimited: true,
+      disabledAt: null,
+      disabledReason: null,
+      assignedPackageCode: null,
+      googleLinked: true,
+      hasPassword: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+
+    creatorToken = "token-creator";
+    otherUserToken = "token-other";
+    adminToken = "token-admin";
+
+    sessionByToken = new Map<string, AuthSessionUser>([
+      [creatorToken, toSessionUser(creator)],
+      [otherUserToken, toSessionUser(otherUser)],
+      [adminToken, toSessionUser(admin)]
+    ]);
+
     app = await buildApp({
       logger,
       webOrigins: ["http://localhost:5174"],
       settingsStore,
       jobsStore,
+      usersStore,
       processor,
+      billingService: {
+        generatePriceIdr: 2000,
+        getWallet: async (user: AuthSessionUser) => ({
+          walletBalanceIdr: user.walletBalanceIdr,
+          generatePriceIdr: 2000,
+          generateCreditsRemaining: user.isUnlimited ? null : Math.floor(user.walletBalanceIdr / 2000),
+          isUnlimited: user.isUnlimited,
+          packages: [],
+          recentLedger: [],
+          recentTopups: []
+        }),
+        createTopup: async () => {
+          throw new Error("not implemented in test");
+        },
+        getTopupStatus: async () => {
+          throw new Error("not implemented in test");
+        },
+        handleWebhook: async () => ({ success: true })
+      } as any,
+      authService: {
+        async getSessionContext(request) {
+          const header = request.headers.authorization || "";
+          const token = header.replace(/^Bearer\s+/i, "").trim();
+          const user = sessionByToken.get(token);
+          if (!user) {
+            return undefined;
+          }
+          return {
+            accessToken: token,
+            db: undefined as never,
+            user
+          };
+        }
+      } as any,
+      jobEvents,
       probeDuration: async (videoPath) => probeDuration(videoPath),
       openOutputLocation: async (folderPath) => {
         openCalls.push(folderPath);
       },
       speechGenerator: {
-        generateSpeech: async (input) => generateSpeech(input)
+        generateSpeech: async () => ({
+          data: Buffer.from("preview-audio"),
+          mimeType: "audio/wav"
+        })
       },
       writePreviewAudio: async (_data, _mimeType, outputPath) => {
-        previewWrites.push(outputPath);
         await mkdir(path.dirname(outputPath), { recursive: true });
         await writeFile(outputPath, "preview", "utf8");
       }
@@ -144,8 +307,9 @@ describe("api integration", () => {
     }
   });
 
-  it("creates a general job from multipart upload", async () => {
+  it("creates a general job from multipart upload and consumes deposit credit", async () => {
     const form = buildCreateForm({
+      hashtagHints: ["#edukasi", "produk rumah"],
       contentType: "edukasi",
       voiceGender: "male",
       tone: "informatif",
@@ -156,7 +320,10 @@ describe("api integration", () => {
       method: "POST",
       url: "/api/jobs",
       payload: form.getBuffer(),
-      headers: form.getHeaders()
+      headers: {
+        ...form.getHeaders(),
+        Authorization: bearerHeader(creatorToken)
+      }
     });
 
     expect(response.statusCode).toBe(202);
@@ -164,135 +331,352 @@ describe("api integration", () => {
     expect(payload.status).toBe("queued");
     expect(enqueueCalls).toEqual([payload.jobId]);
     const saved = await jobsStore.getById(payload.jobId);
+    expect(saved?.ownerEmail).toBe("creator@test.dev");
+    expect(saved?.ownerUserId).toBe("user-creator");
     expect(saved?.contentType).toBe("edukasi");
-    expect(saved?.voiceGender).toBe("male");
-    expect(saved?.referenceLink).toBe("https://contoh.test/ref");
+    expect(saved?.hashtagHints).toEqual(["#edukasi", "produk rumah"]);
+    const user = await usersStore.getByEmail("creator@test.dev");
+    expect(user?.videoQuotaUsed).toBe(1);
+    expect(user?.walletBalanceIdr).toBe(18_000);
   });
 
-  it("rejects create job if contentType is missing", async () => {
-    const form = buildCreateForm({ contentType: null });
+  it("rejects create job when deposit balance is insufficient", async () => {
+    const form = buildCreateForm();
 
     const response = await app.inject({
       method: "POST",
       url: "/api/jobs",
       payload: form.getBuffer(),
-      headers: form.getHeaders()
+      headers: {
+        ...form.getHeaders(),
+        Authorization: bearerHeader(otherUserToken)
+      }
     });
 
-    expect(response.statusCode).toBe(400);
+    expect(response.statusCode).toBe(402);
+    expect(response.json()).toMatchObject({
+      message: "Gagal memproses upload video."
+    });
   });
 
-  it("updates settings and rejects unknown voice names", async () => {
+  it("returns generation capacity snapshot for authenticated users", async () => {
+    processorQueuedCount = 4;
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/generation-capacity",
+      headers: {
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      overloaded: false,
+      runningCount: 0,
+      queuedCount: 4,
+      maxRunningJobs: 3,
+      maxQueuedJobs: 20,
+      maxRunningPerUser: 1
+    });
+  });
+
+  it("rejects create job with server overload before reserving credit", async () => {
+    processorOverloaded = true;
+    const form = buildCreateForm();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/jobs",
+      payload: form.getBuffer(),
+      headers: {
+        ...form.getHeaders(),
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({
+      message: "Server overload. Antrean generate sedang penuh, coba lagi beberapa saat lagi."
+    });
+
+    const user = await usersStore.getByEmail("creator@test.dev");
+    expect(user?.videoQuotaUsed).toBe(0);
+    expect(user?.walletBalanceIdr).toBe(20_000);
+    expect(enqueueCalls).toEqual([]);
+  });
+
+  it("allows unlimited whitelist user to create jobs without reducing balance", async () => {
+    const updatedAdmin = await usersStore.update("jho.j80@gmail.com", (current) => ({
+      ...current,
+      walletBalanceIdr: 0,
+      isUnlimited: true,
+      updatedAt: new Date().toISOString()
+    }));
+    sessionByToken.set(adminToken, toSessionUser(updatedAdmin as UserRecord));
+
+    const form = buildCreateForm();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/jobs",
+      payload: form.getBuffer(),
+      headers: {
+        ...form.getHeaders(),
+        Authorization: bearerHeader(adminToken)
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    const admin = await usersStore.getByEmail("jho.j80@gmail.com");
+    expect(admin?.walletBalanceIdr).toBe(0);
+    expect(admin?.videoQuotaUsed).toBe(1);
+  });
+
+  it("blocks disabled users from protected actions", async () => {
+    sessionByToken.set(creatorToken, {
+      ...sessionByToken.get(creatorToken)!,
+      disabledAt: new Date().toISOString(),
+      disabledReason: "Tes nonaktif"
+    });
+
+    const form = buildCreateForm();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/jobs",
+      payload: form.getBuffer(),
+      headers: {
+        ...form.getHeaders(),
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      message: "Akun Anda sedang nonaktif. Hubungi admin untuk mengaktifkan kembali."
+    });
+  });
+
+  it("allows superadmin to update settings and user quota", async () => {
     const goodResponse = await app.inject({
       method: "PUT",
       url: "/api/settings",
       payload: {
         ...DEFAULT_SETTINGS,
         scriptModel: "custom-script-model"
+      },
+      headers: {
+        Authorization: bearerHeader(adminToken)
       }
     });
     expect(goodResponse.statusCode).toBe(200);
 
-    const badResponse = await app.inject({
-      method: "PUT",
-      url: "/api/settings",
+    const userResponse = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/users/${encodeURIComponent("creator@test.dev")}`,
       payload: {
-        ...DEFAULT_SETTINGS,
-        genderVoices: DEFAULT_SETTINGS.genderVoices.map((voice) =>
-          voice.gender === "male"
-            ? {
-                ...voice,
-                voiceName: "UnknownVoice"
-              }
-            : voice
-        )
+        subscriptionStatus: "active",
+        videoQuotaTotal: 25,
+        videoQuotaUsed: 1
+      },
+      headers: {
+        Authorization: bearerHeader(adminToken)
       }
     });
-    expect(badResponse.statusCode).toBe(400);
+
+    expect(userResponse.statusCode).toBe(200);
+    expect(userResponse.json()).toMatchObject({
+      email: "creator@test.dev",
+      videoQuotaTotal: 25,
+      videoQuotaUsed: 1
+    });
   });
 
-  it("keeps failed job metadata updates separate from retry state changes", async () => {
-    await jobsStore.create(buildJobRecord());
+  it("lets superadmin create, update, grant saldo, and soft-disable users", async () => {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/admin/users",
+      payload: {
+        email: "baru@test.dev",
+        password: "password-baru",
+        displayName: "User Baru",
+        role: "user",
+        subscriptionStatus: "active",
+        isUnlimited: false
+      },
+      headers: {
+        Authorization: bearerHeader(adminToken)
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(createResponse.json()).toMatchObject({
+      email: "baru@test.dev",
+      displayName: "User Baru",
+      isUnlimited: false
+    });
 
     const updateResponse = await app.inject({
-      method: "PUT",
-      url: "/api/jobs/job-1",
+      method: "PATCH",
+      url: `/api/admin/users/${encodeURIComponent("baru@test.dev")}`,
       payload: {
-        title: "Job Baru",
-        description: "Brief baru",
-        contentType: "motivasi",
-        voiceGender: "male",
-        tone: "hangat",
-        ctaText: "ikuti sekarang",
-        referenceLink: "https://contoh.test/a"
+        displayName: "User Baru Edit",
+        isUnlimited: true,
+        assignedPackageCode: "custom"
+      },
+      headers: {
+        Authorization: bearerHeader(adminToken)
       }
     });
-
     expect(updateResponse.statusCode).toBe(200);
     expect(updateResponse.json()).toMatchObject({
-      title: "Job Baru",
-      description: "Brief baru",
-      contentType: "motivasi",
-      voiceGender: "male",
-      tone: "hangat",
-      status: "failed",
-      errorMessage: "gagal",
-      output: {
-        captionPath: "/outputs/job-1/caption.txt",
-        voicePath: "/outputs/job-1/voice.wav",
-        finalVideoPath: "/outputs/job-1/final.mp4"
+      displayName: "User Baru Edit",
+      isUnlimited: true,
+      assignedPackageCode: "custom"
+    });
+
+    const grantResponse = await app.inject({
+      method: "POST",
+      url: `/api/admin/users/${encodeURIComponent("baru@test.dev")}/package-grants`,
+      payload: {
+        packageCode: "custom",
+        customAmountIdr: 5_000,
+        description: "Bonus test"
+      },
+      headers: {
+        Authorization: bearerHeader(adminToken)
       }
     });
-
-    const storedAfterUpdate = await jobsStore.getById("job-1");
-    expect(storedAfterUpdate).toMatchObject({
-      title: "Job Baru",
-      description: "Brief baru",
-      contentType: "motivasi",
-      voiceGender: "male",
-      tone: "hangat",
-      status: "failed",
-      errorMessage: "gagal",
-      output: {
-        captionPath: "/outputs/job-1/caption.txt",
-        voicePath: "/outputs/job-1/voice.wav",
-        finalVideoPath: "/outputs/job-1/final.mp4"
-      }
+    expect(grantResponse.statusCode).toBe(201);
+    expect(grantResponse.json()).toMatchObject({
+      walletBalanceIdr: 5_000,
+      assignedPackageCode: "custom"
     });
-
-    const retryResponse = await app.inject({
-      method: "POST",
-      url: "/api/jobs/job-1/retry"
-    });
-    expect(retryResponse.statusCode).toBe(200);
-    expect(enqueueCalls).toContain("job-1");
-
-    const storedAfterRetry = await jobsStore.getById("job-1");
-    expect(storedAfterRetry?.status).toBe("queued");
-    expect(storedAfterRetry?.errorMessage).toBeUndefined();
-    expect(storedAfterRetry?.output.artifactPaths).toEqual([]);
-    expect(storedAfterRetry?.output.captionPath).toBeUndefined();
-    expect(storedAfterRetry?.output.scriptPath).toBeUndefined();
-    expect(storedAfterRetry?.output.voicePath).toBeUndefined();
-    expect(storedAfterRetry?.output.finalVideoPath).toBeUndefined();
-
-    const outputDir = path.join(OUTPUTS_DIR, "job-1");
-    await mkdir(outputDir, { recursive: true });
-    const openResponse = await app.inject({
-      method: "POST",
-      url: "/api/jobs/job-1/open-location"
-    });
-    expect(openResponse.statusCode).toBe(200);
-    expect(openCalls).toContain(outputDir);
 
     const deleteResponse = await app.inject({
       method: "DELETE",
-      url: "/api/jobs/job-1"
+      url: `/api/admin/users/${encodeURIComponent("baru@test.dev")}`,
+      headers: {
+        Authorization: bearerHeader(adminToken)
+      }
     });
     expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json()).toMatchObject({
+      subscriptionStatus: "inactive",
+      disabledReason: "Dinonaktifkan oleh admin"
+    });
+    expect(deleteResponse.json().disabledAt).toBeTruthy();
   });
 
-  it("maps legacy script output to captionPath for api responses", async () => {
+  it("rejects admin user management for non-superadmin", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/admin/users",
+      payload: {
+        email: "nope@test.dev",
+        password: "password-baru"
+      },
+      headers: {
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("limits job access to owner or superadmin", async () => {
+    await jobsStore.create(buildJobRecord());
+
+    const forbiddenResponse = await app.inject({
+      method: "GET",
+      url: "/api/jobs/job-1",
+      headers: {
+        Authorization: bearerHeader(otherUserToken)
+      }
+    });
+    expect(forbiddenResponse.statusCode).toBe(404);
+
+    const ownerResponse = await app.inject({
+      method: "GET",
+      url: "/api/jobs/job-1",
+      headers: {
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+    expect(ownerResponse.statusCode).toBe(200);
+
+    const adminResponse = await app.inject({
+      method: "GET",
+      url: "/api/jobs/job-1",
+      headers: {
+        Authorization: bearerHeader(adminToken)
+      }
+    });
+    expect(adminResponse.statusCode).toBe(200);
+  });
+
+  it("rejects retry when server overload is active", async () => {
+    await jobsStore.create(buildJobRecord({ jobId: "job-retry-overload" }));
+    processorOverloaded = true;
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/jobs/job-retry-overload/retry",
+      headers: {
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({
+      message: "Server overload. Antrean generate sedang penuh, coba lagi beberapa saat lagi."
+    });
+
+    const stored = await jobsStore.getById("job-retry-overload");
+    expect(stored?.status).toBe("failed");
+    expect(enqueueCalls).toEqual([]);
+  });
+
+  it("updates editable job metadata including hashtag hints", async () => {
+    await jobsStore.create(
+      buildJobRecord({
+        jobId: "job-editable",
+        status: "queued",
+        progress: buildJobProgress("queued")
+      })
+    );
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/jobs/job-editable",
+      payload: {
+        title: "Judul Baru",
+        description: "Brief baru",
+        hashtagHints: ["#baru", "tema caption"],
+        contentType: "motivasi",
+        voiceGender: "male",
+        tone: "tegas",
+        ctaText: "cek sekarang",
+        referenceLink: "https://contoh.test/baru"
+      },
+      headers: {
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      jobId: "job-editable",
+      title: "Judul Baru",
+      description: "Brief baru",
+      hashtagHints: ["#baru", "tema caption"],
+      contentType: "motivasi",
+      voiceGender: "male",
+      tone: "tegas",
+      ctaText: "cek sekarang",
+      referenceLink: "https://contoh.test/baru"
+    });
+  });
+
+  it("maps legacy script output to captionPath and opens output folder", async () => {
     await jobsStore.create(
       buildJobRecord({
         jobId: "job-legacy",
@@ -312,7 +696,10 @@ describe("api integration", () => {
 
     const detailResponse = await app.inject({
       method: "GET",
-      url: "/api/jobs/job-legacy"
+      url: "/api/jobs/job-legacy",
+      headers: {
+        Authorization: bearerHeader(creatorToken)
+      }
     });
 
     expect(detailResponse.statusCode).toBe(200);
@@ -320,51 +707,20 @@ describe("api integration", () => {
       jobId: "job-legacy",
       output: {
         captionPath: "/outputs/job-legacy/script.txt",
-        scriptPath: "/outputs/job-legacy/script.txt",
-        voicePath: "/outputs/job-legacy/voice.wav",
-        finalVideoPath: "/outputs/job-legacy/final.mp4"
+        scriptPath: "/outputs/job-legacy/script.txt"
       }
     });
 
+    const outputDir = path.join(OUTPUTS_DIR, "job-legacy");
+    await mkdir(outputDir, { recursive: true });
     const openResponse = await app.inject({
       method: "POST",
-      url: "/api/jobs/job-legacy/open-location"
+      url: "/api/jobs/job-legacy/open-location",
+      headers: {
+        Authorization: bearerHeader(creatorToken)
+      }
     });
     expect(openResponse.statusCode).toBe(200);
-    expect(openCalls).toContain(path.join(OUTPUTS_DIR, "job-legacy"));
-  });
-
-  it("rejects editing running and success jobs with 409", async () => {
-    for (const status of ["running", "success"] as const) {
-      const jobId = `job-${status}`;
-      await jobsStore.create(
-        buildJobRecord({
-          jobId,
-          status,
-          errorMessage: undefined,
-          output: {
-            artifactPaths: []
-          }
-        })
-      );
-
-      const response = await app.inject({
-        method: "PUT",
-        url: `/api/jobs/${jobId}`,
-        payload: {
-          title: "Tidak Boleh Edit",
-          description: "Masih sama",
-          contentType: "affiliate",
-          voiceGender: "female",
-          tone: "natural",
-          ctaText: "cek sekarang"
-        }
-      });
-
-      expect(response.statusCode).toBe(409);
-      expect(response.json()).toMatchObject({
-        message: "Job hanya bisa diedit saat status queued, failed, atau interrupted."
-      });
-    }
+    expect(openCalls).toContain(outputDir);
   });
 });

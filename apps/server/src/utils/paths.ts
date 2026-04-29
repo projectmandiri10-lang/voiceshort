@@ -15,6 +15,7 @@ export const UPLOADS_DIR = path.join(STORAGE_ROOT_DIR, "uploads");
 export const LOGS_DIR = path.join(STORAGE_ROOT_DIR, "logs");
 export const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 export const JOBS_FILE = path.join(DATA_DIR, "jobs.json");
+export const USERS_FILE = path.join(DATA_DIR, "users.json");
 export const WEB_DIST_DIR = path.join(ROOT_DIR, "apps", "web", "dist");
 
 export function outputUrlToAbsolutePath(outputUrl: string): string | undefined {

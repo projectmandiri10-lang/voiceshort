@@ -4,10 +4,12 @@ import pino from "pino";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../src/constants.js";
 import { InvalidGeminiStructuredOutputError } from "../src/services/gemini-service.js";
+import { JobEvents } from "../src/services/job-events.js";
 import { JobProcessor } from "../src/services/job-processor.js";
 import { JobsStore } from "../src/stores/jobs-store.js";
 import { SettingsStore } from "../src/stores/settings-store.js";
 import type { JobRecord, VisualBrief } from "../src/types.js";
+import { buildJobProgress } from "../src/utils/job-progress.js";
 import { OUTPUTS_DIR, UPLOADS_DIR, outputUrlToAbsolutePath } from "../src/utils/paths.js";
 import { resetTestStorage } from "./helpers.js";
 
@@ -57,11 +59,27 @@ const visualBrief: VisualBrief = {
   uncertainties: ["bahan organizer tidak terlihat jelas"]
 };
 
-function buildJob(jobId: string): JobRecord {
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return {
+    promise,
+    resolve,
+    reject
+  };
+}
+
+function buildJob(jobId: string, overrides: Partial<JobRecord> = {}): JobRecord {
   return {
     jobId,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    ownerUserId: "user-creator",
+    ownerEmail: "creator@test.dev",
     title: "Tips Produktif",
     description: "Konten motivasi singkat untuk kerja fokus.",
     contentType: "motivasi",
@@ -71,13 +89,18 @@ function buildJob(jobId: string): JobRecord {
     videoMimeType: "video/mp4",
     videoDurationSec: 18,
     status: "queued",
-    progress: 0,
-    progressLabel: "Menunggu antrean generate voice over.",
+    progress: buildJobProgress("queued"),
     output: {
       artifactPaths: [],
       updatedAt: new Date().toISOString()
-    }
+    },
+    ...overrides
   };
+}
+
+async function writeJobVideo(job: JobRecord): Promise<void> {
+  await mkdir(path.dirname(job.videoPath), { recursive: true });
+  await writeFile(job.videoPath, "fake-video", "utf8");
 }
 
 describe("job processor", () => {
@@ -93,8 +116,7 @@ describe("job processor", () => {
   it("uses visual brief first, then generates script and caption from text only", async () => {
     const jobId = "job-processor-1";
     const job = buildJob(jobId);
-    await mkdir(path.dirname(job.videoPath), { recursive: true });
-    await writeFile(job.videoPath, "fake-video", "utf8");
+    await writeJobVideo(job);
     await jobsStore.create(job);
 
     const gemini = {
@@ -114,7 +136,7 @@ describe("job processor", () => {
       }))
     };
 
-    const processor = new JobProcessor(jobsStore, settingsStore, gemini as never, logger);
+    const processor = new JobProcessor(jobsStore, settingsStore, gemini as never, logger, new JobEvents());
 
     processor.enqueue(jobId);
     await processor.whenIdle();
@@ -153,8 +175,7 @@ describe("job processor", () => {
   it("falls back to legacy multimodal flow when visual brief output is invalid", async () => {
     const jobId = "job-processor-fallback";
     const job = buildJob(jobId);
-    await mkdir(path.dirname(job.videoPath), { recursive: true });
-    await writeFile(job.videoPath, "fake-video", "utf8");
+    await writeJobVideo(job);
     await jobsStore.create(job);
 
     const gemini = {
@@ -179,7 +200,7 @@ describe("job processor", () => {
       }))
     };
 
-    const processor = new JobProcessor(jobsStore, settingsStore, gemini as never, logger);
+    const processor = new JobProcessor(jobsStore, settingsStore, gemini as never, logger, new JobEvents());
 
     processor.enqueue(jobId);
     await processor.whenIdle();
@@ -208,5 +229,185 @@ describe("job processor", () => {
       "caption.txt",
       "final.mp4"
     ]);
+  });
+
+  it("runs up to three jobs in parallel for different users", async () => {
+    const jobs = [
+      buildJob("parallel-a", { ownerUserId: "user-a", ownerEmail: "a@test.dev" }),
+      buildJob("parallel-b", { ownerUserId: "user-b", ownerEmail: "b@test.dev" }),
+      buildJob("parallel-c", { ownerUserId: "user-c", ownerEmail: "c@test.dev" }),
+      buildJob("parallel-d", { ownerUserId: "user-d", ownerEmail: "d@test.dev" })
+    ];
+
+    for (const job of jobs) {
+      await writeJobVideo(job);
+      await jobsStore.create(job);
+    }
+
+    const uploadDefers = new Map(
+      jobs.map((job) => [
+        job.jobId,
+        createDeferred<{
+          fileUri: string;
+          mimeType: string;
+        }>()
+      ])
+    );
+    const uploadStarted: string[] = [];
+
+    const gemini = {
+      uploadVideo: vi.fn((filePath: string) => {
+        const jobId = path.basename(path.dirname(filePath));
+        uploadStarted.push(jobId);
+        return uploadDefers.get(jobId)!.promise;
+      }),
+      generateVisualBrief: vi.fn(async () => visualBrief),
+      generateScript: vi.fn(async () => "Script paralel."),
+      generateCaptionMetadata: vi.fn(async () => ({
+        caption: "Caption paralel.",
+        hashtags: []
+      })),
+      generateSpeech: vi.fn(async () => ({
+        data: Buffer.from("audio"),
+        mimeType: "audio/wav"
+      }))
+    };
+
+    const processor = new JobProcessor(jobsStore, settingsStore, gemini as never, logger, new JobEvents());
+    for (const job of jobs) {
+      processor.enqueue(job.jobId);
+    }
+
+    await vi.waitFor(() => {
+      expect(uploadStarted).toHaveLength(3);
+    });
+    expect(uploadStarted).toEqual(["parallel-a", "parallel-b", "parallel-c"]);
+
+    for (const job of jobs) {
+      uploadDefers.get(job.jobId)!.resolve({
+        fileUri: `mock://${job.jobId}`,
+        mimeType: "video/mp4"
+      });
+    }
+
+    await processor.whenIdle();
+
+    await vi.waitFor(() => {
+      expect(uploadStarted).toHaveLength(4);
+    });
+    expect(uploadStarted[3]).toBe("parallel-d");
+    for (const job of jobs) {
+      expect((await jobsStore.getById(job.jobId))?.status).toBe("success");
+    }
+  });
+
+  it("keeps one active job per user and lets other users bypass the queue", async () => {
+    const jobs = [
+      buildJob("user-a-1", { ownerUserId: "user-a", ownerEmail: "a@test.dev" }),
+      buildJob("user-a-2", { ownerUserId: "user-a", ownerEmail: "a@test.dev" }),
+      buildJob("user-a-3", { ownerUserId: "user-a", ownerEmail: "a@test.dev" }),
+      buildJob("user-b-1", { ownerUserId: "user-b", ownerEmail: "b@test.dev" })
+    ];
+
+    for (const job of jobs) {
+      await writeJobVideo(job);
+      await jobsStore.create(job);
+    }
+
+    const uploadDefers = new Map(
+      jobs.map((job) => [
+        job.jobId,
+        createDeferred<{
+          fileUri: string;
+          mimeType: string;
+        }>()
+      ])
+    );
+    const uploadStarted: string[] = [];
+
+    const gemini = {
+      uploadVideo: vi.fn((filePath: string) => {
+        const jobId = path.basename(path.dirname(filePath));
+        uploadStarted.push(jobId);
+        return uploadDefers.get(jobId)!.promise;
+      }),
+      generateVisualBrief: vi.fn(async () => visualBrief),
+      generateScript: vi.fn(async () => "Script fairness."),
+      generateCaptionMetadata: vi.fn(async () => ({
+        caption: "Caption fairness.",
+        hashtags: []
+      })),
+      generateSpeech: vi.fn(async () => ({
+        data: Buffer.from("audio"),
+        mimeType: "audio/wav"
+      }))
+    };
+
+    const processor = new JobProcessor(jobsStore, settingsStore, gemini as never, logger, new JobEvents());
+    for (const job of jobs) {
+      processor.enqueue(job.jobId);
+    }
+
+    await vi.waitFor(() => {
+      expect(uploadStarted).toHaveLength(2);
+    });
+    expect(uploadStarted).toEqual(["user-a-1", "user-b-1"]);
+
+    uploadDefers.get("user-a-1")!.resolve({
+      fileUri: "mock://user-a-1",
+      mimeType: "video/mp4"
+    });
+
+    await vi.waitFor(() => {
+      expect(uploadStarted).toHaveLength(3);
+    });
+    expect(uploadStarted[2]).toBe("user-a-2");
+
+    for (const [jobId, deferred] of uploadDefers) {
+      if (jobId === "user-a-1") {
+        continue;
+      }
+      deferred.resolve({
+        fileUri: `mock://${jobId}`,
+        mimeType: "video/mp4"
+      });
+    }
+
+    await processor.whenIdle();
+
+    await vi.waitFor(() => {
+      expect(uploadStarted).toHaveLength(4);
+    });
+    expect(uploadStarted[3]).toBe("user-a-3");
+  });
+
+  it("rehydrates queued jobs from storage", async () => {
+    const job = buildJob("rehydrate-queued");
+    await writeJobVideo(job);
+    await jobsStore.create(job);
+
+    const gemini = {
+      uploadVideo: vi.fn(async () => ({
+        fileUri: "mock://video",
+        mimeType: "video/mp4"
+      })),
+      generateVisualBrief: vi.fn(async () => visualBrief),
+      generateScript: vi.fn(async () => "Script rehydrate."),
+      generateCaptionMetadata: vi.fn(async () => ({
+        caption: "Caption rehydrate.",
+        hashtags: []
+      })),
+      generateSpeech: vi.fn(async () => ({
+        data: Buffer.from("audio"),
+        mimeType: "audio/wav"
+      }))
+    };
+
+    const processor = new JobProcessor(jobsStore, settingsStore, gemini as never, logger, new JobEvents());
+    await processor.hydrateQueuedJobs();
+    await processor.whenIdle();
+
+    expect(gemini.uploadVideo).toHaveBeenCalledTimes(1);
+    expect((await jobsStore.getById(job.jobId))?.status).toBe("success");
   });
 });

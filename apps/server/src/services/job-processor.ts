@@ -2,9 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
-import type { JobRecord } from "../types.js";
+import type { GenerationCapacity, JobRecord } from "../types.js";
 import { SettingsStore } from "../stores/settings-store.js";
 import { JobsStore } from "../stores/jobs-store.js";
+import { JobEvents } from "./job-events.js";
 import {
   GeminiService,
   InvalidGeminiStructuredOutputError
@@ -16,18 +17,46 @@ import {
 } from "./prompt-builder.js";
 import { OUTPUTS_DIR, outputUrlToAbsolutePath } from "../utils/paths.js";
 import { combineVideoWithVoiceOver, writeWav24kMono } from "../utils/audio.js";
+import { buildJobProgress } from "../utils/job-progress.js";
 import { ensureSocialMetadata, formatSocialMetadataFile } from "../utils/model-output.js";
 
 interface QueueItem {
   jobId: string;
+  ownerKey?: string;
 }
+
+interface EnqueueOptions {
+  ignoreCapacity?: boolean;
+}
+
+export const JOB_PROCESSOR_LIMITS = {
+  maxRunningJobs: 3,
+  maxQueuedJobs: 20,
+  maxRunningPerUser: 1
+} as const;
+
+export const SERVER_OVERLOAD_MESSAGE =
+  "Server overload. Antrean generate sedang penuh, coba lagi beberapa saat lagi.";
 
 function nowIso(): string {
   return new Date().toISOString();
 }
 
+function normalizeOwnerKey(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized || undefined;
+}
+
 function toOutputUrl(jobId: string, filename: string): string {
   return `/outputs/${jobId}/${encodeURIComponent(filename)}`;
+}
+
+function getJobOwnerKey(job: Pick<JobRecord, "jobId" | "ownerUserId" | "ownerEmail">): string {
+  return normalizeOwnerKey(job.ownerUserId) || normalizeOwnerKey(job.ownerEmail) || `job:${job.jobId}`;
+}
+
+function buildCapacityMessage(overloaded: boolean): string {
+  return overloaded ? SERVER_OVERLOAD_MESSAGE : "Server siap menerima job baru.";
 }
 
 function parseGeminiQuotaMessage(message: string): string | undefined {
@@ -54,7 +83,7 @@ function parseGeminiQuotaMessage(message: string): string | undefined {
     }
 
     const retryText = retryDelay ? ` Coba lagi dalam ${retryDelay}.` : "";
-    return `Kuota Gemini habis untuk saat ini.${retryText} Cek billing/quota API key Anda atau tunggu reset kuota.`;
+    return `Kuota layanan pemrosesan habis untuk saat ini.${retryText} Cek konfigurasi server atau tunggu reset kuota.`;
   } catch {
     return undefined;
   }
@@ -88,28 +117,82 @@ function buildFallbackHashtags(contentType: JobRecord["contentType"]): string[] 
 }
 
 export interface IJobProcessor {
-  enqueue(jobId: string): void;
+  enqueue(jobId: string, ownerKey?: string, options?: EnqueueOptions): boolean;
+  getCapacitySnapshot(): GenerationCapacity;
+  removeQueuedJob(jobId: string): void;
 }
 
 export class JobProcessor implements IJobProcessor {
   private readonly queue: QueueItem[] = [];
-  private running = false;
+  private readonly queuedJobIds = new Set<string>();
+  private readonly activeJobIds = new Set<string>();
+  private readonly activeOwnerKeys = new Set<string>();
   private idleResolvers: Array<() => void> = [];
+  private draining = false;
+  private drainRequested = false;
 
   public constructor(
     private readonly jobsStore: JobsStore,
     private readonly settingsStore: SettingsStore,
     private readonly gemini: GeminiService,
-    private readonly logger: FastifyBaseLogger
+    private readonly logger: FastifyBaseLogger,
+    private readonly jobEvents: JobEvents
   ) {}
 
-  public enqueue(jobId: string): void {
-    this.queue.push({ jobId });
+  public enqueue(jobId: string, ownerKey?: string, options: EnqueueOptions = {}): boolean {
+    if (this.queuedJobIds.has(jobId) || this.activeJobIds.has(jobId)) {
+      return true;
+    }
+    if (!options.ignoreCapacity && this.queue.length >= JOB_PROCESSOR_LIMITS.maxQueuedJobs) {
+      return false;
+    }
+
+    this.queue.push({
+      jobId,
+      ownerKey: normalizeOwnerKey(ownerKey)
+    });
+    this.queuedJobIds.add(jobId);
     void this.consume();
+    return true;
+  }
+
+  public getCapacitySnapshot(): GenerationCapacity {
+    const overloaded = this.queue.length >= JOB_PROCESSOR_LIMITS.maxQueuedJobs;
+    return {
+      overloaded,
+      runningCount: this.activeJobIds.size,
+      queuedCount: this.queue.length,
+      maxRunningJobs: JOB_PROCESSOR_LIMITS.maxRunningJobs,
+      maxQueuedJobs: JOB_PROCESSOR_LIMITS.maxQueuedJobs,
+      maxRunningPerUser: JOB_PROCESSOR_LIMITS.maxRunningPerUser,
+      message: buildCapacityMessage(overloaded)
+    };
+  }
+
+  public removeQueuedJob(jobId: string): void {
+    const index = this.queue.findIndex((item) => item.jobId === jobId);
+    if (index < 0) {
+      return;
+    }
+    this.queue.splice(index, 1);
+    this.queuedJobIds.delete(jobId);
+    this.resolveIdle();
+  }
+
+  public async hydrateQueuedJobs(): Promise<void> {
+    const queuedJobs = (await this.jobsStore.list())
+      .filter((job) => job.status === "queued")
+      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+
+    for (const job of queuedJobs) {
+      this.enqueue(job.jobId, getJobOwnerKey(job), {
+        ignoreCapacity: true
+      });
+    }
   }
 
   public async whenIdle(): Promise<void> {
-    if (!this.running && this.queue.length === 0) {
+    if (!this.draining && this.activeJobIds.size === 0 && this.queue.length === 0) {
       return;
     }
     await new Promise<void>((resolve) => {
@@ -118,7 +201,7 @@ export class JobProcessor implements IJobProcessor {
   }
 
   private resolveIdle(): void {
-    if (this.running || this.queue.length > 0) {
+    if (this.draining || this.activeJobIds.size > 0 || this.queue.length > 0) {
       return;
     }
     for (const resolve of this.idleResolvers.splice(0)) {
@@ -126,26 +209,98 @@ export class JobProcessor implements IJobProcessor {
     }
   }
 
+  private async updateJob(jobId: string, updater: (job: JobRecord) => JobRecord): Promise<JobRecord | undefined> {
+    const updated = await this.jobsStore.update(jobId, updater);
+    if (updated) {
+      this.jobEvents.publish(updated);
+    }
+    return updated;
+  }
+
+  private async setJobProgress(
+    jobId: string,
+    phase: "analyzing" | "scripting" | "captioning" | "synthesizing" | "rendering"
+  ): Promise<void> {
+    await this.updateJob(jobId, (current) => ({
+      ...current,
+      updatedAt: nowIso(),
+      status: "running",
+      progress: buildJobProgress(phase),
+      output: {
+        ...current.output,
+        updatedAt: nowIso()
+      }
+    }));
+  }
+
   private async consume(): Promise<void> {
-    if (this.running) {
+    if (this.draining) {
+      this.drainRequested = true;
       return;
     }
 
-    this.running = true;
-    while (this.queue.length > 0) {
-      const item = this.queue.shift();
+    this.draining = true;
+    try {
+      do {
+        this.drainRequested = false;
+        while (this.activeJobIds.size < JOB_PROCESSOR_LIMITS.maxRunningJobs) {
+          const item = await this.takeNextRunnableItem();
+          if (!item) {
+            break;
+          }
+          this.startItem(item);
+        }
+      } while (this.drainRequested);
+    } finally {
+      this.draining = false;
+      this.resolveIdle();
+    }
+  }
+
+  private startItem(item: QueueItem): void {
+    const ownerKey = item.ownerKey || `job:${item.jobId}`;
+    this.activeJobIds.add(item.jobId);
+    this.activeOwnerKeys.add(ownerKey);
+
+    void this.processItem(item)
+      .catch((error) => {
+        this.logger.error({ err: error, jobId: item.jobId }, "Processing job gagal.");
+      })
+      .finally(() => {
+        this.activeJobIds.delete(item.jobId);
+        this.activeOwnerKeys.delete(ownerKey);
+        this.resolveIdle();
+        void this.consume();
+      });
+  }
+
+  private async takeNextRunnableItem(): Promise<QueueItem | undefined> {
+    for (let index = 0; index < this.queue.length; index += 1) {
+      const item = this.queue[index];
       if (!item) {
-        break;
+        continue;
       }
 
-      try {
-        await this.processItem(item);
-      } catch (error) {
-        this.logger.error({ err: error, jobId: item.jobId }, "Processing job gagal.");
+      if (!item.ownerKey) {
+        const job = await this.jobsStore.getById(item.jobId);
+        if (!job || job.status !== "queued") {
+          this.removeQueuedJob(item.jobId);
+          index -= 1;
+          continue;
+        }
+        item.ownerKey = getJobOwnerKey(job);
       }
+
+      if (this.activeOwnerKeys.has(item.ownerKey)) {
+        continue;
+      }
+
+      this.queue.splice(index, 1);
+      this.queuedJobIds.delete(item.jobId);
+      return item;
     }
-    this.running = false;
-    this.resolveIdle();
+
+    return undefined;
   }
 
   private async processItem(item: QueueItem): Promise<void> {
@@ -155,12 +310,14 @@ export class JobProcessor implements IJobProcessor {
     }
 
     const settings = await this.settingsStore.get();
-    await this.jobsStore.update(item.jobId, (current) => ({
+    await this.updateJob(item.jobId, (current) => ({
       ...current,
       updatedAt: nowIso(),
       status: "running",
-      progress: 10,
-      progressLabel: "Mengupload dan menyiapkan video.",
+      progress: buildJobProgress("analyzing", {
+        percent: 15,
+        label: "Memulai proses"
+      }),
       errorMessage: undefined,
       output: {
         ...current.output,
@@ -170,8 +327,8 @@ export class JobProcessor implements IJobProcessor {
 
     let uploadedVideo;
     try {
+      await this.setJobProgress(item.jobId, "analyzing");
       uploadedVideo = await this.gemini.uploadVideo(job.videoPath, job.videoMimeType);
-      await this.updateProgress(item.jobId, 20, "Video siap dianalisis.");
     } catch (error) {
       await this.failJob(item.jobId, this.toErrorMessage(error));
       return;
@@ -207,7 +364,7 @@ export class JobProcessor implements IJobProcessor {
       let scriptText = "";
       let rawSocialMetadata = { caption: "", hashtags: [] as string[] };
       try {
-        await this.updateProgress(item.jobId, 30, "Menganalisis visual video.");
+        await this.setJobProgress(item.jobId, "analyzing");
         const visualBriefPrompt = buildVisualBriefPrompt(promptInput);
         const visualBrief = await this.gemini.generateVisualBrief({
           model: settings.scriptModel,
@@ -215,7 +372,7 @@ export class JobProcessor implements IJobProcessor {
           video: uploadedVideo
         });
 
-        await this.updateProgress(item.jobId, 45, "Membuat script voice over.");
+        await this.setJobProgress(item.jobId, "scripting");
         const scriptPrompt = buildScriptPrompt({
           ...promptInput,
           visualBrief
@@ -225,11 +382,12 @@ export class JobProcessor implements IJobProcessor {
           prompt: scriptPrompt
         });
 
-        await this.updateProgress(item.jobId, 60, "Membuat caption dan metadata.");
+        await this.setJobProgress(item.jobId, "captioning");
         const captionPrompt = buildCaptionPrompt({
           ...promptInput,
           scriptText,
-          visualBrief
+          visualBrief,
+          hashtagHints: job.hashtagHints
         });
         rawSocialMetadata = await this.gemini.generateCaptionMetadata({
           model: settings.scriptModel,
@@ -245,7 +403,7 @@ export class JobProcessor implements IJobProcessor {
           "Visual brief tidak valid, memakai fallback multimodal langsung."
         );
 
-        await this.updateProgress(item.jobId, 40, "Membuat script voice over.");
+        await this.setJobProgress(item.jobId, "scripting");
         const scriptPrompt = buildScriptPrompt(promptInput);
         scriptText = await this.gemini.generateScript({
           model: settings.scriptModel,
@@ -253,10 +411,11 @@ export class JobProcessor implements IJobProcessor {
           video: uploadedVideo
         });
 
-        await this.updateProgress(item.jobId, 60, "Membuat caption dan metadata.");
+        await this.setJobProgress(item.jobId, "captioning");
         const captionPrompt = buildCaptionPrompt({
           ...promptInput,
-          scriptText
+          scriptText,
+          hashtagHints: job.hashtagHints
         });
         rawSocialMetadata = await this.gemini.generateCaptionMetadata({
           model: settings.scriptModel,
@@ -271,8 +430,8 @@ export class JobProcessor implements IJobProcessor {
         buildFallbackHashtags(job.contentType)
       );
       await writeFile(captionPath, formatSocialMetadataFile(socialMetadata), "utf8");
-      await this.updateProgress(item.jobId, 70, "Caption selesai. Membuat voice over.");
 
+      await this.setJobProgress(item.jobId, "synthesizing");
       const voiceProfile = await this.settingsStore.getVoiceForGender(job.voiceGender);
       const audio = await this.gemini.generateSpeech({
         model: settings.ttsModel,
@@ -281,7 +440,8 @@ export class JobProcessor implements IJobProcessor {
         speechRate: voiceProfile.speechRate
       });
       await writeWav24kMono(audio.data, audio.mimeType, voicePath, voiceProfile.speechRate);
-      await this.updateProgress(item.jobId, 85, "Voice over selesai. Menggabungkan audio dan video.");
+
+      await this.setJobProgress(item.jobId, "rendering");
       await combineVideoWithVoiceOver(job.videoPath, voicePath, finalPath, job.videoDurationSec);
       await rm(voiceTempDir, { recursive: true, force: true });
       voiceTempDir = "";
@@ -291,12 +451,11 @@ export class JobProcessor implements IJobProcessor {
         toOutputUrl(job.jobId, finalFilename)
       ];
 
-      await this.jobsStore.update(item.jobId, (current) => ({
+      await this.updateJob(item.jobId, (current) => ({
         ...current,
         updatedAt: nowIso(),
         status: "success",
-        progress: 100,
-        progressLabel: "Sukses. Voice over dan video final selesai dibuat.",
+        progress: buildJobProgress("success"),
         errorMessage: undefined,
         output: {
           captionPath: artifactUrls[0],
@@ -320,12 +479,11 @@ export class JobProcessor implements IJobProcessor {
   }
 
   private async failJob(jobId: string, message: string): Promise<void> {
-    await this.jobsStore.update(jobId, (current) => ({
+    await this.updateJob(jobId, (current) => ({
       ...current,
       updatedAt: nowIso(),
       status: "failed",
-      progress: current.progress ?? 0,
-      progressLabel: "Generate voice over gagal.",
+      progress: buildJobProgress("failed"),
       errorMessage: message,
       output: {
         captionPath: undefined,
@@ -335,19 +493,6 @@ export class JobProcessor implements IJobProcessor {
         artifactPaths: [],
         updatedAt: nowIso()
       }
-    }));
-  }
-
-  private async updateProgress(
-    jobId: string,
-    progress: number,
-    progressLabel: string
-  ): Promise<void> {
-    await this.jobsStore.update(jobId, (current) => ({
-      ...current,
-      updatedAt: nowIso(),
-      progress,
-      progressLabel
     }));
   }
 

@@ -16,6 +16,19 @@ export type JobVoiceGender = "female" | "male";
 export type VoiceGender = JobVoiceGender | "neutral";
 
 export type JobStatus = "queued" | "running" | "success" | "failed" | "interrupted";
+export type JobProgressPhase =
+  | "queued"
+  | "analyzing"
+  | "scripting"
+  | "captioning"
+  | "synthesizing"
+  | "rendering"
+  | "success"
+  | "failed"
+  | "interrupted";
+export type UserRole = "user" | "superadmin";
+export type SubscriptionStatus = "active" | "inactive";
+export type AssignedPackageCode = "10_video" | "50_video" | "100_video" | "custom";
 
 export interface GenderVoiceSettings {
   gender: JobVoiceGender;
@@ -33,6 +46,16 @@ export interface AppSettings {
   genderVoices: GenderVoiceSettings[];
 }
 
+export interface GenerationCapacity {
+  overloaded: boolean;
+  runningCount: number;
+  queuedCount: number;
+  maxRunningJobs: number;
+  maxQueuedJobs: number;
+  maxRunningPerUser: number;
+  message: string;
+}
+
 export interface JobOutput {
   captionPath?: string;
   scriptPath?: string;
@@ -42,12 +65,22 @@ export interface JobOutput {
   updatedAt: string;
 }
 
+export interface JobProgress {
+  phase: JobProgressPhase;
+  percent: number;
+  label: string;
+  updatedAt: string;
+}
+
 export interface JobRecord {
   jobId: string;
   createdAt: string;
   updatedAt: string;
+  ownerUserId?: string;
+  ownerEmail?: string;
   title: string;
   description: string;
+  hashtagHints?: string[];
   contentType: ContentType;
   voiceGender: JobVoiceGender;
   tone: string;
@@ -57,10 +90,53 @@ export interface JobRecord {
   videoMimeType: string;
   videoDurationSec: number;
   status: JobStatus;
-  progress: number;
-  progressLabel: string;
+  progress: JobProgress;
   errorMessage?: string;
   output: JobOutput;
+}
+
+export interface UserRecord {
+  id: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  subscriptionStatus: SubscriptionStatus;
+  videoQuotaTotal: number;
+  videoQuotaUsed: number;
+  walletBalanceIdr: number;
+  isUnlimited: boolean;
+  disabledAt?: string | null;
+  disabledReason?: string | null;
+  assignedPackageCode?: AssignedPackageCode | null;
+  googleLinked: boolean;
+  hasPassword: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuthSessionUser {
+  id: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  subscriptionStatus: SubscriptionStatus;
+  videoQuotaTotal: number;
+  videoQuotaUsed: number;
+  videoQuotaRemaining: number | null;
+  walletBalanceIdr: number;
+  generatePriceIdr: number;
+  generateCreditsRemaining: number | null;
+  isUnlimited: boolean;
+  disabledAt?: string | null;
+  disabledReason?: string | null;
+  assignedPackageCode?: AssignedPackageCode | null;
+}
+
+export interface AdminUserRecord extends AuthSessionUser {
+  createdAt: string;
+  updatedAt: string;
+  googleLinked: boolean;
+  hasPassword: boolean;
 }
 
 export interface UploadedGeminiVideo {

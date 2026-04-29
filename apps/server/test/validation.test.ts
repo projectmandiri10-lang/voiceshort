@@ -26,6 +26,7 @@ describe("validation", () => {
     const parsed = parseJobCreateInput({
       title: "Judul",
       description: "Brief singkat",
+      hashtagHints: JSON.stringify(["#Affiliate", " produk viral ", "#affiliate"]),
       contentType: "edukasi",
       voiceGender: "male",
       tone: "informatif",
@@ -35,6 +36,7 @@ describe("validation", () => {
 
     expect(parsed.contentType).toBe("edukasi");
     expect(parsed.voiceGender).toBe("male");
+    expect(parsed.hashtagHints).toEqual(["#Affiliate", "produk viral"]);
     expect(parsed.ctaText).toBeUndefined();
     expect(parsed.referenceLink).toBe("https://contoh.test/ref");
   });

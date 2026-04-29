@@ -5,7 +5,8 @@ import {
   JOBS_FILE,
   OUTPUTS_DIR,
   SETTINGS_FILE,
-  UPLOADS_DIR
+  UPLOADS_DIR,
+  USERS_FILE
 } from "../src/utils/paths.js";
 import { DEFAULT_SETTINGS } from "../src/constants.js";
 
@@ -19,4 +20,5 @@ export async function resetTestStorage(): Promise<void> {
   await mkdir(OUTPUTS_DIR, { recursive: true });
   await writeFile(SETTINGS_FILE, JSON.stringify(DEFAULT_SETTINGS, null, 2), "utf8");
   await writeFile(JOBS_FILE, JSON.stringify([], null, 2), "utf8");
+  await writeFile(USERS_FILE, JSON.stringify([], null, 2), "utf8");
 }

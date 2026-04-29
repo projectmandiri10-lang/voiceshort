@@ -46,7 +46,7 @@ function buildGeminiRateLimitMessage(error: unknown): string {
   const message = String((error as { message?: string })?.message || "");
   const parsed = parseGeminiApiError(error);
   const retryText = parsed.retryDelay ? ` Coba lagi dalam ${parsed.retryDelay}.` : "";
-  return `Layanan Gemini sedang membatasi permintaan atau kuota habis.${retryText}`.trim();
+  return `Layanan pemrosesan sedang membatasi permintaan atau kuota habis.${retryText}`.trim();
 }
 
 function isRateLimitError(error: unknown): boolean {

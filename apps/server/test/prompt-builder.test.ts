@@ -75,13 +75,15 @@ describe("prompt builder", () => {
     expect(prompt).toContain("\"uncertainties\"");
     expect(prompt).toContain("timeline");
     expect(prompt).toContain("cek detailnya sekarang");
+    expect(prompt).not.toContain("Arahan hashtag user");
   });
 
-  it("builds caption prompt that stays aligned with script and visuals", () => {
+  it("builds caption prompt that stays aligned with script, visuals, and hashtag hints", () => {
     const prompt = buildCaptionPrompt({
       settings: DEFAULT_SETTINGS,
       title: "Fakta Menarik",
       description: "Bahas fakta singkat yang mudah dipahami.",
+      hashtagHints: ["#faktaviral", "pengetahuan singkat"],
       contentType: "informasi",
       voiceGender: "male",
       tone: "informatif",
@@ -94,5 +96,6 @@ describe("prompt builder", () => {
     expect(prompt).toContain("Referensi naskah voice over");
     expect(prompt).toContain("Sumber visual resmi");
     expect(prompt).toContain("Jangan membuat angle caption yang bertentangan");
+    expect(prompt).toContain("Arahan hashtag user: #faktaviral, pengetahuan singkat");
   });
 });

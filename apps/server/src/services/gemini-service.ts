@@ -200,7 +200,7 @@ export class GeminiService {
     );
 
     if (!uploaded.name || !uploaded.uri || !uploaded.mimeType) {
-      throw new Error("Upload video ke Gemini gagal: URI tidak tersedia.");
+      throw new Error("Upload video gagal: URI tidak tersedia.");
     }
 
     await this.waitUntilFileActive(uploaded.name);
@@ -236,7 +236,7 @@ export class GeminiService {
     }
 
     if (!script) {
-      throw new Error("Gemini mengembalikan script kosong.");
+      throw new Error("Layanan pemrosesan mengembalikan naskah kosong.");
     }
     return script;
   }
@@ -253,7 +253,7 @@ export class GeminiService {
       } catch (error) {
         throw new InvalidGeminiStructuredOutputError(
           "visualBrief",
-          (error as { message?: string })?.message || "Visual brief Gemini tidak valid."
+          (error as { message?: string })?.message || "Analisis visual tidak valid."
         );
       }
     };
@@ -352,20 +352,20 @@ export class GeminiService {
       }
 
       if (file.state === "FAILED") {
-        const reason = file.error?.message || "Pemrosesan file gagal di Gemini.";
+        const reason = file.error?.message || "Pemrosesan file gagal.";
         throw new Error(`Upload video gagal diproses: ${reason}`);
       }
 
       this.logger.debug(
         { fileName, attempt, state: file.state },
-        "Menunggu file upload Gemini menjadi ACTIVE."
+        "Menunggu file upload menjadi ACTIVE."
       );
 
       await sleep(FILE_READY_POLL_INTERVAL_MS);
     }
 
     throw new Error(
-      `File Gemini belum ACTIVE setelah ${
+      `File upload belum ACTIVE setelah ${
         FILE_READY_MAX_ATTEMPTS * FILE_READY_POLL_INTERVAL_MS
       } ms (state terakhir: ${lastState}).`
     );

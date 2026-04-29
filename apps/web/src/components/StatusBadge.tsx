@@ -8,6 +8,14 @@ const palette: Record<JobStatus, string> = {
   interrupted: "status status-interrupted"
 };
 
+const label: Record<JobStatus, string> = {
+  queued: "queued",
+  running: "running",
+  success: "success",
+  failed: "failed",
+  interrupted: "interrupted"
+};
+
 export function StatusBadge({ status }: { status: JobStatus }) {
-  return <span className={palette[status] || "status"}>{status}</span>;
+  return <span className={palette[status] || "status"}>{label[status] || status}</span>;
 }

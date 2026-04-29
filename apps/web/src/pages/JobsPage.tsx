@@ -1,211 +1,80 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  ApiError,
   deleteJob,
   fetchJobDetail,
   fetchJobs,
   openJobOutputLocation,
+  resolveOutputUrl,
   retryJob,
-  updateJob
+  subscribeToJobEvents
 } from "../api";
 import { StatusBadge } from "../components/StatusBadge";
-import { CONTENT_LABEL, GENDER_LABEL, TONE_OPTIONS } from "../job-form-options";
-import type { ContentType, JobRecord, JobStatus, JobVoiceGender } from "../types";
-
-type PanelMode = "view" | "edit";
-
-interface EditFormState {
-  title: string;
-  description: string;
-  contentType: ContentType;
-  voiceGender: JobVoiceGender;
-  tone: string;
-  ctaText: string;
-  referenceLink: string;
-}
-
-const EMPTY_EDIT_FORM: EditFormState = {
-  title: "",
-  description: "",
-  contentType: "affiliate",
-  voiceGender: "female",
-  tone: "natural",
-  ctaText: "",
-  referenceLink: ""
-};
-
-const EDITABLE_STATUSES: JobStatus[] = ["queued", "failed", "interrupted"];
-const RETRYABLE_STATUSES: JobStatus[] = ["failed", "interrupted"];
-const PROCESSING_STATUSES: JobStatus[] = ["queued", "running"];
+import { CONTENT_LABEL, GENDER_LABEL } from "../job-form-options";
+import type { JobRecord } from "../types";
 
 interface JobsPageProps {
-  preferredJobId?: string;
-}
-
-function isJobEditable(status: JobStatus): boolean {
-  return EDITABLE_STATUSES.includes(status);
-}
-
-function isJobRetryable(status: JobStatus): boolean {
-  return RETRYABLE_STATUSES.includes(status);
-}
-
-function toAbsoluteOutputUrl(outputPath: string): string {
-  if (typeof window === "undefined") {
-    return outputPath;
-  }
-  return new URL(outputPath, window.location.origin).toString();
+  selectedJobId?: string;
+  onSelectJob: (jobId: string) => void;
 }
 
 function getCaptionOutputPath(job: JobRecord): string | undefined {
   return job.output.captionPath || job.output.scriptPath;
 }
 
-function toEditForm(job: JobRecord): EditFormState {
-  return {
-    title: job.title,
-    description: job.description,
-    contentType: job.contentType,
-    voiceGender: job.voiceGender,
-    tone: job.tone,
-    ctaText: job.ctaText ?? "",
-    referenceLink: job.referenceLink ?? ""
-  };
-}
-
-function getSaveSuccessMessage(status: JobStatus): string {
-  if (status === "queued") {
-    return "Perubahan tersimpan. Perubahan akan dipakai selama job belum mulai diproses.";
+function upsertJob(current: JobRecord[], nextJob: JobRecord): JobRecord[] {
+  const index = current.findIndex((job) => job.jobId === nextJob.jobId);
+  if (index < 0) {
+    return [nextJob, ...current];
   }
-  return "Perubahan tersimpan. Klik Retry Job untuk memproses ulang.";
+  const next = [...current];
+  next[index] = nextJob;
+  return next;
 }
 
-function getEditAvailabilityNote(status: JobStatus): string | undefined {
-  if (status === "running" || status === "success") {
-    return "Metadata job tidak bisa diubah setelah job berjalan atau selesai.";
-  }
-  return undefined;
-}
-
-function isJobProcessing(status: JobStatus): boolean {
-  return PROCESSING_STATUSES.includes(status);
-}
-
-function getProgressValue(job: JobRecord): number {
-  if (job.status === "success") {
-    return 100;
-  }
-  return Math.max(0, Math.min(100, Math.round(job.progress ?? 0)));
-}
-
-function getProgressText(job: JobRecord): string {
-  if (job.status === "success") {
-    return "Sukses. Voice over dan video final selesai dibuat.";
-  }
-  return job.progressLabel || "Menunggu update progress generate voice over.";
-}
-
-function JobProgress({ job }: { job: JobRecord }) {
-  const progress = getProgressValue(job);
-  return (
-    <div className={`progress-card progress-card-${job.status}`}>
-      <div className="row-head">
-        <strong>Progress Generate Voice Over</strong>
-        <span className="progress-percent">{progress}%</span>
-      </div>
-      <div className="progress-track" aria-label="Progress generate voice over">
-        <div className="progress-fill" style={{ width: `${progress}%` }} />
-      </div>
-      <p className={job.status === "success" ? "ok-text" : "section-note"}>
-        {getProgressText(job)}
-      </p>
-    </div>
-  );
-}
-
-export function JobsPage({ preferredJobId = "" }: JobsPageProps) {
+export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
   const [jobs, setJobs] = useState<JobRecord[]>([]);
-  const [selectedId, setSelectedId] = useState("");
-  const [panelMode, setPanelMode] = useState<PanelMode>("view");
-  const [editForm, setEditForm] = useState<EditFormState>(EMPTY_EDIT_FORM);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
+  const [displayPercent, setDisplayPercent] = useState(0);
 
-  const selected = jobs.find((job) => job.jobId === selectedId) ?? jobs[0];
-  const canEditSelected = selected ? isJobEditable(selected.status) : false;
-  const canRetrySelected = selected ? isJobRetryable(selected.status) : false;
-  const editAvailabilityNote = selected ? getEditAvailabilityNote(selected.status) : undefined;
-  const hasPreviousAttemptContext = selected ? isJobRetryable(selected.status) : false;
+  const selected = useMemo(() => {
+    if (!jobs.length) {
+      return undefined;
+    }
+    return jobs.find((job) => job.jobId === selectedJobId) ?? jobs[0];
+  }, [jobs, selectedJobId]);
+
+  const selectedPercent = selected?.progress.percent ?? 0;
+  const isLiveStatus = selected?.status === "queued" || selected?.status === "running";
   const captionOutputPath = selected ? getCaptionOutputPath(selected) : undefined;
 
-  const clearActionFeedback = () => {
-    setActionMessage("");
-    setActionError("");
-  };
-
-  const resetEditForm = (job?: JobRecord) => {
-    setEditForm(job ? toEditForm(job) : EMPTY_EDIT_FORM);
-  };
-
-  const setJobInList = (detail: JobRecord) => {
-    setJobs((current) => {
-      const index = current.findIndex((job) => job.jobId === detail.jobId);
-      if (index < 0) {
-        return [detail, ...current];
-      }
-      const next = [...current];
-      next[index] = detail;
-      return next;
-    });
-  };
-
-  const loadJobs = async (preferredId?: string) => {
+  const loadJobs = async (preferredJobId?: string) => {
     const nextJobs = await fetchJobs();
-    const hasPreferred = preferredId
-      ? nextJobs.some((job) => job.jobId === preferredId)
-      : false;
-    const nextSelectedId = hasPreferred && preferredId ? preferredId : nextJobs[0]?.jobId ?? "";
-    const nextSelected = nextJobs.find((job) => job.jobId === nextSelectedId);
-
     setJobs(nextJobs);
-    setSelectedId(nextSelectedId);
-
-    if (!preferredId || !hasPreferred) {
-      setPanelMode("view");
+    const nextSelected =
+      nextJobs.find((job) => job.jobId === preferredJobId) ?? nextJobs.find((job) => job.jobId === selectedJobId) ?? nextJobs[0];
+    if (nextSelected && nextSelected.jobId !== selectedJobId) {
+      onSelectJob(nextSelected.jobId);
     }
-
     return nextSelected;
-  };
-
-  const syncSelectedJob = async (jobId: string) => {
-    try {
-      const detail = await fetchJobDetail(jobId);
-      if (!detail) {
-        return await loadJobs(jobId);
-      }
-      setJobInList(detail);
-      setSelectedId(detail.jobId);
-      return detail;
-    } catch {
-      return await loadJobs(jobId);
-    }
   };
 
   useEffect(() => {
     let mounted = true;
+
     const load = async () => {
       try {
         const nextJobs = await fetchJobs();
         if (!mounted) {
           return;
         }
-        const hasPreferred = preferredJobId
-          ? nextJobs.some((job) => job.jobId === preferredJobId)
-          : false;
         setJobs(nextJobs);
-        setSelectedId(hasPreferred && preferredJobId ? preferredJobId : nextJobs[0]?.jobId ?? "");
+        const nextSelected =
+          nextJobs.find((job) => job.jobId === selectedJobId) ?? nextJobs[0];
+        if (nextSelected && nextSelected.jobId !== selectedJobId) {
+          onSelectJob(nextSelected.jobId);
+        }
       } catch (loadError) {
         if (mounted) {
           setActionError((loadError as Error).message);
@@ -216,190 +85,75 @@ export function JobsPage({ preferredJobId = "" }: JobsPageProps) {
         }
       }
     };
+
     void load();
     return () => {
       mounted = false;
     };
-  }, [preferredJobId]);
+  }, [onSelectJob, selectedJobId]);
 
   useEffect(() => {
-    if (!preferredJobId) {
-      return;
-    }
-    let cancelled = false;
-    const focusPreferredJob = async () => {
-      try {
-        const detail = await fetchJobDetail(preferredJobId);
-        if (cancelled) {
-          return;
-        }
-        if (!detail) {
-          return;
-        }
-        setJobInList(detail);
-        setSelectedId(detail.jobId);
-        setPanelMode("view");
-      } catch (focusError) {
-        if (!cancelled) {
-          setActionError((focusError as Error).message);
-        }
-      }
-    };
-    void focusPreferredJob();
-    return () => {
-      cancelled = true;
-    };
-  }, [preferredJobId]);
+    setDisplayPercent((current) => (current > selectedPercent ? selectedPercent : current));
+  }, [selected?.jobId, selectedPercent]);
 
   useEffect(() => {
-    if (!selected || !isJobProcessing(selected.status)) {
-      return;
-    }
-
-    let cancelled = false;
-    const pollSelectedJob = async () => {
-      try {
-        const detail = await fetchJobDetail(selected.jobId);
-        if (cancelled) {
-          return;
+    const target = Math.max(0, Math.min(100, selectedPercent));
+    const timer = window.setInterval(() => {
+      setDisplayPercent((current) => {
+        if (Math.abs(target - current) < 1) {
+          return target;
         }
-        if (!detail) {
-          return;
-        }
-        setJobInList(detail);
-        setSelectedId(detail.jobId);
-
-        if (panelMode === "edit" && !isJobEditable(detail.status)) {
-          setPanelMode("view");
-          setActionError("Job ini sudah tidak bisa diedit karena statusnya berubah.");
-        }
-        if (detail.status === "success") {
-          setActionMessage("Generate voice over sukses. Video final siap digunakan.");
-        }
-        if (detail.status === "failed") {
-          setActionError(detail.errorMessage || "Generate voice over gagal.");
-        }
-      } catch {
-        if (!cancelled) {
-          await loadJobs(selected.jobId).catch(() => undefined);
-        }
-      }
-    };
-
-    const intervalId = window.setInterval(() => {
-      void pollSelectedJob();
-    }, 2000);
-    void pollSelectedJob();
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [selected?.jobId, selected?.status, panelMode]);
-
-  useEffect(() => {
-    if (!selected) {
-      setPanelMode("view");
-      resetEditForm();
-      return;
-    }
-
-    if (panelMode === "view") {
-      resetEditForm(selected);
-      return;
-    }
-
-    if (!isJobEditable(selected.status)) {
-      setPanelMode("view");
-      resetEditForm(selected);
-    }
-  }, [selected, panelMode]);
-
-  const onSelectJob = async (jobId: string) => {
-    setSelectedId(jobId);
-    setPanelMode("view");
-    try {
-      const detail = await fetchJobDetail(jobId);
-      if (!detail) {
-        return;
-      }
-      setJobInList(detail);
-    } catch {
-      // keep list state if detail fetch fails
-    }
-  };
-
-  const onOpenEdit = () => {
-    if (!selected || !isJobEditable(selected.status)) {
-      return;
-    }
-    resetEditForm(selected);
-    setPanelMode("edit");
-    clearActionFeedback();
-  };
-
-  const onCancelEdit = () => {
-    resetEditForm(selected);
-    setPanelMode("view");
-  };
-
-  const onResetEdit = () => {
-    resetEditForm(selected);
-  };
-
-  const onSave = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!selected) {
-      return;
-    }
-    if (!editForm.title.trim() || !editForm.description.trim() || !editForm.tone.trim()) {
-      setActionError("Judul, brief/deskripsi, kategori konten, gender suara, dan tone wajib diisi.");
-      return;
-    }
-
-    setSaving(true);
-    clearActionFeedback();
-    try {
-      const updated = await updateJob(selected.jobId, {
-        title: editForm.title.trim(),
-        description: editForm.description.trim(),
-        contentType: editForm.contentType,
-        voiceGender: editForm.voiceGender,
-        tone: editForm.tone.trim(),
-        ctaText: editForm.ctaText.trim(),
-        referenceLink: editForm.referenceLink.trim()
+        return current + Math.max(1, Math.ceil((target - current) / 5));
       });
+    }, 60);
 
-      setJobInList(updated);
-      setSelectedId(updated.jobId);
-      resetEditForm(updated);
-      setPanelMode("view");
-      setActionMessage(getSaveSuccessMessage(updated.status));
-    } catch (saveError) {
-      const normalizedError = saveError as Error;
-      if (
-        (saveError instanceof ApiError && saveError.status === 409) ||
-        normalizedError.message.includes("Job hanya bisa diedit")
-      ) {
-        await syncSelectedJob(selected.jobId);
-        setPanelMode("view");
-        setActionError("Job ini sudah tidak bisa diedit karena statusnya berubah.");
-      } else {
-        setActionError(normalizedError.message);
-      }
-    } finally {
-      setSaving(false);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [selectedPercent]);
+
+  useEffect(() => {
+    if (!selected || !isLiveStatus) {
+      return;
     }
-  };
+
+    let stopPolling: number | undefined;
+    let unsubscribe = subscribeToJobEvents(selected.jobId, {
+      onJob: (nextJob) => {
+        setJobs((current) => upsertJob(current, nextJob));
+      },
+      onError: () => {
+        unsubscribe();
+        if (stopPolling) {
+          return;
+        }
+        stopPolling = window.setInterval(async () => {
+          try {
+            const refreshed = await fetchJobDetail(selected.jobId);
+            setJobs((current) => upsertJob(current, refreshed));
+            if (refreshed.status !== "queued" && refreshed.status !== "running" && stopPolling) {
+              window.clearInterval(stopPolling);
+            }
+          } catch {
+            // keep fallback polling silent
+          }
+        }, 5000);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      if (stopPolling) {
+        window.clearInterval(stopPolling);
+      }
+    };
+  }, [isLiveStatus, selected]);
 
   const onRefresh = async () => {
-    clearActionFeedback();
+    setActionMessage("");
+    setActionError("");
     try {
-      const refreshed = await loadJobs(selected?.jobId);
-      if (panelMode === "edit" && refreshed && !isJobEditable(refreshed.status)) {
-        setPanelMode("view");
-        setActionError("Job ini sudah tidak bisa diedit karena statusnya berubah.");
-      }
+      await loadJobs(selected?.jobId);
     } catch (refreshError) {
       setActionError((refreshError as Error).message);
     }
@@ -409,12 +163,12 @@ export function JobsPage({ preferredJobId = "" }: JobsPageProps) {
     if (!selected) {
       return;
     }
-    clearActionFeedback();
+    setActionMessage("");
+    setActionError("");
     try {
       await retryJob(selected.jobId);
       await loadJobs(selected.jobId);
-      setPanelMode("view");
-      setActionMessage("Job dimasukkan ulang ke antrean.");
+      setActionMessage("Proses dimasukkan ulang ke antrean.");
     } catch (retryError) {
       setActionError((retryError as Error).message);
     }
@@ -424,12 +178,16 @@ export function JobsPage({ preferredJobId = "" }: JobsPageProps) {
     if (!selected) {
       return;
     }
-    clearActionFeedback();
+    setActionMessage("");
+    setActionError("");
     try {
       await deleteJob(selected.jobId);
-      await loadJobs();
-      setPanelMode("view");
-      setActionMessage("Job berhasil dihapus.");
+      const nextSelected = await loadJobs();
+      if (!nextSelected) {
+        setActionMessage("Proses berhasil dihapus.");
+        return;
+      }
+      setActionMessage("Proses berhasil dihapus.");
     } catch (deleteError) {
       setActionError((deleteError as Error).message);
     }
@@ -439,7 +197,8 @@ export function JobsPage({ preferredJobId = "" }: JobsPageProps) {
     if (!selected) {
       return;
     }
-    clearActionFeedback();
+    setActionMessage("");
+    setActionError("");
     try {
       await openJobOutputLocation(selected.jobId);
       setActionMessage("Folder output dibuka.");
@@ -450,23 +209,23 @@ export function JobsPage({ preferredJobId = "" }: JobsPageProps) {
 
   if (loading) {
     return (
-      <section className="card">
-        <h2>Jobs</h2>
-        <p>Memuat daftar job...</p>
+      <section className="card app-page-card">
+        <h2>Riwayat Proses</h2>
+        <p>Memuat riwayat proses...</p>
       </section>
     );
   }
 
   return (
-    <section className="card">
+    <section className="card app-page-card">
       <div className="job-toolbar">
         <div>
-          <h2>Jobs</h2>
-          <p className="section-note">Setiap job menghasilkan caption dan video final.</p>
+          <h2>Riwayat Proses</h2>
+          <p className="section-note">Pantau progress voice over dan unduh hasilnya saat sudah selesai.</p>
         </div>
         <div className="form-actions">
-          <button type="button" onClick={() => void onRefresh()} disabled={saving}>
-            Refresh
+          <button type="button" onClick={() => void onRefresh()}>
+            Muat Ulang
           </button>
         </div>
       </div>
@@ -475,7 +234,7 @@ export function JobsPage({ preferredJobId = "" }: JobsPageProps) {
         <aside className="jobs-sidebar">
           <section className="section-card">
             <div className="row-head">
-              <h4>Daftar Job</h4>
+              <h4>Daftar Proses</h4>
               <span className="small">{jobs.length} item</span>
             </div>
             <div className="job-list">
@@ -485,7 +244,7 @@ export function JobsPage({ preferredJobId = "" }: JobsPageProps) {
                     type="button"
                     key={job.jobId}
                     className={selected?.jobId === job.jobId ? "tab job-item active" : "tab job-item"}
-                    onClick={() => void onSelectJob(job.jobId)}
+                    onClick={() => onSelectJob(job.jobId)}
                   >
                     <strong>{job.title}</strong>
                     <div className="small">{CONTENT_LABEL[job.contentType]}</div>
@@ -493,187 +252,41 @@ export function JobsPage({ preferredJobId = "" }: JobsPageProps) {
                   </button>
                 ))
               ) : (
-                <p className="small">Belum ada job.</p>
+                <p className="small">Belum ada proses yang tersimpan.</p>
               )}
             </div>
           </section>
         </aside>
 
         <div className="detail-box">
-          <div className="job-panel-header">
-            <div>
-              <div className="row-head">
-                <h3>{panelMode === "edit" ? "Edit Job" : "Detail Job"}</h3>
-                {selected ? <StatusBadge status={selected.status} /> : null}
-              </div>
-              <p className="section-note">
-                {panelMode === "edit"
-                  ? "Perbarui metadata input job. Generate ulang tetap dilakukan lewat Retry Job."
-                  : "Lihat metadata input, output, dan aksi untuk job terpilih."}
-              </p>
-            </div>
-            {panelMode === "view" && selected && canEditSelected ? (
-              <div className="form-actions">
-                <button type="button" onClick={onOpenEdit}>
-                  Edit Job
-                </button>
-              </div>
-            ) : null}
-          </div>
-
           {!selected ? (
-            <p>Pilih job untuk melihat detail.</p>
-          ) : panelMode === "edit" ? (
-            <>
-              <div className="meta-grid">
-                <div className="meta-card">
-                  <span className="small">Judul Saat Ini</span>
-                  <strong className="break-anywhere">{selected.title}</strong>
-                </div>
-                <div className="meta-card">
-                  <span className="small">Status</span>
-                  <strong>{selected.status}</strong>
-                </div>
-                <div className="meta-card">
-                  <span className="small">Durasi</span>
-                  <strong>{selected.videoDurationSec.toFixed(2)} detik</strong>
-                </div>
-                <div className="meta-card">
-                  <span className="small">Job ID</span>
-                  <strong className="break-anywhere">#{selected.jobId}</strong>
-                </div>
-              </div>
-
-              <JobProgress job={selected} />
-
-              {hasPreviousAttemptContext ? (
-                <div className="notice-box notice-box-warning">
-                  <strong>Percobaan terakhir</strong>
-                  <span>
-                    Output dan error di bawah ini berasal dari percobaan terakhir. Perubahan edit baru
-                    akan dipakai setelah Anda menekan Retry Job.
-                  </span>
-                </div>
-              ) : null}
-
-              <form className="grid-form" onSubmit={onSave}>
-                <label>
-                  Judul
-                  <input
-                    value={editForm.title}
-                    onChange={(event) =>
-                      setEditForm((current) => ({ ...current, title: event.target.value }))
-                    }
-                    disabled={saving}
-                  />
-                </label>
-                <label>
-                  Brief / Deskripsi
-                  <textarea
-                    rows={5}
-                    value={editForm.description}
-                    onChange={(event) =>
-                      setEditForm((current) => ({ ...current, description: event.target.value }))
-                    }
-                    disabled={saving}
-                  />
-                </label>
-                <div className="form-grid-2">
-                  <label>
-                    Kategori Konten
-                    <select
-                      value={editForm.contentType}
-                      onChange={(event) =>
-                        setEditForm((current) => ({
-                          ...current,
-                          contentType: event.target.value as ContentType
-                        }))
-                      }
-                      disabled={saving}
-                    >
-                      {Object.entries(CONTENT_LABEL).map(([contentType, label]) => (
-                        <option key={contentType} value={contentType}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Gender Suara
-                    <select
-                      value={editForm.voiceGender}
-                      onChange={(event) =>
-                        setEditForm((current) => ({
-                          ...current,
-                          voiceGender: event.target.value as JobVoiceGender
-                        }))
-                      }
-                      disabled={saving}
-                    >
-                      {Object.entries(GENDER_LABEL).map(([gender, label]) => (
-                        <option key={gender} value={gender}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                <div className="form-grid-2">
-                  <label>
-                    Tone
-                    <select
-                      value={editForm.tone}
-                      onChange={(event) =>
-                        setEditForm((current) => ({ ...current, tone: event.target.value }))
-                      }
-                      disabled={saving}
-                    >
-                      {TONE_OPTIONS.map((tone) => (
-                        <option key={tone} value={tone}>
-                          {tone}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    CTA Opsional
-                    <input
-                      value={editForm.ctaText}
-                      onChange={(event) =>
-                        setEditForm((current) => ({ ...current, ctaText: event.target.value }))
-                      }
-                      disabled={saving}
-                    />
-                  </label>
-                </div>
-                <label>
-                  Reference Link Opsional
-                  <input
-                    value={editForm.referenceLink}
-                    onChange={(event) =>
-                      setEditForm((current) => ({
-                        ...current,
-                        referenceLink: event.target.value
-                      }))
-                    }
-                    disabled={saving}
-                  />
-                </label>
-                <div className="form-actions">
-                  <button type="submit" disabled={saving}>
-                    {saving ? "Menyimpan..." : "Simpan Perubahan"}
-                  </button>
-                  <button type="button" onClick={onResetEdit} disabled={saving}>
-                    Reset Form
-                  </button>
-                  <button type="button" onClick={onCancelEdit} disabled={saving}>
-                    Batal
-                  </button>
-                </div>
-              </form>
-            </>
+            <p>Pilih proses untuk melihat detailnya.</p>
           ) : (
             <>
+              <div className="job-panel-header">
+                <div>
+                  <div className="row-head">
+                    <h3>Detail Proses</h3>
+                    <StatusBadge status={selected.status} />
+                  </div>
+                  <p className="section-note">Progress akan bergerak otomatis selama proses masih berjalan.</p>
+                </div>
+              </div>
+
+              <div className="progress-card">
+                <div className="row-head">
+                  <strong>{selected.progress.label}</strong>
+                  <span>{Math.round(displayPercent)}%</span>
+                </div>
+                <div className="progress-track" aria-label="Job progress">
+                  <div className="progress-value" style={{ width: `${displayPercent}%` }} />
+                </div>
+                {selected.status === "success" ? (
+                  <p className="ok-text">Voice over selesai dibuat. File hasil siap diunduh.</p>
+                ) : null}
+                {selected.errorMessage ? <p className="err-text break-anywhere">{selected.errorMessage}</p> : null}
+              </div>
+
               <div className="meta-grid">
                 <div className="meta-card">
                   <span className="small">Judul</span>
@@ -696,24 +309,10 @@ export function JobsPage({ preferredJobId = "" }: JobsPageProps) {
                   <strong>{selected.videoDurationSec.toFixed(2)} detik</strong>
                 </div>
                 <div className="meta-card">
-                  <span className="small">Job ID</span>
+                  <span className="small">ID Proses</span>
                   <strong className="break-anywhere">#{selected.jobId}</strong>
                 </div>
               </div>
-
-              <JobProgress job={selected} />
-
-              {hasPreviousAttemptContext ? (
-                <div className="notice-box notice-box-warning">
-                  <strong>Percobaan terakhir</strong>
-                  <span>
-                    Output dan error di bawah ini berasal dari percobaan terakhir. Simpan perubahan edit
-                    terlebih dahulu, lalu klik Retry Job untuk memproses ulang dengan metadata terbaru.
-                  </span>
-                </div>
-              ) : null}
-
-              {editAvailabilityNote ? <p className="section-note">{editAvailabilityNote}</p> : null}
 
               <p className="break-anywhere">
                 <strong>Brief:</strong> {selected.description}
@@ -725,49 +324,42 @@ export function JobsPage({ preferredJobId = "" }: JobsPageProps) {
               ) : null}
               {selected.referenceLink ? (
                 <p className="break-anywhere">
-                  <strong>Reference Link:</strong> {selected.referenceLink}
+                  <strong>Link Referensi:</strong> {selected.referenceLink}
+                </p>
+              ) : null}
+              {selected.hashtagHints?.length ? (
+                <p className="break-anywhere">
+                  <strong>Hashtag Arahan:</strong> {selected.hashtagHints.join(", ")}
                 </p>
               ) : null}
 
-              {selected.errorMessage ? (
-                <div className="notice-box notice-box-danger">
-                  <strong>Error proses terakhir</strong>
-                  <span className="break-anywhere">{selected.errorMessage}</span>
-                </div>
-              ) : null}
-
-              {captionOutputPath || selected.output.voicePath || selected.output.finalVideoPath ? (
+              {captionOutputPath || selected.output.finalVideoPath ? (
                 <div className="output-links">
                   {captionOutputPath ? (
-                    <a href={toAbsoluteOutputUrl(captionOutputPath)} target="_blank" rel="noreferrer">
-                      Caption
-                    </a>
-                  ) : null}
-                  {selected.output.voicePath ? (
-                    <a href={toAbsoluteOutputUrl(selected.output.voicePath)} target="_blank" rel="noreferrer">
-                      Audio
+                    <a href={resolveOutputUrl(captionOutputPath)} target="_blank" rel="noreferrer">
+                      Download Caption
                     </a>
                   ) : null}
                   {selected.output.finalVideoPath ? (
-                    <a
-                      href={toAbsoluteOutputUrl(selected.output.finalVideoPath)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Final Video
+                    <a href={resolveOutputUrl(selected.output.finalVideoPath)} target="_blank" rel="noreferrer">
+                      Download Final Video
                     </a>
                   ) : null}
                 </div>
               ) : (
-                <p className="small">Belum ada file output untuk job ini.</p>
+                <p className="small">File output akan muncul otomatis saat proses selesai.</p>
               )}
 
               <div className="form-actions section-divider">
                 <button type="button" onClick={() => void onOpenLocation()}>
                   Buka Folder Output
                 </button>
-                <button type="button" onClick={() => void onRetry()} disabled={!canRetrySelected}>
-                  Retry Job
+                <button
+                  type="button"
+                  onClick={() => void onRetry()}
+                  disabled={selected.status !== "failed" && selected.status !== "interrupted"}
+                >
+                  Coba Lagi
                 </button>
                 <button
                   type="button"
@@ -775,7 +367,7 @@ export function JobsPage({ preferredJobId = "" }: JobsPageProps) {
                   onClick={() => void onDelete()}
                   disabled={selected.status === "running"}
                 >
-                  Hapus Job
+                  Hapus Proses
                 </button>
               </div>
             </>
@@ -783,8 +375,8 @@ export function JobsPage({ preferredJobId = "" }: JobsPageProps) {
         </div>
       </div>
 
-      {actionMessage && <p className="ok-text">{actionMessage}</p>}
-      {actionError && <p className="err-text">{actionError}</p>}
+      {actionMessage ? <p className="ok-text">{actionMessage}</p> : null}
+      {actionError ? <p className="err-text">{actionError}</p> : null}
     </section>
   );
 }

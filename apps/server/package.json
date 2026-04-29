@@ -14,6 +14,7 @@
     "@fastify/multipart": "^9.3.0",
     "@fastify/static": "^8.3.0",
     "@google/genai": "^1.45.0",
+    "@supabase/supabase-js": "^2.104.1",
     "ajv": "^8.18.0",
     "dotenv": "^17.2.3",
     "fastify": "^5.8.2",

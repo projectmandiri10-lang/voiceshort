@@ -1,13 +1,31 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_SETTINGS, findGenderVoiceSetting } from "../constants.js";
 import { SETTINGS_FILE } from "../utils/paths.js";
 import { JsonFile } from "../utils/json-file.js";
 import type { AppSettings, JobVoiceGender } from "../types.js";
 import { parseSettings } from "../validation.js";
+import type { AppSettingsRow } from "../services/supabase-schema.js";
+import { appSettingsRowToSettings, appSettingsToRow } from "../services/supabase-schema.js";
 
 export class SettingsStore {
   private readonly file = new JsonFile<AppSettings>(SETTINGS_FILE, DEFAULT_SETTINGS);
 
-  public async get(): Promise<AppSettings> {
+  public constructor(private readonly adminClient?: SupabaseClient) {}
+
+  public async get(client?: SupabaseClient): Promise<AppSettings> {
+    const db = client ?? this.adminClient;
+    if (db) {
+      const { data, error } = await db
+        .from("app_settings")
+        .select("*")
+        .eq("settings_key", "default")
+        .maybeSingle();
+      if (error) {
+        throw error;
+      }
+      return parseSettings(data ? appSettingsRowToSettings(data as AppSettingsRow) : DEFAULT_SETTINGS);
+    }
+
     const settings = await this.file.get();
     try {
       return parseSettings(settings);
@@ -20,17 +38,30 @@ export class SettingsStore {
     }
   }
 
-  public async set(next: AppSettings): Promise<AppSettings> {
+  public async set(next: AppSettings, client?: SupabaseClient): Promise<AppSettings> {
     const parsed = parseSettings(next);
+    const db = client ?? this.adminClient;
+    if (db) {
+      const row = appSettingsToRow(parsed);
+      const { error } = await db.from("app_settings").upsert(row, { onConflict: "settings_key" });
+      if (error) {
+        throw error;
+      }
+      return parsed;
+    }
+
     await this.file.set(parsed);
     return parsed;
   }
 
-  public async getVoiceForGender(gender: JobVoiceGender): Promise<{
+  public async getVoiceForGender(
+    gender: JobVoiceGender,
+    client?: SupabaseClient
+  ): Promise<{
     voiceName: string;
     speechRate: number;
   }> {
-    const settings = await this.get();
+    const settings = await this.get(client);
     const selected = findGenderVoiceSetting(settings, gender);
     if (!selected) {
       throw new Error(`Default voice untuk gender ${gender} belum dikonfigurasi.`);

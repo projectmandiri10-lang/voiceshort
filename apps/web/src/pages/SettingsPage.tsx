@@ -89,7 +89,7 @@ export function SettingsPage() {
     try {
       const saved = await updateSettings(settings);
       setSettings(saved);
-      setMessage("Settings berhasil disimpan.");
+      setMessage("Pengaturan berhasil disimpan.");
     } catch (saveError) {
       setError((saveError as Error).message);
     } finally {
@@ -132,8 +132,8 @@ export function SettingsPage() {
   if (loading || !settings) {
     return (
       <section className="card">
-        <h2>Settings</h2>
-        <p>Memuat settings...</p>
+        <h2>Pengaturan Layanan</h2>
+        <p>Memuat pengaturan...</p>
         {error && <p className="err-text">{error}</p>}
       </section>
     );
@@ -141,32 +141,13 @@ export function SettingsPage() {
 
   return (
     <section className="card">
-      <h2>Settings</h2>
+      <h2>Pengaturan Layanan</h2>
       <p className="section-note">
-        Atur model, batas durasi maksimal 60 detik, dan default voice pria atau wanita untuk
-        setiap job.
+        Atur batas durasi maksimal 60 detik dan pilihan suara default untuk setiap proses.
       </p>
       <form className="grid-form" onSubmit={onSave}>
-        <div className="form-grid-2">
-          <label>
-            Script Model
-            <input
-              value={settings.scriptModel}
-              onChange={(event) =>
-                setSettings({ ...settings, scriptModel: event.target.value })
-              }
-            />
-          </label>
-          <label>
-            TTS Model
-            <input
-              value={settings.ttsModel}
-              onChange={(event) => setSettings({ ...settings, ttsModel: event.target.value })}
-            />
-          </label>
-        </div>
         <label>
-          Max Video Seconds
+          Batas Durasi Video
           <input
             type="number"
             min={10}
@@ -185,7 +166,7 @@ export function SettingsPage() {
               <article className="style-card" key={gender}>
                 <h3>{GENDER_LABEL[gender]}</h3>
                 <label>
-                  Voice Name
+                  Pilihan Suara
                   <select
                     value={selected?.voiceName ?? ""}
                     disabled={!selected || !voiceOptions.length}
@@ -206,7 +187,7 @@ export function SettingsPage() {
                   )}
                 </label>
                 <label>
-                  Speech Rate
+                  Kecepatan Bicara
                   <input
                     type="number"
                     step="0.05"
@@ -224,7 +205,7 @@ export function SettingsPage() {
                     onClick={() => void onPreview(gender)}
                     disabled={previewLoading === gender}
                   >
-                    {previewLoading === gender ? "Membuat Preview..." : "Preview Voice"}
+                    {previewLoading === gender ? "Membuat Preview..." : "Preview Suara"}
                   </button>
                 </div>
                 {previewPaths[gender] ? (
@@ -239,7 +220,7 @@ export function SettingsPage() {
           })}
         </div>
         <button type="submit" disabled={saving}>
-          {saving ? "Menyimpan..." : "Simpan Settings"}
+          {saving ? "Menyimpan..." : "Simpan Pengaturan"}
         </button>
       </form>
       {message && <p className="ok-text">{message}</p>}
