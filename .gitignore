@@ -14,3 +14,4 @@ data/edit-sessions.json
 apps/server/.test-runtime/
 apps/server/.vitest-storage/
 edits/
+.kilo/

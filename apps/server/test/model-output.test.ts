@@ -29,6 +29,19 @@ describe("model output parser", () => {
     expect(extractScriptText(response)).toContain("Script langsung");
   });
 
+  it("extracts script from openai-style message content", () => {
+    const response = {
+      choices: [
+        {
+          message: {
+            content: [{ type: "text", text: "Script dari LiteLLM." }]
+          }
+        }
+      ]
+    };
+    expect(extractScriptText(response)).toBe("Script dari LiteLLM.");
+  });
+
   it("extracts base64 audio", () => {
     const base64 = Buffer.from("test-audio").toString("base64");
     const response = {
@@ -43,6 +56,25 @@ describe("model output parser", () => {
     const audio = extractAudioFromResponse(response);
     expect(audio.data.toString("utf8")).toBe("test-audio");
     expect(audio.mimeType).toBe("audio/wav");
+  });
+
+  it("extracts openai-style pcm16 audio", () => {
+    const base64 = Buffer.from("pcm-audio").toString("base64");
+    const response = {
+      choices: [
+        {
+          message: {
+            audio: {
+              data: base64,
+              format: "pcm16"
+            }
+          }
+        }
+      ]
+    };
+    const audio = extractAudioFromResponse(response);
+    expect(audio.data.toString("utf8")).toBe("pcm-audio");
+    expect(audio.mimeType).toContain("audio/pcm");
   });
 
   it("extracts social metadata from json", () => {

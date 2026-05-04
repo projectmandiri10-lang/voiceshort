@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { GeneratePage } from "./pages/GeneratePage";
+import { SettingsPage } from "./pages/SettingsPage";
 import type { AuthUser, JobRecord } from "./types";
 import * as api from "./api";
 
@@ -124,7 +125,6 @@ function buildJob(overrides: Partial<JobRecord> = {}): JobRecord {
     ownerEmail: activeUser.email,
     title: "Job Satu",
     description: "Deskripsi job",
-    hashtagHints: ["#affiliate", "meja kerja"],
     contentType: "affiliate",
     voiceGender: "female",
     tone: "natural",
@@ -282,7 +282,7 @@ describe("web smoke", () => {
     expect(screen.queryByText(/Gemini|Script Model|TTS Model|AI engine/i)).toBeNull();
   });
 
-  it("shows generate form validation before submit", async () => {
+  it("shows one initial slot, required markers, and optional link field", async () => {
     render(
       <GeneratePage
         currentUser={activeUser}
@@ -291,10 +291,51 @@ describe("web smoke", () => {
       />
     );
 
-    expect(screen.getAllByText(/Video ini akan diproses sebagai 1 hasil terpisah./i)).toHaveLength(10);
+    expect(screen.getByRole("region", { name: /^slot video 1$/i })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: /^slot video 2$/i })).toBeNull();
+    expect(screen.getByText(/slot aktif 1\/10/i)).toBeTruthy();
+    expect(
+      within(screen.getByRole("region", { name: /^slot video 1$/i })).getByText(
+        (_, node) => node?.textContent === "Video *"
+      )
+    ).toBeTruthy();
+    expect(
+      within(screen.getByRole("region", { name: /^slot video 1$/i })).getByText(
+        (_, node) => node?.textContent === "Judul *"
+      )
+    ).toBeTruthy();
+    expect(
+      within(screen.getByRole("region", { name: /^slot video 1$/i })).getByText(
+        (_, node) => node?.textContent === "Brief / Deskripsi *"
+      )
+    ).toBeTruthy();
+    expect(screen.getByLabelText(/Link Referensi Opsional/i)).toBeTruthy();
     await waitFor(() => {
       expect(api.fetchGenerationCapacity).toHaveBeenCalled();
     });
+  });
+
+  it("adds slots one by one until reaching the maximum of 10", async () => {
+    render(
+      <GeneratePage
+        currentUser={activeUser}
+        onRefreshSession={vi.fn(async () => undefined)}
+        onViewJobs={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(api.fetchGenerationCapacity).toHaveBeenCalled();
+    });
+
+    for (let slotNumber = 2; slotNumber <= 10; slotNumber += 1) {
+      fireEvent.click(screen.getByRole("button", { name: /Tambah Slot/i }));
+      expect(screen.getByRole("region", { name: new RegExp(`^slot video ${slotNumber}$`, "i") })).toBeTruthy();
+    }
+
+    expect(screen.getByText(/slot aktif 10\/10/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Tambah Slot/i })).toBeNull();
+    expect(screen.getByText(/batas maksimum 10 slot sudah tercapai/i)).toBeTruthy();
   });
 
   it("shows unlimited balance and keeps generate enabled for whitelist users", async () => {
@@ -323,6 +364,7 @@ describe("web smoke", () => {
 
   it("submits only ready slots and leaves incomplete slots with inline errors", async () => {
     const onRefreshSession = vi.fn(async () => undefined);
+    const onViewJobs = vi.fn();
     vi.mocked(api.createJob).mockResolvedValueOnce({
       jobId: "job-101",
       status: "queued",
@@ -338,28 +380,28 @@ describe("web smoke", () => {
       <GeneratePage
         currentUser={activeUser}
         onRefreshSession={onRefreshSession}
-        onViewJobs={vi.fn()}
+        onViewJobs={onViewJobs}
       />
     );
 
     const slotOne = screen.getByRole("region", { name: /^slot video 1$/i });
-    const slotTwo = screen.getByRole("region", { name: /^slot video 2$/i });
     const file = new File(["video-one"], "slot-1.mp4", { type: "video/mp4" });
 
-    fireEvent.change(within(slotOne).getByLabelText(/^Video$/i), {
+    fireEvent.click(screen.getByRole("button", { name: /Tambah Slot/i }));
+
+    const slotTwo = screen.getByRole("region", { name: /^slot video 2$/i });
+
+    fireEvent.change(within(slotOne).getByLabelText(/^Video/i), {
       target: { files: [file] }
     });
-    fireEvent.change(within(slotOne).getByLabelText(/^Judul$/i), {
+    fireEvent.change(within(slotOne).getByLabelText(/^Judul/i), {
       target: { value: "Judul Slot 1" }
     });
     fireEvent.change(within(slotOne).getByLabelText(/Brief \/ Deskripsi/i), {
       target: { value: "Brief slot satu" }
     });
-    fireEvent.change(within(slotOne).getByLabelText(/Hashtag Arahan Opsional/i), {
-      target: { value: "#affiliate, meja kerja" }
-    });
 
-    fireEvent.change(within(slotTwo).getByLabelText(/^Judul$/i), {
+    fireEvent.change(within(slotTwo).getByLabelText(/^Judul/i), {
       target: { value: "Judul Belum Lengkap" }
     });
 
@@ -371,11 +413,11 @@ describe("web smoke", () => {
     expect(api.createJob).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Judul Slot 1",
-        description: "Brief slot satu",
-        hashtagHints: ["#affiliate", "meja kerja"]
+        description: "Brief slot satu"
       })
     );
     expect(onRefreshSession).toHaveBeenCalledTimes(1);
+    expect(onViewJobs).toHaveBeenCalledWith("job-101");
     expect(await screen.findByText(/Berhasil 1/i)).toBeTruthy();
     expect(screen.getByText(/Perlu dilengkapi 1/i)).toBeTruthy();
     expect(within(slotTwo).getByText(/Lengkapi video, judul, brief\/deskripsi/i)).toBeTruthy();
@@ -398,22 +440,25 @@ describe("web smoke", () => {
     const firstFile = new File(["video-one"], "slot-1.mp4", { type: "video/mp4" });
     const secondFile = new File(["video-two"], "slot-2.mp4", { type: "video/mp4" });
     const slotOne = screen.getByRole("region", { name: /^slot video 1$/i });
+
+    fireEvent.click(screen.getByRole("button", { name: /Tambah Slot/i }));
+
     const slotTwo = screen.getByRole("region", { name: /^slot video 2$/i });
 
-    fireEvent.change(within(slotOne).getByLabelText(/^Video$/i), {
+    fireEvent.change(within(slotOne).getByLabelText(/^Video/i), {
       target: { files: [firstFile] }
     });
-    fireEvent.change(within(slotOne).getByLabelText(/^Judul$/i), {
+    fireEvent.change(within(slotOne).getByLabelText(/^Judul/i), {
       target: { value: "Judul Slot 1" }
     });
     fireEvent.change(within(slotOne).getByLabelText(/Brief \/ Deskripsi/i), {
       target: { value: "Brief slot satu" }
     });
 
-    fireEvent.change(within(slotTwo).getByLabelText(/^Video$/i), {
+    fireEvent.change(within(slotTwo).getByLabelText(/^Video/i), {
       target: { files: [secondFile] }
     });
-    fireEvent.change(within(slotTwo).getByLabelText(/^Judul$/i), {
+    fireEvent.change(within(slotTwo).getByLabelText(/^Judul/i), {
       target: { value: "Judul Slot 2" }
     });
     fireEvent.change(within(slotTwo).getByLabelText(/Brief \/ Deskripsi/i), {
@@ -454,6 +499,7 @@ describe("web smoke", () => {
 
   it("stops batch submit after the first server overload response", async () => {
     const onRefreshSession = vi.fn(async () => undefined);
+    const onViewJobs = vi.fn();
     vi.mocked(api.createJob)
       .mockResolvedValueOnce({
         jobId: "job-301",
@@ -471,11 +517,15 @@ describe("web smoke", () => {
       <GeneratePage
         currentUser={activeUser}
         onRefreshSession={onRefreshSession}
-        onViewJobs={vi.fn()}
+        onViewJobs={onViewJobs}
       />
     );
 
     const slotOne = screen.getByRole("region", { name: /^slot video 1$/i });
+
+    fireEvent.click(screen.getByRole("button", { name: /Tambah Slot/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Tambah Slot/i }));
+
     const slotTwo = screen.getByRole("region", { name: /^slot video 2$/i });
     const slotThree = screen.getByRole("region", { name: /^slot video 3$/i });
 
@@ -484,10 +534,10 @@ describe("web smoke", () => {
       [slotTwo, "Judul Slot 2", "Brief slot dua", "slot-2.mp4"],
       [slotThree, "Judul Slot 3", "Brief slot tiga", "slot-3.mp4"]
     ] as const) {
-      fireEvent.change(within(slot).getByLabelText(/^Video$/i), {
+      fireEvent.change(within(slot).getByLabelText(/^Video/i), {
         target: { files: [new File(["video"], filename, { type: "video/mp4" })] }
       });
-      fireEvent.change(within(slot).getByLabelText(/^Judul$/i), {
+      fireEvent.change(within(slot).getByLabelText(/^Judul/i), {
         target: { value: title }
       });
       fireEvent.change(within(slot).getByLabelText(/Brief \/ Deskripsi/i), {
@@ -502,6 +552,7 @@ describe("web smoke", () => {
     });
 
     expect(onRefreshSession).toHaveBeenCalledTimes(1);
+    expect(onViewJobs).toHaveBeenCalledWith("job-301");
     expect(await screen.findByText(/^Server overload$/i)).toBeTruthy();
     expect(screen.getByText(/Gagal 1/i)).toBeTruthy();
     expect(within(slotTwo).getByText(/Server overload/i)).toBeTruthy();
@@ -547,6 +598,7 @@ describe("web smoke", () => {
 
   it("continues batch submit when one ready slot fails", async () => {
     const onRefreshSession = vi.fn(async () => undefined);
+    const onViewJobs = vi.fn();
     vi.mocked(api.createJob)
       .mockRejectedValueOnce(new Error("Server slot 1 gagal"))
       .mockResolvedValueOnce({
@@ -564,27 +616,30 @@ describe("web smoke", () => {
       <GeneratePage
         currentUser={activeUser}
         onRefreshSession={onRefreshSession}
-        onViewJobs={vi.fn()}
+        onViewJobs={onViewJobs}
       />
     );
 
     const slotOne = screen.getByRole("region", { name: /^slot video 1$/i });
+
+    fireEvent.click(screen.getByRole("button", { name: /Tambah Slot/i }));
+
     const slotTwo = screen.getByRole("region", { name: /^slot video 2$/i });
 
-    fireEvent.change(within(slotOne).getByLabelText(/^Video$/i), {
+    fireEvent.change(within(slotOne).getByLabelText(/^Video/i), {
       target: { files: [new File(["video-one"], "slot-1.mp4", { type: "video/mp4" })] }
     });
-    fireEvent.change(within(slotOne).getByLabelText(/^Judul$/i), {
+    fireEvent.change(within(slotOne).getByLabelText(/^Judul/i), {
       target: { value: "Judul Slot 1" }
     });
     fireEvent.change(within(slotOne).getByLabelText(/Brief \/ Deskripsi/i), {
       target: { value: "Brief slot satu" }
     });
 
-    fireEvent.change(within(slotTwo).getByLabelText(/^Video$/i), {
+    fireEvent.change(within(slotTwo).getByLabelText(/^Video/i), {
       target: { files: [new File(["video-two"], "slot-2.mp4", { type: "video/mp4" })] }
     });
-    fireEvent.change(within(slotTwo).getByLabelText(/^Judul$/i), {
+    fireEvent.change(within(slotTwo).getByLabelText(/^Judul/i), {
       target: { value: "Judul Slot 2" }
     });
     fireEvent.change(within(slotTwo).getByLabelText(/Brief \/ Deskripsi/i), {
@@ -597,9 +652,40 @@ describe("web smoke", () => {
       expect(api.createJob).toHaveBeenCalledTimes(2);
     });
     expect(onRefreshSession).toHaveBeenCalledTimes(1);
+    expect(onViewJobs).toHaveBeenCalledWith("job-202");
     expect(await screen.findByText(/Gagal 1/i)).toBeTruthy();
     expect(screen.getByText(/Berhasil 1/i)).toBeTruthy();
     expect(within(slotOne).getByText(/Server slot 1 gagal/i)).toBeTruthy();
+  });
+
+  it("does not redirect to jobs when no slot is successfully created", async () => {
+    const onViewJobs = vi.fn();
+    vi.mocked(api.createJob).mockRejectedValueOnce(new Error("Server gagal total"));
+
+    render(
+      <GeneratePage
+        currentUser={activeUser}
+        onRefreshSession={vi.fn(async () => undefined)}
+        onViewJobs={onViewJobs}
+      />
+    );
+
+    const slotOne = screen.getByRole("region", { name: /^slot video 1$/i });
+
+    fireEvent.change(within(slotOne).getByLabelText(/^Video/i), {
+      target: { files: [new File(["video-one"], "slot-1.mp4", { type: "video/mp4" })] }
+    });
+    fireEvent.change(within(slotOne).getByLabelText(/^Judul/i), {
+      target: { value: "Judul Slot 1" }
+    });
+    fireEvent.change(within(slotOne).getByLabelText(/Brief \/ Deskripsi/i), {
+      target: { value: "Brief slot satu" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /proses video yang siap/i }));
+
+    expect(await within(slotOne).findByText(/Server gagal total/i)).toBeTruthy();
+    expect(onViewJobs).not.toHaveBeenCalled();
   });
 
   it("renders jobs page progress for authenticated user", async () => {
@@ -616,7 +702,7 @@ describe("web smoke", () => {
     expect(screen.getByText(/Merender video final/i)).toBeTruthy();
     expect(screen.getByLabelText(/Job progress/i)).toBeTruthy();
     expect(screen.getByRole("link", { name: /Download Final Video/i })).toBeTruthy();
-    expect(screen.getByText(/Hashtag Arahan:/i)).toBeTruthy();
+    expect(screen.queryByText(/Hashtag Arahan:/i)).toBeNull();
   });
 
   it("renders admin navigation for superadmin", async () => {
@@ -633,5 +719,25 @@ describe("web smoke", () => {
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: /Kelola user, akses, dan paket saldo/i })).toBeTruthy();
     });
+  });
+
+  it("uses backend output url for voice preview audio", async () => {
+    vi.mocked(api.previewTtsVoice).mockResolvedValue({
+      voiceName: "Charon",
+      previewPath: "/outputs/_voice_previews/sample-preview.wav"
+    });
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByRole("heading", { name: /Pengaturan Layanan/i })).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: /Preview Suara/i })[0]!);
+
+    await waitFor(() => {
+      expect(api.previewTtsVoice).toHaveBeenCalledTimes(1);
+    });
+
+    const audio = document.querySelector("audio.audio-preview") as HTMLAudioElement | null;
+    expect(audio).toBeTruthy();
+    expect(audio?.src).toBe("http://localhost:8788/outputs/_voice_previews/sample-preview.wav");
   });
 });

@@ -10,7 +10,25 @@ import { appSettingsRowToSettings, appSettingsToRow } from "../services/supabase
 export class SettingsStore {
   private readonly file = new JsonFile<AppSettings>(SETTINGS_FILE, DEFAULT_SETTINGS);
 
-  public constructor(private readonly adminClient?: SupabaseClient) {}
+  public constructor(
+    private readonly adminClient?: SupabaseClient,
+    private readonly runtimeModelOverrides?: Partial<Pick<AppSettings, "scriptModel" | "ttsModel">>
+  ) {}
+
+  private applyRuntimeModelOverrides(settings: AppSettings): AppSettings {
+    const scriptModel = this.runtimeModelOverrides?.scriptModel?.trim();
+    const ttsModel = this.runtimeModelOverrides?.ttsModel?.trim();
+
+    if (!scriptModel && !ttsModel) {
+      return settings;
+    }
+
+    return {
+      ...settings,
+      scriptModel: scriptModel || settings.scriptModel,
+      ttsModel: ttsModel || settings.ttsModel
+    };
+  }
 
   public async get(client?: SupabaseClient): Promise<AppSettings> {
     const db = client ?? this.adminClient;
@@ -23,12 +41,14 @@ export class SettingsStore {
       if (error) {
         throw error;
       }
-      return parseSettings(data ? appSettingsRowToSettings(data as AppSettingsRow) : DEFAULT_SETTINGS);
+      return this.applyRuntimeModelOverrides(
+        parseSettings(data ? appSettingsRowToSettings(data as AppSettingsRow) : DEFAULT_SETTINGS)
+      );
     }
 
     const settings = await this.file.get();
     try {
-      return parseSettings(settings);
+      return this.applyRuntimeModelOverrides(parseSettings(settings));
     } catch (error) {
       throw new Error(
         `Settings file tidak valid (${SETTINGS_FILE}): ${

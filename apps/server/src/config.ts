@@ -6,7 +6,13 @@ import { DEFAULT_PORT } from "./constants.js";
 dotenv.config({ path: path.join(ROOT_DIR, ".env"), override: true });
 
 export interface AppEnv {
+  aiProvider: "gemini" | "litellm";
   geminiApiKey: string;
+  litellmBaseUrl: string;
+  litellmApiKey: string;
+  litellmScriptModel: string;
+  litellmTtsModel: string;
+  litellmFileTargetModel: string;
   port: number;
   webOrigins: string[];
   superadminEmail: string;
@@ -28,7 +34,18 @@ export interface AppEnv {
 }
 
 export function loadEnv(): AppEnv {
+  const aiProviderRaw = process.env.AI_PROVIDER?.trim().toLowerCase() || "litellm";
+  const aiProvider =
+    aiProviderRaw === "litellm" || aiProviderRaw === "gemini"
+      ? aiProviderRaw
+      : undefined;
   const geminiApiKey = process.env.GEMINI_API_KEY?.trim() ?? "";
+  const litellmBaseUrl = process.env.LITELLM_BASE_URL?.trim() ?? "";
+  const litellmApiKey = process.env.LITELLM_API_KEY?.trim() ?? "";
+  const litellmScriptModel = process.env.LITELLM_SCRIPT_MODEL?.trim() ?? "";
+  const litellmTtsModel = process.env.LITELLM_TTS_MODEL?.trim() ?? "";
+  const litellmFileTargetModel =
+    process.env.LITELLM_FILE_TARGET_MODEL?.trim() || litellmScriptModel;
   const portRaw = process.env.PORT?.trim();
   const port = portRaw ? Number(portRaw) : DEFAULT_PORT;
   const webOrigins = (process.env.WEB_ORIGIN?.trim() || "http://localhost:5174")
@@ -56,10 +73,28 @@ export function loadEnv(): AppEnv {
   const generatePriceRaw = process.env.GENERATE_PRICE_IDR?.trim();
   const generatePriceIdr = generatePriceRaw ? Number(generatePriceRaw) : 2000;
 
-  if (!geminiApiKey || geminiApiKey === "your_api_key_here") {
+  if (!aiProvider) {
+    throw new Error(`AI_PROVIDER tidak valid: ${aiProviderRaw}`);
+  }
+
+  const invalidGeminiApiKeys = new Set(["", "your_api_key_here", "your_gemini_api_key"]);
+
+  if (aiProvider === "gemini" && invalidGeminiApiKeys.has(geminiApiKey)) {
     throw new Error(
       "GEMINI_API_KEY tidak ditemukan. Isi file .env berdasarkan .env.example."
     );
+  }
+
+  if (aiProvider === "litellm") {
+    if (!litellmBaseUrl) {
+      throw new Error("LITELLM_BASE_URL wajib diisi saat AI_PROVIDER=litellm.");
+    }
+    if (!litellmScriptModel) {
+      throw new Error("LITELLM_SCRIPT_MODEL wajib diisi saat AI_PROVIDER=litellm.");
+    }
+    if (!litellmTtsModel) {
+      throw new Error("LITELLM_TTS_MODEL wajib diisi saat AI_PROVIDER=litellm.");
+    }
   }
 
   if (!Number.isFinite(port) || port <= 0) {
@@ -83,7 +118,13 @@ export function loadEnv(): AppEnv {
   }
 
   return {
+    aiProvider,
     geminiApiKey,
+    litellmBaseUrl,
+    litellmApiKey,
+    litellmScriptModel,
+    litellmTtsModel,
+    litellmFileTargetModel,
     port,
     webOrigins,
     superadminEmail,

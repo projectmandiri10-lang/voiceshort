@@ -81,7 +81,6 @@ export interface JobRecord {
   ownerEmail?: string;
   title: string;
   description: string;
-  hashtagHints?: string[];
   contentType: ContentType;
   voiceGender: JobVoiceGender;
   tone: string;

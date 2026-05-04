@@ -196,10 +196,13 @@ async function apiFetch<T>(
 }
 
 export function resolveOutputUrl(outputPath: string): string {
+  if (/^https?:\/\//i.test(outputPath)) {
+    return outputPath;
+  }
   if (typeof window === "undefined") {
     return outputPath;
   }
-  return new URL(outputPath, window.location.origin).toString();
+  return new URL(outputPath, `${API_BASE}/`).toString();
 }
 
 export async function startGoogleLogin(returnTo = "/"): Promise<void> {
@@ -590,7 +593,6 @@ export async function createJob(input: {
   video: File;
   title: string;
   description: string;
-  hashtagHints?: string[];
   contentType: ContentType;
   voiceGender: JobVoiceGender;
   tone: string;
@@ -601,9 +603,6 @@ export async function createJob(input: {
   form.append("video", input.video);
   form.append("title", input.title);
   form.append("description", input.description);
-  if (input.hashtagHints?.length) {
-    form.append("hashtagHints", JSON.stringify(input.hashtagHints));
-  }
   form.append("contentType", input.contentType);
   form.append("voiceGender", input.voiceGender);
   form.append("tone", input.tone);
@@ -636,7 +635,6 @@ export async function updateJob(
   input: {
     title: string;
     description: string;
-    hashtagHints?: string[];
     contentType: ContentType;
     voiceGender: JobVoiceGender;
     tone: string;
@@ -649,10 +647,7 @@ export async function updateJob(
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      ...input,
-      hashtagHints: input.hashtagHints?.length ? input.hashtagHints : undefined
-    })
+    body: JSON.stringify(input)
   });
 }
 

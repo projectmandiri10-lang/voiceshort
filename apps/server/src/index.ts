@@ -4,7 +4,9 @@ import { AuthService } from "./services/auth-service.js";
 import { JobEvents } from "./services/job-events.js";
 import { JobProcessor } from "./services/job-processor.js";
 import { GeminiService } from "./services/gemini-service.js";
+import type { AiService } from "./services/ai-service.js";
 import { BillingService } from "./services/billing-service.js";
+import { LiteLlmService } from "./services/litellm-service.js";
 import { SupabaseAuthConfigService } from "./services/supabase-auth-config-service.js";
 import { createSupabaseClient } from "./services/supabase-client.js";
 import { JobsStore } from "./stores/jobs-store.js";
@@ -16,6 +18,13 @@ import { ensureAppDirs } from "./utils/paths.js";
 async function bootstrap(): Promise<void> {
   await ensureAppDirs();
   const env = loadEnv();
+  const runtimeModelOverrides =
+    env.aiProvider === "litellm"
+      ? {
+          scriptModel: env.litellmScriptModel,
+          ttsModel: env.litellmTtsModel
+        }
+      : undefined;
   const adminDb = createSupabaseClient({
     supabaseUrl: env.supabaseUrl,
     supabaseKey: env.supabaseServiceRoleKey
@@ -24,7 +33,7 @@ async function bootstrap(): Promise<void> {
     throw new Error("Supabase admin client gagal dibuat.");
   }
 
-  const settingsStore = new SettingsStore(adminDb);
+  const settingsStore = new SettingsStore(adminDb, runtimeModelOverrides);
   const jobsStore = new JobsStore(adminDb);
   const usersStore = new UsersStore(adminDb);
   const jobEvents = new JobEvents();
@@ -48,7 +57,17 @@ async function bootstrap(): Promise<void> {
     logger.error({ err: error }, "Gagal sinkronisasi Google OAuth ke Supabase.");
   });
 
-  const gemini = new GeminiService(env.geminiApiKey, logger);
+  const aiService: AiService =
+    env.aiProvider === "litellm"
+      ? new LiteLlmService({
+          baseUrl: env.litellmBaseUrl,
+          apiKey: env.litellmApiKey,
+          scriptModel: env.litellmScriptModel,
+          ttsModel: env.litellmTtsModel,
+          fileTargetModel: env.litellmFileTargetModel,
+          logger
+        })
+      : new GeminiService(env.geminiApiKey, logger);
   const billingService = new BillingService({
     db: adminDb,
     logger,
@@ -57,7 +76,7 @@ async function bootstrap(): Promise<void> {
     webqrisWebhookSecret: env.webqrisWebhookSecret,
     generatePriceIdr: env.generatePriceIdr
   });
-  const processor = new JobProcessor(jobsStore, settingsStore, gemini, logger, jobEvents);
+  const processor = new JobProcessor(jobsStore, settingsStore, aiService, logger, jobEvents);
   await processor.hydrateQueuedJobs();
   const app = await buildApp({
     logger,
@@ -67,7 +86,7 @@ async function bootstrap(): Promise<void> {
     usersStore,
     processor,
     billingService,
-    speechGenerator: gemini,
+    speechGenerator: aiService,
     authService,
     jobEvents
   });

@@ -20,7 +20,6 @@ interface BatchSlotState {
   video: File | null;
   title: string;
   description: string;
-  hashtagHintsText: string;
   contentType: ContentType;
   voiceGender: JobVoiceGender;
   tone: string;
@@ -49,7 +48,6 @@ function createEmptySlot(slotNumber: number): BatchSlotState {
     video: null,
     title: "",
     description: "",
-    hashtagHintsText: "",
     contentType: DEFAULT_CONTENT_TYPE,
     voiceGender: DEFAULT_VOICE_GENDER,
     tone: DEFAULT_TONE,
@@ -65,32 +63,11 @@ function createInitialSlots(): BatchSlotState[] {
   return Array.from({ length: MAX_BATCH_SLOTS }, (_, index) => createEmptySlot(index + 1));
 }
 
-function normalizeHashtagHints(text: string): string[] | undefined {
-  const result: string[] = [];
-  const seen = new Set<string>();
-
-  for (const item of text.split(/\r?\n|,/g)) {
-    const normalized = item.trim();
-    if (!normalized) {
-      continue;
-    }
-    const key = normalized.toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    result.push(normalized);
-  }
-
-  return result.length ? result : undefined;
-}
-
 function isSlotEmpty(slot: BatchSlotState): boolean {
   return (
     !slot.video &&
     !slot.title.trim() &&
     !slot.description.trim() &&
-    !slot.hashtagHintsText.trim() &&
     !slot.ctaText.trim() &&
     !slot.referenceLink.trim() &&
     slot.contentType === DEFAULT_CONTENT_TYPE &&
@@ -189,6 +166,7 @@ function isServerOverloadError(error: unknown): boolean {
 
 export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: GeneratePageProps) {
   const [slots, setSlots] = useState<BatchSlotState[]>(() => createInitialSlots());
+  const [activeSlotCount, setActiveSlotCount] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [summary, setSummary] = useState<BatchSummary | null>(null);
@@ -196,6 +174,8 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
 
   const canGenerate = currentUser.isUnlimited || currentUser.walletBalanceIdr >= currentUser.generatePriceIdr;
   const isServerOverloaded = Boolean(capacity?.overloaded);
+  const visibleSlots = slots.slice(0, activeSlotCount);
+  const canAddSlot = activeSlotCount < MAX_BATCH_SLOTS;
 
   useEffect(() => {
     let mounted = true;
@@ -298,6 +278,10 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
     );
   };
 
+  const onAddSlot = () => {
+    setActiveSlotCount((current) => Math.min(current + 1, MAX_BATCH_SLOTS));
+  };
+
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
@@ -313,10 +297,10 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
       return;
     }
 
-    const incompleteSlots = slots
+    const incompleteSlots = visibleSlots
       .filter((slot) => !isSlotEmpty(slot) && !isSlotReady(slot))
       .map((slot) => slot.slotNumber);
-    const readySlots = slots.filter((slot) => isSlotReady(slot));
+    const readySlots = visibleSlots.filter((slot) => isSlotReady(slot));
 
     markIncompleteSlots(incompleteSlots);
 
@@ -335,6 +319,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
     setLoading(true);
     const successJobs: BatchSummary["successJobs"] = [];
     const failedSlots: BatchSummary["failedSlots"] = [];
+    let nextJobIdToView: string | undefined;
 
     try {
       for (const slot of readySlots) {
@@ -345,7 +330,6 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
             video: slot.video as File,
             title: slot.title.trim(),
             description: slot.description.trim(),
-            hashtagHints: normalizeHashtagHints(slot.hashtagHintsText),
             contentType: slot.contentType,
             voiceGender: slot.voiceGender,
             tone: slot.tone.trim(),
@@ -384,8 +368,13 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
         failedSlots,
         incompleteSlots
       });
+      nextJobIdToView = successJobs[0]?.jobId;
     } finally {
       setLoading(false);
+    }
+
+    if (nextJobIdToView) {
+      onViewJobs(nextJobIdToView);
     }
   };
 
@@ -393,10 +382,10 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
     <section className="card app-page-card">
       <div className="section-heading compact">
         <span className="eyebrow">Buat Voice Over</span>
-        <h2>Siapkan voice over untuk sampai 10 video sekaligus</h2>
+        <h2>Mulai dari 1 slot, tambah sampai 10 video bila diperlukan</h2>
         <p>
-          Setiap slot berisi satu video dan satu arahan. Saat diproses, video yang sudah siap akan
-          dibuatkan voice over satu per satu, sementara slot kosong akan dilewati.
+          Form dimulai dari 1 slot. Jika Anda ingin menambah job, buka slot berikutnya satu per
+          satu dengan tombol tambah slot sampai maksimal 10 video.
         </p>
       </div>
 
@@ -438,7 +427,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
 
       <form onSubmit={onSubmit} className="grid-form">
         <div className="generate-batch-grid">
-          {slots.map((slot) => {
+          {visibleSlots.map((slot) => {
             const slotStatus = getSlotVisualStatus(slot);
             return (
               <section
@@ -459,7 +448,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
 
                 <div className="grid-form">
                   <label>
-                    Video
+                    Video <span className="required-mark">*</span>
                     <input
                       key={slot.fileInputKey}
                       type="file"
@@ -476,7 +465,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                   {slot.video ? <p className="small break-anywhere">{slot.video.name}</p> : null}
 
                   <label>
-                    Judul
+                    Judul <span className="required-mark">*</span>
                     <input
                       value={slot.title}
                       onChange={(event) =>
@@ -490,7 +479,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                   </label>
 
                   <label>
-                    Brief / Deskripsi
+                    Brief / Deskripsi <span className="required-mark">*</span>
                     <textarea
                       rows={5}
                       value={slot.description}
@@ -506,7 +495,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
 
                   <div className="form-grid-2">
                     <label>
-                      Kategori Konten
+                      Kategori Konten <span className="required-mark">*</span>
                       <select
                         value={slot.contentType}
                         onChange={(event) =>
@@ -525,7 +514,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                       </select>
                     </label>
                     <label>
-                      Gender Suara
+                      Gender Suara <span className="required-mark">*</span>
                       <select
                         value={slot.voiceGender}
                         onChange={(event) =>
@@ -547,7 +536,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
 
                   <div className="form-grid-2">
                     <label>
-                      Tone
+                      Tone <span className="required-mark">*</span>
                       <select
                         value={slot.tone}
                         onChange={(event) =>
@@ -596,27 +585,29 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                     />
                   </label>
 
-                  <label>
-                    Hashtag Arahan Opsional
-                    <textarea
-                      rows={3}
-                      value={slot.hashtagHintsText}
-                      placeholder="#affiliate, #fyp, organizer meja"
-                      onChange={(event) =>
-                        updateSlot(slot.slotNumber, (current) => ({
-                          ...current,
-                          hashtagHintsText: event.target.value
-                        }))
-                      }
-                      disabled={loading || !canGenerate}
-                    />
-                  </label>
-
                   {slot.error ? <p className="err-inline">{slot.error}</p> : null}
                 </div>
               </section>
             );
           })}
+        </div>
+
+        <div className="batch-slot-toolbar">
+          <p className="small">
+            Slot aktif {activeSlotCount}/{MAX_BATCH_SLOTS}
+          </p>
+          {canAddSlot ? (
+            <button
+              type="button"
+              className="primary-button"
+              onClick={onAddSlot}
+              disabled={loading || !canGenerate || isServerOverloaded}
+            >
+              Tambah Slot
+            </button>
+          ) : (
+            <span className="small">Batas maksimum 10 slot sudah tercapai.</span>
+          )}
         </div>
 
         <button

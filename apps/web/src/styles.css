@@ -475,10 +475,24 @@ nav,
   gap: 14px;
 }
 
+.batch-slot-toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+}
+
 .generate-batch-grid {
   display: grid;
   gap: 16px;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.required-mark {
+  color: #b4234b;
+  font-weight: 700;
 }
 
 .deposit-layout {

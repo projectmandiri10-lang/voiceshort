@@ -17,7 +17,6 @@ import { resetTestStorage } from "./helpers.js";
 function buildCreateForm(overrides?: {
   title?: string;
   description?: string;
-  hashtagHints?: string[];
   contentType?: string | null;
   voiceGender?: string;
   tone?: string;
@@ -31,9 +30,6 @@ function buildCreateForm(overrides?: {
   });
   form.append("title", overrides?.title ?? "Judul Tes");
   form.append("description", overrides?.description ?? "Deskripsi Tes");
-  if (overrides?.hashtagHints?.length) {
-    form.append("hashtagHints", JSON.stringify(overrides.hashtagHints));
-  }
   if (overrides?.contentType !== null) {
     form.append("contentType", overrides?.contentType ?? "affiliate");
   }
@@ -63,7 +59,6 @@ function buildJobRecord(
     ownerEmail: "creator@test.dev",
     title: "Job Satu",
     description: "Brief awal",
-    hashtagHints: ["#affiliate", "produk viral"],
     contentType: "affiliate",
     voiceGender: "female",
     tone: "natural",
@@ -123,6 +118,7 @@ describe("api integration", () => {
   const jobEvents = new JobEvents();
   const enqueueCalls: string[] = [];
   const openCalls: string[] = [];
+  const previewSpeechCalls: Array<Record<string, unknown>> = [];
   let processorOverloaded = false;
   let processorQueuedCount = 0;
   const processor = {
@@ -170,6 +166,7 @@ describe("api integration", () => {
   beforeEach(async () => {
     enqueueCalls.length = 0;
     openCalls.length = 0;
+    previewSpeechCalls.length = 0;
     processorOverloaded = false;
     processorQueuedCount = 0;
     probeDuration = async () => 30;
@@ -288,10 +285,13 @@ describe("api integration", () => {
         openCalls.push(folderPath);
       },
       speechGenerator: {
-        generateSpeech: async () => ({
+        generateSpeech: async (input) => {
+          previewSpeechCalls.push(input as Record<string, unknown>);
+          return {
           data: Buffer.from("preview-audio"),
           mimeType: "audio/wav"
-        })
+          };
+        }
       },
       writePreviewAudio: async (_data, _mimeType, outputPath) => {
         await mkdir(path.dirname(outputPath), { recursive: true });
@@ -309,7 +309,6 @@ describe("api integration", () => {
 
   it("creates a general job from multipart upload and consumes deposit credit", async () => {
     const form = buildCreateForm({
-      hashtagHints: ["#edukasi", "produk rumah"],
       contentType: "edukasi",
       voiceGender: "male",
       tone: "informatif",
@@ -334,7 +333,6 @@ describe("api integration", () => {
     expect(saved?.ownerEmail).toBe("creator@test.dev");
     expect(saved?.ownerUserId).toBe("user-creator");
     expect(saved?.contentType).toBe("edukasi");
-    expect(saved?.hashtagHints).toEqual(["#edukasi", "produk rumah"]);
     const user = await usersStore.getByEmail("creator@test.dev");
     expect(user?.videoQuotaUsed).toBe(1);
     expect(user?.walletBalanceIdr).toBe(18_000);
@@ -379,6 +377,28 @@ describe("api integration", () => {
       maxQueuedJobs: 20,
       maxRunningPerUser: 1
     });
+  });
+
+  it("creates a voice preview path through the speech generator", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/tts/preview",
+      payload: {
+        voiceName: "Leda",
+        speechRate: 1
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = response.json() as { voiceName: string; previewPath: string };
+    expect(payload.voiceName).toBe("Leda");
+    expect(payload.previewPath).toContain("/outputs/_voice_previews/");
+    expect(previewSpeechCalls[0]).toMatchObject({
+      model: DEFAULT_SETTINGS.ttsModel,
+      voiceName: "Leda",
+      speechRate: 1
+    });
+    expect(String(previewSpeechCalls[0]?.deliveryHint || "")).toContain("natural");
   });
 
   it("rejects create job with server overload before reserving credit", async () => {
@@ -635,7 +655,7 @@ describe("api integration", () => {
     expect(enqueueCalls).toEqual([]);
   });
 
-  it("updates editable job metadata including hashtag hints", async () => {
+  it("updates editable job metadata without hashtag hints", async () => {
     await jobsStore.create(
       buildJobRecord({
         jobId: "job-editable",
@@ -650,7 +670,6 @@ describe("api integration", () => {
       payload: {
         title: "Judul Baru",
         description: "Brief baru",
-        hashtagHints: ["#baru", "tema caption"],
         contentType: "motivasi",
         voiceGender: "male",
         tone: "tegas",
@@ -667,7 +686,6 @@ describe("api integration", () => {
       jobId: "job-editable",
       title: "Judul Baru",
       description: "Brief baru",
-      hashtagHints: ["#baru", "tema caption"],
       contentType: "motivasi",
       voiceGender: "male",
       tone: "tegas",

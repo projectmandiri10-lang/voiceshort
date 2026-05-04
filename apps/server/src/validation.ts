@@ -11,58 +11,6 @@ const optionalTextSchema = z.union([z.string(), z.undefined(), z.null()]).transf
   const normalized = String(value ?? "").trim();
   return normalized.length ? normalized : undefined;
 });
-
-function normalizeHashtagHints(values: string[]): string[] | undefined {
-  const result: string[] = [];
-  const seen = new Set<string>();
-
-  for (const value of values) {
-    const normalized = String(value ?? "").trim();
-    if (!normalized) {
-      continue;
-    }
-    const key = normalized.toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    result.push(normalized);
-  }
-
-  return result.length ? result : undefined;
-}
-
-function parseHashtagHintsInput(value: unknown): string[] | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item ?? ""));
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return undefined;
-    }
-
-    const parsed = JSON.parse(trimmed);
-    if (!Array.isArray(parsed)) {
-      throw new Error("hashtagHints harus berupa JSON array string.");
-    }
-    return parsed.map((item) => String(item ?? ""));
-  }
-
-  throw new Error("hashtagHints harus berupa array string.");
-}
-
-const optionalHashtagHintsSchema = z
-  .preprocess(
-    (value) => parseHashtagHintsInput(value),
-    z.array(z.string().trim().min(1).max(80)).max(20).optional()
-  )
-  .transform((value) => normalizeHashtagHints(value ?? []));
 const emailSchema = z.string().trim().email().transform((value) => value.toLowerCase());
 const passwordSchema = z.string().min(8).max(100);
 
@@ -95,7 +43,6 @@ export const settingsSchema = z.object({
 const jobInputSchema = z.object({
   title: nonEmptyTextSchema,
   description: nonEmptyTextSchema,
-  hashtagHints: optionalHashtagHintsSchema,
   contentType: contentTypeSchema,
   voiceGender: voiceGenderSchema,
   tone: nonEmptyTextSchema.max(80),
@@ -170,7 +117,6 @@ export function parseSettings(input: unknown): AppSettings {
 export function parseJobCreateInput(input: unknown): {
   title: string;
   description: string;
-  hashtagHints?: string[];
   contentType: ContentType;
   voiceGender: JobVoiceGender;
   tone: string;
@@ -183,7 +129,6 @@ export function parseJobCreateInput(input: unknown): {
 export function parseJobUpdateInput(input: unknown): {
   title: string;
   description: string;
-  hashtagHints?: string[];
   contentType: ContentType;
   voiceGender: JobVoiceGender;
   tone: string;

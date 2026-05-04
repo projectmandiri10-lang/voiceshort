@@ -6,10 +6,8 @@ import type { GenerationCapacity, JobRecord } from "../types.js";
 import { SettingsStore } from "../stores/settings-store.js";
 import { JobsStore } from "../stores/jobs-store.js";
 import { JobEvents } from "./job-events.js";
-import {
-  GeminiService,
-  InvalidGeminiStructuredOutputError
-} from "./gemini-service.js";
+import type { AiService } from "./ai-service.js";
+import { InvalidGeminiStructuredOutputError } from "./ai-service.js";
 import {
   buildCaptionPrompt,
   buildScriptPrompt,
@@ -134,7 +132,7 @@ export class JobProcessor implements IJobProcessor {
   public constructor(
     private readonly jobsStore: JobsStore,
     private readonly settingsStore: SettingsStore,
-    private readonly gemini: GeminiService,
+    private readonly aiService: AiService,
     private readonly logger: FastifyBaseLogger,
     private readonly jobEvents: JobEvents
   ) {}
@@ -328,7 +326,7 @@ export class JobProcessor implements IJobProcessor {
     let uploadedVideo;
     try {
       await this.setJobProgress(item.jobId, "analyzing");
-      uploadedVideo = await this.gemini.uploadVideo(job.videoPath, job.videoMimeType);
+      uploadedVideo = await this.aiService.uploadVideo(job.videoPath, job.videoMimeType);
     } catch (error) {
       await this.failJob(item.jobId, this.toErrorMessage(error));
       return;
@@ -366,7 +364,7 @@ export class JobProcessor implements IJobProcessor {
       try {
         await this.setJobProgress(item.jobId, "analyzing");
         const visualBriefPrompt = buildVisualBriefPrompt(promptInput);
-        const visualBrief = await this.gemini.generateVisualBrief({
+        const visualBrief = await this.aiService.generateVisualBrief({
           model: settings.scriptModel,
           prompt: visualBriefPrompt,
           video: uploadedVideo
@@ -377,7 +375,7 @@ export class JobProcessor implements IJobProcessor {
           ...promptInput,
           visualBrief
         });
-        scriptText = await this.gemini.generateScript({
+        scriptText = await this.aiService.generateScript({
           model: settings.scriptModel,
           prompt: scriptPrompt
         });
@@ -386,10 +384,9 @@ export class JobProcessor implements IJobProcessor {
         const captionPrompt = buildCaptionPrompt({
           ...promptInput,
           scriptText,
-          visualBrief,
-          hashtagHints: job.hashtagHints
+          visualBrief
         });
-        rawSocialMetadata = await this.gemini.generateCaptionMetadata({
+        rawSocialMetadata = await this.aiService.generateCaptionMetadata({
           model: settings.scriptModel,
           prompt: captionPrompt
         });
@@ -405,7 +402,7 @@ export class JobProcessor implements IJobProcessor {
 
         await this.setJobProgress(item.jobId, "scripting");
         const scriptPrompt = buildScriptPrompt(promptInput);
-        scriptText = await this.gemini.generateScript({
+        scriptText = await this.aiService.generateScript({
           model: settings.scriptModel,
           prompt: scriptPrompt,
           video: uploadedVideo
@@ -414,10 +411,9 @@ export class JobProcessor implements IJobProcessor {
         await this.setJobProgress(item.jobId, "captioning");
         const captionPrompt = buildCaptionPrompt({
           ...promptInput,
-          scriptText,
-          hashtagHints: job.hashtagHints
+          scriptText
         });
-        rawSocialMetadata = await this.gemini.generateCaptionMetadata({
+        rawSocialMetadata = await this.aiService.generateCaptionMetadata({
           model: settings.scriptModel,
           prompt: captionPrompt,
           video: uploadedVideo
@@ -433,11 +429,12 @@ export class JobProcessor implements IJobProcessor {
 
       await this.setJobProgress(item.jobId, "synthesizing");
       const voiceProfile = await this.settingsStore.getVoiceForGender(job.voiceGender);
-      const audio = await this.gemini.generateSpeech({
+      const audio = await this.aiService.generateSpeech({
         model: settings.ttsModel,
         text: scriptText,
         voiceName: voiceProfile.voiceName,
-        speechRate: voiceProfile.speechRate
+        speechRate: voiceProfile.speechRate,
+        deliveryHint: job.tone
       });
       await writeWav24kMono(audio.data, audio.mimeType, voicePath, voiceProfile.speechRate);
 

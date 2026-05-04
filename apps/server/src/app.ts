@@ -651,7 +651,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         model: settings.ttsModel,
         text: sampleText,
         voiceName: voice.voiceName,
-        speechRate: payload.speechRate
+        speechRate: payload.speechRate,
+        deliveryHint: `${voice.tone.toLowerCase()} dan natural untuk voice over video short berbahasa Indonesia`
       });
 
       const previewDir = path.join(OUTPUTS_DIR, "_voice_previews");
@@ -791,7 +792,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           ...current,
           title: payload.title,
           description: payload.description,
-          hashtagHints: payload.hashtagHints,
           contentType: payload.contentType,
           voiceGender: payload.voiceGender,
           tone: payload.tone,
@@ -1029,7 +1029,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         ownerEmail: authContext.user.email,
         title: payload.title,
         description: payload.description,
-        hashtagHints: payload.hashtagHints,
         contentType: payload.contentType,
         voiceGender: payload.voiceGender,
         tone: payload.tone,

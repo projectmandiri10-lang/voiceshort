@@ -327,11 +327,6 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
                   <strong>Link Referensi:</strong> {selected.referenceLink}
                 </p>
               ) : null}
-              {selected.hashtagHints?.length ? (
-                <p className="break-anywhere">
-                  <strong>Hashtag Arahan:</strong> {selected.hashtagHints.join(", ")}
-                </p>
-              ) : null}
 
               {captionOutputPath || selected.output.finalVideoPath ? (
                 <div className="output-links">

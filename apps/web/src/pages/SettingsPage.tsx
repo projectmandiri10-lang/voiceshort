@@ -1,5 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { fetchSettings, fetchTtsVoices, previewTtsVoice, updateSettings } from "../api";
+import {
+  fetchSettings,
+  fetchTtsVoices,
+  previewTtsVoice,
+  resolveOutputUrl,
+  updateSettings
+} from "../api";
 import type { AppSettings, JobVoiceGender, TtsVoiceOption } from "../types";
 
 const GENDER_LABEL: Record<JobVoiceGender, string> = {
@@ -13,13 +19,6 @@ function findVoiceConfig(settings: AppSettings, gender: JobVoiceGender) {
 
 function voiceMatchesGender(voice: TtsVoiceOption, gender: JobVoiceGender): boolean {
   return voice.gender === gender || voice.gender === "neutral";
-}
-
-function toAbsoluteOutputUrl(outputPath: string): string {
-  if (typeof window === "undefined") {
-    return outputPath;
-  }
-  return new URL(outputPath, window.location.origin).toString();
 }
 
 export function SettingsPage() {
@@ -212,7 +211,7 @@ export function SettingsPage() {
                   <audio
                     className="audio-preview"
                     controls
-                    src={toAbsoluteOutputUrl(previewPaths[gender] || "")}
+                    src={resolveOutputUrl(previewPaths[gender] || "")}
                   />
                 ) : null}
               </article>

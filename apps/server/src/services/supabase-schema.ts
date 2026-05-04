@@ -41,7 +41,6 @@ export interface JobRow {
   owner_email: string | null;
   title: string;
   description: string;
-  hashtag_hints: string[] | null;
   content_type: JobRecord["contentType"];
   voice_gender: JobRecord["voiceGender"];
   tone: string;
@@ -165,7 +164,6 @@ export function jobRowToRecord(row: JobRow): JobRecord {
     updatedAt: row.updated_at,
     title: row.title,
     description: row.description,
-    hashtagHints: row.hashtag_hints?.length ? [...row.hashtag_hints] : undefined,
     contentType: row.content_type,
     voiceGender: row.voice_gender,
     tone: row.tone,
@@ -194,7 +192,6 @@ export function jobRecordToRow(job: JobRecord): JobRow {
     updated_at: job.updatedAt,
     title: job.title,
     description: job.description,
-    hashtag_hints: job.hashtagHints?.length ? [...job.hashtagHints] : null,
     content_type: job.contentType,
     voice_gender: job.voiceGender,
     tone: job.tone,

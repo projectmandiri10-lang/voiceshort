@@ -80,7 +80,6 @@ export interface JobRecord {
   ownerEmail?: string;
   title: string;
   description: string;
-  hashtagHints?: string[];
   contentType: ContentType;
   voiceGender: JobVoiceGender;
   tone: string;
@@ -139,9 +138,11 @@ export interface AdminUserRecord extends AuthSessionUser {
   hasPassword: boolean;
 }
 
-export interface UploadedGeminiVideo {
-  fileUri: string;
+export interface UploadedAiFile {
+  provider: "gemini" | "litellm";
   mimeType: string;
+  fileUri?: string;
+  fileId?: string;
 }
 
 export interface VisualBriefHook {
@@ -172,19 +173,19 @@ export interface VisualBrief {
 export interface GenerateScriptInput {
   model: string;
   prompt: string;
-  video?: UploadedGeminiVideo;
+  video?: UploadedAiFile;
 }
 
 export interface GenerateCaptionMetadataInput {
   model: string;
   prompt: string;
-  video?: UploadedGeminiVideo;
+  video?: UploadedAiFile;
 }
 
 export interface GenerateVisualBriefInput {
   model: string;
   prompt: string;
-  video: UploadedGeminiVideo;
+  video: UploadedAiFile;
 }
 
 export interface GenerateSpeechInput {
@@ -192,6 +193,7 @@ export interface GenerateSpeechInput {
   text: string;
   voiceName: string;
   speechRate: number;
+  deliveryHint?: string;
 }
 
 export interface TtsVoiceOption {

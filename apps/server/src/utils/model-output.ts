@@ -263,6 +263,39 @@ export function extractTextFromResponse(response: unknown): string {
     }
   }
 
+  const choices = (response as { choices?: unknown[] }).choices;
+  if (Array.isArray(choices) && choices.length) {
+    const message = (choices[0] as {
+      message?: {
+        content?:
+          | string
+          | Array<{
+              type?: string;
+              text?: string;
+            }>;
+      };
+    })?.message;
+
+    if (typeof message?.content === "string") {
+      return message.content.trim();
+    }
+
+    if (Array.isArray(message?.content)) {
+      const texts = message.content
+        .map((part) => {
+          if (typeof part?.text === "string") {
+            return part.text.trim();
+          }
+          return "";
+        })
+        .filter(Boolean);
+
+      if (texts.length) {
+        return texts.join("\n").trim();
+      }
+    }
+  }
+
   const candidates = (response as { candidates?: unknown[] }).candidates;
   if (!Array.isArray(candidates) || !candidates.length) {
     return "";
@@ -319,6 +352,31 @@ export interface ExtractedAudio {
 }
 
 export function extractAudioFromResponse(response: unknown): ExtractedAudio {
+  const choices = (response as { choices?: unknown[] })?.choices;
+  if (Array.isArray(choices) && choices.length) {
+    const message = (choices[0] as {
+      message?: {
+        audio?: {
+          data?: string;
+          format?: string;
+          mime_type?: string;
+        };
+      };
+    })?.message;
+
+    if (message?.audio?.data) {
+      const format = (message.audio.format || "").trim().toLowerCase();
+      const mimeType =
+        message.audio.mime_type ||
+        (format === "pcm16" ? "audio/pcm;rate=24000" : "audio/wav");
+
+      return {
+        data: Buffer.from(message.audio.data, "base64"),
+        mimeType
+      };
+    }
+  }
+
   const candidates = (response as { candidates?: unknown[] })?.candidates;
   if (!Array.isArray(candidates) || !candidates.length) {
     throw new Error("Respons TTS tidak memiliki kandidat audio.");

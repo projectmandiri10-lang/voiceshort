@@ -1,11 +1,13 @@
 import { GoogleGenAI } from "@google/genai/node";
 import type { FastifyBaseLogger } from "fastify";
+import type { AiService } from "./ai-service.js";
+import { InvalidGeminiStructuredOutputError } from "./ai-service.js";
 import type {
   GenerateCaptionMetadataInput,
   GenerateScriptInput,
   GenerateSpeechInput,
   GenerateVisualBriefInput,
-  UploadedGeminiVideo
+  UploadedAiFile
 } from "../types.js";
 import { withRetry } from "../utils/retry.js";
 import {
@@ -14,6 +16,8 @@ import {
   extractSocialMetadata,
   extractVisualBrief
 } from "../utils/model-output.js";
+
+export { InvalidGeminiStructuredOutputError } from "./ai-service.js";
 
 const FILE_READY_POLL_INTERVAL_MS = 2000;
 const FILE_READY_MAX_ATTEMPTS = 30;
@@ -24,16 +28,6 @@ interface ParsedGeminiApiError {
   status?: string;
   retryDelayMs?: number;
   quotaId?: string;
-}
-
-export class InvalidGeminiStructuredOutputError extends Error {
-  public readonly outputType: "visualBrief";
-
-  public constructor(outputType: "visualBrief", message: string) {
-    super(message);
-    this.name = "InvalidGeminiStructuredOutputError";
-    this.outputType = outputType;
-  }
 }
 
 function parseRetryDelayMs(raw?: string): number | undefined {
@@ -135,7 +129,7 @@ function retryDelayMs(error: unknown, _attempt: number, fallbackDelayMs: number)
   return Math.min(Math.max(fromApi, fallbackDelayMs), MAX_RETRY_DELAY_MS);
 }
 
-export class GeminiService {
+export class GeminiService implements AiService {
   private readonly client: GoogleGenAI;
 
   public constructor(
@@ -145,9 +139,13 @@ export class GeminiService {
     this.client = new GoogleGenAI({ apiKey });
   }
 
-  private buildUserParts(prompt: string, video?: UploadedGeminiVideo) {
+  private buildUserParts(prompt: string, video?: UploadedAiFile) {
     if (!video) {
       return [{ text: prompt }];
+    }
+
+    if (!video.fileUri) {
+      throw new Error("Referensi file Gemini tidak memiliki fileUri.");
     }
 
     return [
@@ -164,7 +162,7 @@ export class GeminiService {
   private async generateUserContent(input: {
     model: string;
     prompt: string;
-    video?: UploadedGeminiVideo;
+    video?: UploadedAiFile;
     config?: Record<string, unknown>;
   }) {
     return await this.client.models.generateContent({
@@ -182,7 +180,7 @@ export class GeminiService {
   public async uploadVideo(
     filePath: string,
     mimeType: string
-  ): Promise<UploadedGeminiVideo> {
+  ): Promise<UploadedAiFile> {
     const uploaded = await withRetry(
       async () =>
         this.client.files.upload({
@@ -206,6 +204,7 @@ export class GeminiService {
     await this.waitUntilFileActive(uploaded.name);
 
     return {
+      provider: "gemini",
       fileUri: uploaded.uri,
       mimeType: uploaded.mimeType
     };

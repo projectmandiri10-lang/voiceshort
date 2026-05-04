@@ -59,6 +59,7 @@ describe("gemini service", () => {
       model: "gemini-test",
       prompt: "Analisis video ini.",
       video: {
+        provider: "gemini",
         fileUri: "mock://video",
         mimeType: "video/mp4"
       }
@@ -112,6 +113,7 @@ describe("gemini service", () => {
       model: "gemini-test",
       prompt: "Analisis video ini.",
       video: {
+        provider: "gemini",
         fileUri: "mock://video",
         mimeType: "video/mp4"
       }

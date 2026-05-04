@@ -121,6 +121,7 @@ describe("job processor", () => {
 
     const gemini = {
       uploadVideo: vi.fn(async () => ({
+        provider: "gemini",
         fileUri: "mock://video",
         mimeType: "video/mp4"
       })),
@@ -147,6 +148,7 @@ describe("job processor", () => {
     expect(gemini.generateScript).toHaveBeenCalledTimes(1);
     expect(gemini.generateCaptionMetadata).toHaveBeenCalledTimes(1);
     expect(gemini.generateSpeech).toHaveBeenCalledTimes(1);
+    expect(gemini.generateSpeech.mock.calls[0][0].deliveryHint).toBe("hangat");
     expect(gemini.generateVisualBrief.mock.invocationCallOrder[0]).toBeLessThan(
       gemini.generateScript.mock.invocationCallOrder[0]
     );
@@ -180,6 +182,7 @@ describe("job processor", () => {
 
     const gemini = {
       uploadVideo: vi.fn(async () => ({
+        provider: "gemini",
         fileUri: "mock://video",
         mimeType: "video/mp4"
       })),
@@ -211,10 +214,12 @@ describe("job processor", () => {
     expect(gemini.generateScript).toHaveBeenCalledTimes(1);
     expect(gemini.generateCaptionMetadata).toHaveBeenCalledTimes(1);
     expect(gemini.generateScript.mock.calls[0][0].video).toEqual({
+      provider: "gemini",
       fileUri: "mock://video",
       mimeType: "video/mp4"
     });
     expect(gemini.generateCaptionMetadata.mock.calls[0][0].video).toEqual({
+      provider: "gemini",
       fileUri: "mock://video",
       mimeType: "video/mp4"
     });
@@ -248,6 +253,7 @@ describe("job processor", () => {
       jobs.map((job) => [
         job.jobId,
         createDeferred<{
+          provider: "gemini";
           fileUri: string;
           mimeType: string;
         }>()
@@ -285,6 +291,7 @@ describe("job processor", () => {
 
     for (const job of jobs) {
       uploadDefers.get(job.jobId)!.resolve({
+        provider: "gemini",
         fileUri: `mock://${job.jobId}`,
         mimeType: "video/mp4"
       });
@@ -318,6 +325,7 @@ describe("job processor", () => {
       jobs.map((job) => [
         job.jobId,
         createDeferred<{
+          provider: "gemini";
           fileUri: string;
           mimeType: string;
         }>()
@@ -354,6 +362,7 @@ describe("job processor", () => {
     expect(uploadStarted).toEqual(["user-a-1", "user-b-1"]);
 
     uploadDefers.get("user-a-1")!.resolve({
+      provider: "gemini",
       fileUri: "mock://user-a-1",
       mimeType: "video/mp4"
     });
@@ -368,6 +377,7 @@ describe("job processor", () => {
         continue;
       }
       deferred.resolve({
+        provider: "gemini",
         fileUri: `mock://${jobId}`,
         mimeType: "video/mp4"
       });
@@ -388,6 +398,7 @@ describe("job processor", () => {
 
     const gemini = {
       uploadVideo: vi.fn(async () => ({
+        provider: "gemini",
         fileUri: "mock://video",
         mimeType: "video/mp4"
       })),

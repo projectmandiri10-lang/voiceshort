@@ -20,7 +20,11 @@ export interface ScriptPromptInput extends PromptInput {
 export interface CaptionPromptInput extends PromptInput {
   scriptText: string;
   visualBrief?: VisualBrief;
-  hashtagHints?: string[];
+}
+
+export interface SpeechSynthesisPromptInput {
+  text: string;
+  deliveryHint?: string;
 }
 
 export function estimateWordRange(durationSec: number): {
@@ -70,17 +74,6 @@ function buildContextLines(input: PromptInput): string[] {
     `Voice talent yang diminta: ${voiceGenderLabel(input.voiceGender)}.`,
     `Batas safety mode: ${input.settings.safetyMode}`,
     `Durasi video: ${input.videoDurationSec.toFixed(2)} detik.`
-  ];
-}
-
-function buildHashtagHintLines(hashtagHints?: string[]): string[] {
-  if (!hashtagHints?.length) {
-    return ["Arahan hashtag user: tidak ada"];
-  }
-
-  return [
-    `Arahan hashtag user: ${hashtagHints.join(", ")}`,
-    "Gunakan arahan hashtag ini hanya sebagai referensi tema/tag bila relevan dengan caption dan visual."
   ];
 }
 
@@ -209,11 +202,30 @@ export function buildCaptionPrompt(input: CaptionPromptInput): string {
     `Arah isi: ${content.briefFocus}.`,
     `Karakter delivery: ${content.deliveryStyle}.`,
     ...buildContextLines(input),
-    ...buildHashtagHintLines(input.hashtagHints),
     `Referensi naskah voice over: ${input.scriptText}`,
     "",
     ...buildVisualSourceLines(input.visualBrief),
     "",
     "Pastikan caption singkat, enak dibaca, dan cocok dipakai langsung untuk posting."
   ].join("\n");
+}
+
+export function buildSpeechSynthesisPrompt(input: SpeechSynthesisPromptInput): string {
+  const deliveryHint = input.deliveryHint?.trim();
+
+  return [
+    "Bacakan naskah berikut sebagai voice over video short berbahasa Indonesia.",
+    "Aturan penting:",
+    "- Baca teks persis seperti yang diberikan, tanpa menambah, mengurangi, atau mengubah kata.",
+    "- Delivery harus natural, realistis, percakapan, dan terdengar seperti manusia asli.",
+    "- Artikulasi jelas, tempo moderat, intonasi wajar, dan ekspresif seperlunya.",
+    "- Hindari gaya announcer iklan, hard sell, radio promo, atau pembacaan yang terlalu dibuat-buat.",
+    "- Jeda dan penekanan boleh alami, tetapi isi teks harus tetap sama.",
+    deliveryHint ? `- Nuansa tambahan yang diinginkan: ${deliveryHint}.` : "",
+    "",
+    "Naskah yang harus dibacakan:",
+    input.text
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
