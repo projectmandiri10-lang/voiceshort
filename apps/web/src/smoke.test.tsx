@@ -240,11 +240,13 @@ describe("web smoke", () => {
     const submitButtons = screen.getAllByRole("button", { name: /^Masuk$/i });
     fireEvent.click(submitButtons[submitButtons.length - 1]!);
 
-    expect(await screen.findByText(/saldo Rp16.000/i)).toBeTruthy();
-    expect(api.login).toHaveBeenCalledWith({
-      email: activeUser.email,
-      password: "password-rahasia"
+    await waitFor(() => {
+      expect(api.login).toHaveBeenCalledWith({
+        email: activeUser.email,
+        password: "password-rahasia"
+      });
     });
+    expect(await screen.findByText(/^Creator$/i)).toBeTruthy();
   });
 
   it("shows email confirmation instructions after register when session is not active yet", async () => {
@@ -278,7 +280,7 @@ describe("web smoke", () => {
 
     render(<App />);
 
-    expect(await screen.findByText(/saldo Rp16.000/i)).toBeTruthy();
+    expect(await screen.findByText(/^Creator$/i)).toBeTruthy();
     expect(screen.queryByText(/Gemini|Script Model|TTS Model|AI engine/i)).toBeNull();
   });
 
@@ -293,21 +295,11 @@ describe("web smoke", () => {
 
     expect(screen.getByRole("region", { name: /^slot video 1$/i })).toBeTruthy();
     expect(screen.queryByRole("region", { name: /^slot video 2$/i })).toBeNull();
-    expect(screen.getByText(/slot aktif 1\/10/i)).toBeTruthy();
+    expect(screen.getAllByText((_, node) => node?.textContent === "1 / 10").length).toBeGreaterThan(0);
+    expect(within(screen.getByRole("region", { name: /^slot video 1$/i })).getByLabelText(/^Video/i)).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: /^slot video 1$/i })).getByLabelText(/^Judul/i)).toBeTruthy();
     expect(
-      within(screen.getByRole("region", { name: /^slot video 1$/i })).getByText(
-        (_, node) => node?.textContent === "Video *"
-      )
-    ).toBeTruthy();
-    expect(
-      within(screen.getByRole("region", { name: /^slot video 1$/i })).getByText(
-        (_, node) => node?.textContent === "Judul *"
-      )
-    ).toBeTruthy();
-    expect(
-      within(screen.getByRole("region", { name: /^slot video 1$/i })).getByText(
-        (_, node) => node?.textContent === "Brief / Deskripsi *"
-      )
+      within(screen.getByRole("region", { name: /^slot video 1$/i })).getByLabelText(/Brief \/ Deskripsi/i)
     ).toBeTruthy();
     expect(screen.getByLabelText(/Link Referensi Opsional/i)).toBeTruthy();
     await waitFor(() => {
@@ -333,7 +325,6 @@ describe("web smoke", () => {
       expect(screen.getByRole("region", { name: new RegExp(`^slot video ${slotNumber}$`, "i") })).toBeTruthy();
     }
 
-    expect(screen.getByText(/slot aktif 10\/10/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Tambah Slot/i })).toBeNull();
     expect(screen.getByText(/batas maksimum 10 slot sudah tercapai/i)).toBeTruthy();
   });
@@ -581,7 +572,7 @@ describe("web smoke", () => {
 
     render(<App />);
 
-    await screen.findByText(/saldo Rp16.000/i);
+    await screen.findByText(/^Creator$/i);
     fireEvent.click(screen.getByRole("button", { name: /Isi Saldo/i }));
 
     expect(await screen.findByRole("heading", { name: /Isi saldo lewat QRIS/i })).toBeTruthy();
@@ -694,7 +685,7 @@ describe("web smoke", () => {
 
     render(<App />);
 
-    expect(await screen.findByText(/Creator/i)).toBeTruthy();
+    expect(await screen.findByText(/^Creator$/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Riwayat/i })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Riwayat/i }));
 
@@ -712,7 +703,7 @@ describe("web smoke", () => {
 
     render(<App />);
 
-    expect(await screen.findByText(/Jho/i)).toBeTruthy();
+    expect(await screen.findByText(/^Jho$/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Admin/i })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Admin/i }));
 

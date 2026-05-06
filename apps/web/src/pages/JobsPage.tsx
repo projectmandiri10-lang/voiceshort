@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { FolderOpen, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import {
   deleteJob,
   fetchJobDetail,
@@ -6,7 +7,7 @@ import {
   openJobOutputLocation,
   resolveOutputUrl,
   retryJob,
-  subscribeToJobEvents
+  subscribeToJobEvents,
 } from "../api";
 import { StatusBadge } from "../components/StatusBadge";
 import { CONTENT_LABEL, GENDER_LABEL } from "../job-form-options";
@@ -31,6 +32,13 @@ function upsertJob(current: JobRecord[], nextJob: JobRecord): JobRecord[] {
   return next;
 }
 
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat("id-ID", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
 export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
   const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +61,9 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
     const nextJobs = await fetchJobs();
     setJobs(nextJobs);
     const nextSelected =
-      nextJobs.find((job) => job.jobId === preferredJobId) ?? nextJobs.find((job) => job.jobId === selectedJobId) ?? nextJobs[0];
+      nextJobs.find((job) => job.jobId === preferredJobId) ??
+      nextJobs.find((job) => job.jobId === selectedJobId) ??
+      nextJobs[0];
     if (nextSelected && nextSelected.jobId !== selectedJobId) {
       onSelectJob(nextSelected.jobId);
     }
@@ -70,8 +80,7 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
           return;
         }
         setJobs(nextJobs);
-        const nextSelected =
-          nextJobs.find((job) => job.jobId === selectedJobId) ?? nextJobs[0];
+        const nextSelected = nextJobs.find((job) => job.jobId === selectedJobId) ?? nextJobs[0];
         if (nextSelected && nextSelected.jobId !== selectedJobId) {
           onSelectJob(nextSelected.jobId);
         }
@@ -118,7 +127,7 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
     }
 
     let stopPolling: number | undefined;
-    let unsubscribe = subscribeToJobEvents(selected.jobId, {
+    const unsubscribe = subscribeToJobEvents(selected.jobId, {
       onJob: (nextJob) => {
         setJobs((current) => upsertJob(current, nextJob));
       },
@@ -138,7 +147,7 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
             // keep fallback polling silent
           }
         }, 5000);
-      }
+      },
     });
 
     return () => {
@@ -220,12 +229,14 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
     <section className="card app-page-card">
       <div className="job-toolbar">
         <div>
+          <span className="eyebrow">Riwayat</span>
           <h2>Riwayat Proses</h2>
           <p className="section-note">Pantau progress voice over dan unduh hasilnya saat sudah selesai.</p>
         </div>
         <div className="form-actions">
           <button type="button" onClick={() => void onRefresh()}>
-            Muat Ulang
+            <RefreshCw size={16} />
+            <span>Muat Ulang</span>
           </button>
         </div>
       </div>
@@ -234,21 +245,29 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
         <aside className="jobs-sidebar">
           <section className="section-card">
             <div className="row-head">
-              <h4>Daftar Proses</h4>
-              <span className="small">{jobs.length} item</span>
+              <div>
+                <h4>Daftar Proses</h4>
+                <p className="small">{jobs.length} item</p>
+              </div>
             </div>
+
             <div className="job-list">
               {jobs.length ? (
                 jobs.map((job) => (
                   <button
                     type="button"
                     key={job.jobId}
-                    className={selected?.jobId === job.jobId ? "tab job-item active" : "tab job-item"}
+                    className={selected?.jobId === job.jobId ? "job-item active" : "job-item"}
                     onClick={() => onSelectJob(job.jobId)}
                   >
-                    <strong>{job.title}</strong>
-                    <div className="small">{CONTENT_LABEL[job.contentType]}</div>
-                    <StatusBadge status={job.status} />
+                    <div className="grid-form">
+                      <div className="row-head">
+                        <strong>{job.title}</strong>
+                        <StatusBadge status={job.status} />
+                      </div>
+                      <span className="small">{CONTENT_LABEL[job.contentType]}</span>
+                      <span className="small">{formatDateTime(job.updatedAt)}</span>
+                    </div>
                   </button>
                 ))
               ) : (
@@ -264,12 +283,15 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
           ) : (
             <>
               <div className="job-panel-header">
-                <div>
-                  <div className="row-head">
+                <div className="row-head">
+                  <div>
+                    <span className="eyebrow">Detail</span>
                     <h3>Detail Proses</h3>
-                    <StatusBadge status={selected.status} />
+                    <p className="section-note">
+                      Progress akan bergerak otomatis selama proses masih berjalan.
+                    </p>
                   </div>
-                  <p className="section-note">Progress akan bergerak otomatis selama proses masih berjalan.</p>
+                  <StatusBadge status={selected.status} />
                 </div>
               </div>
 
@@ -347,14 +369,16 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
 
               <div className="form-actions section-divider">
                 <button type="button" onClick={() => void onOpenLocation()}>
-                  Buka Folder Output
+                  <FolderOpen size={16} />
+                  <span>Buka Folder Output</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => void onRetry()}
                   disabled={selected.status !== "failed" && selected.status !== "interrupted"}
                 >
-                  Coba Lagi
+                  <RotateCcw size={16} />
+                  <span>Coba Lagi</span>
                 </button>
                 <button
                   type="button"
@@ -362,7 +386,8 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
                   onClick={() => void onDelete()}
                   disabled={selected.status === "running"}
                 >
-                  Hapus Proses
+                  <Trash2 size={16} />
+                  <span>Hapus Proses</span>
                 </button>
               </div>
             </>

@@ -1,6 +1,6 @@
-﻿import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { CircleDollarSign, Gauge, Layers3, Plus, Sparkles, UploadCloud } from "lucide-react";
 import { ApiError, createJob, fetchGenerationCapacity } from "../api";
-import { useEffect } from "react";
 import { CONTENT_LABEL, GENDER_LABEL, TONE_OPTIONS } from "../job-form-options";
 import type { AuthUser, ContentType, GenerationCapacity, JobVoiceGender } from "../types";
 import { CONTENT_TYPES } from "../types";
@@ -42,6 +42,10 @@ interface GeneratePageProps {
   onViewJobs: (jobId?: string) => void;
 }
 
+function formatRupiah(value: number): string {
+  return `Rp${value.toLocaleString("id-ID")}`;
+}
+
 function createEmptySlot(slotNumber: number): BatchSlotState {
   return {
     slotNumber,
@@ -55,7 +59,7 @@ function createEmptySlot(slotNumber: number): BatchSlotState {
     referenceLink: "",
     fileInputKey: 0,
     submitState: "idle",
-    error: ""
+    error: "",
   };
 }
 
@@ -151,7 +155,7 @@ function buildOverloadedCapacity(
     maxRunningJobs: current?.maxRunningJobs ?? 3,
     maxQueuedJobs: current?.maxQueuedJobs ?? 20,
     maxRunningPerUser: current?.maxRunningPerUser ?? 1,
-    message
+    message,
   };
 }
 
@@ -176,6 +180,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
   const isServerOverloaded = Boolean(capacity?.overloaded);
   const visibleSlots = slots.slice(0, activeSlotCount);
   const canAddSlot = activeSlotCount < MAX_BATCH_SLOTS;
+  const readySlotsCount = visibleSlots.filter((slot) => isSlotReady(slot)).length;
 
   useEffect(() => {
     let mounted = true;
@@ -214,7 +219,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
         return {
           ...next,
           submitState: "idle",
-          error: ""
+          error: "",
         };
       })
     );
@@ -230,7 +235,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
         return {
           ...slot,
           submitState: "idle",
-          error: "Lengkapi video, judul, brief/deskripsi, kategori, gender suara, dan tone."
+          error: "Lengkapi video, judul, brief/deskripsi, kategori, gender suara, dan tone.",
         };
       })
     );
@@ -244,7 +249,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
         }
         return {
           ...createEmptySlot(slot.slotNumber),
-          fileInputKey: slot.fileInputKey + 1
+          fileInputKey: slot.fileInputKey + 1,
         };
       })
     );
@@ -257,7 +262,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
           ? {
               ...slot,
               submitState: "submitting",
-              error: ""
+              error: "",
             }
           : slot
       )
@@ -271,7 +276,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
           ? {
               ...slot,
               submitState: "failed",
-              error: message
+              error: message,
             }
           : slot
       )
@@ -334,19 +339,19 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
             voiceGender: slot.voiceGender,
             tone: slot.tone.trim(),
             ctaText: slot.ctaText.trim(),
-            referenceLink: slot.referenceLink.trim()
+            referenceLink: slot.referenceLink.trim(),
           });
 
           successJobs.push({
             slotNumber: slot.slotNumber,
-            jobId: result.jobId
+            jobId: result.jobId,
           });
           resetSlotAfterSuccess(slot.slotNumber);
         } catch (submitError) {
           const message = (submitError as Error).message;
           failedSlots.push({
             slotNumber: slot.slotNumber,
-            message
+            message,
           });
           setFailedState(slot.slotNumber, message);
           if (isServerOverloadError(submitError)) {
@@ -366,7 +371,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
       setSummary({
         successJobs,
         failedSlots,
-        incompleteSlots
+        incompleteSlots,
       });
       nextJobIdToView = successJobs[0]?.jobId;
     } finally {
@@ -379,56 +384,102 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
   };
 
   return (
-    <section className="card app-page-card">
+    <section className="card app-page-card generate-shell">
       <div className="section-heading compact">
-        <span className="eyebrow">Buat Voice Over</span>
-        <h2>Mulai dari 1 slot, tambah sampai 10 video bila diperlukan</h2>
-        <p>
-          Form dimulai dari 1 slot. Jika Anda ingin menambah job, buka slot berikutnya satu per
-          satu dengan tombol tambah slot sampai maksimal 10 video.
+        <span className="eyebrow">Batch Generator</span>
+        <h2>Buat voice over dari 1 sampai 10 slot video dalam satu workspace.</h2>
+        <p className="section-note">
+          Layout baru mengikuti cockpit canvas, tetapi aturan validasi, batas slot, dan proses submit
+          tetap sama seperti sebelumnya.
         </p>
       </div>
 
-      <div className="quota-banner">
-        <div>
-          <strong>
-            {currentUser.isUnlimited
-              ? "Saldo Unlimited"
-              : `Saldo deposit Rp${currentUser.walletBalanceIdr.toLocaleString("id-ID")}`}
-          </strong>
-          {currentUser.isUnlimited ? (
-            <p className="small">Akun whitelist dapat memproses video tanpa batas saldo.</p>
+      <div className="telemetry-grid">
+        <section className="monitor-banner">
+          <span className="eyebrow">Core Telemetry</span>
+          <h3>Active generation engine</h3>
+          <p className="section-note">
+            Pantau slot aktif, kapasitas antrean, dan kesiapan saldo sebelum mengeksekusi batch.
+          </p>
+          <div className="monitor-grid">
+            <div className="monitor-cell">
+              <Layers3 size={18} />
+              <strong>
+                {activeSlotCount} / {MAX_BATCH_SLOTS}
+              </strong>
+              <span className="small">Slot aktif</span>
+            </div>
+            <div className="monitor-cell">
+              <Gauge size={18} />
+              <strong>
+                {capacity?.runningCount ?? 0} / {capacity?.maxRunningJobs ?? 3}
+              </strong>
+              <span className="small">Job berjalan</span>
+            </div>
+            <div className="monitor-cell">
+              <Sparkles size={18} />
+              <strong>{readySlotsCount}</strong>
+              <span className="small">Slot siap submit</span>
+            </div>
+          </div>
+        </section>
+
+        <div className="grid-form">
+          <div className="quota-banner">
+            <div>
+              <strong>
+                {currentUser.isUnlimited
+                  ? "Saldo Unlimited"
+                  : `Saldo deposit ${formatRupiah(currentUser.walletBalanceIdr)}`}
+              </strong>
+              {currentUser.isUnlimited ? (
+                <p className="small">Akun whitelist dapat memproses video tanpa batas saldo.</p>
+              ) : (
+                <p className="small">
+                  Biaya {formatRupiah(currentUser.generatePriceIdr)} per video. Sisa estimasi:{" "}
+                  {currentUser.generateCreditsRemaining} video.
+                </p>
+              )}
+            </div>
+            {!canGenerate ? (
+              <span className="status status-failed">Perlu isi saldo</span>
+            ) : (
+              <span className="status status-success">Siap diproses</span>
+            )}
+          </div>
+
+          {isServerOverloaded ? (
+            <div className="notice-box notice-box-overload">
+              <div className="row-head">
+                <strong>Server overload</strong>
+                <span className="small">
+                  Aktif {capacity?.runningCount ?? 0}/{capacity?.maxRunningJobs ?? 3} | Antrean{" "}
+                  {capacity?.queuedCount ?? 0}/{capacity?.maxQueuedJobs ?? 20}
+                </span>
+              </div>
+              <p className="err-text">{capacity?.message || SERVER_OVERLOAD_FALLBACK}</p>
+            </div>
           ) : (
-            <p className="small">
-              Biaya Rp{currentUser.generatePriceIdr.toLocaleString("id-ID")} per video. Sisa estimasi:{" "}
-              {currentUser.generateCreditsRemaining} video.
-            </p>
+            <div className="notice-box">
+              <div className="row-head">
+                <strong>Status antrean</strong>
+                <span className="small">
+                  Queue {capacity?.queuedCount ?? 0}/{capacity?.maxQueuedJobs ?? 20}
+                </span>
+              </div>
+              <p className="section-note">
+                Saat antrean longgar, slot siap bisa langsung dikirim berurutan dari form ini.
+              </p>
+            </div>
           )}
         </div>
-        {!canGenerate ? (
-          <span className="status status-failed">Perlu isi saldo</span>
-        ) : (
-          <span className="status status-success">Siap diproses</span>
-        )}
       </div>
 
-      {isServerOverloaded ? (
-        <div className="notice-box notice-box-overload">
-          <div className="row-head">
-            <strong>Server overload</strong>
-            <span className="small">
-              Aktif {capacity?.runningCount ?? 0}/{capacity?.maxRunningJobs ?? 3} | Antrean{" "}
-              {capacity?.queuedCount ?? 0}/{capacity?.maxQueuedJobs ?? 20}
-            </span>
-          </div>
-          <p className="err-text">{capacity?.message || SERVER_OVERLOAD_FALLBACK}</p>
-        </div>
-      ) : null}
-
       <form onSubmit={onSubmit} className="grid-form">
-        <div className="generate-batch-grid">
+        <div className="slot-grid">
           {visibleSlots.map((slot) => {
             const slotStatus = getSlotVisualStatus(slot);
+
             return (
               <section
                 key={slot.slotNumber}
@@ -436,14 +487,12 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                 className="batch-slot-card"
                 aria-label={`Slot video ${slot.slotNumber}`}
               >
-                <div className="batch-slot-header">
+                <div className="slot-card-header">
                   <div>
                     <strong>Slot {slot.slotNumber}</strong>
                     <p className="small">Video ini akan diproses sebagai 1 hasil terpisah.</p>
                   </div>
-                  <span className={getSlotStatusClassName(slotStatus)}>
-                    {getSlotStatusLabel(slotStatus)}
-                  </span>
+                  <span className={getSlotStatusClassName(slotStatus)}>{getSlotStatusLabel(slotStatus)}</span>
                 </div>
 
                 <div className="grid-form">
@@ -456,13 +505,17 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                       onChange={(event) =>
                         updateSlot(slot.slotNumber, (current) => ({
                           ...current,
-                          video: event.target.files?.[0] || null
+                          video: event.target.files?.[0] || null,
                         }))
                       }
                       disabled={loading || !canGenerate}
                     />
+                    <div className="slot-dropzone" aria-hidden="true">
+                      <UploadCloud size={24} />
+                      <strong>{slot.video ? slot.video.name : "Unggah file MP4/MOV"}</strong>
+                      <span className="small">Maksimum 1 video per slot. File tersimpan lokal sampai submit.</span>
+                    </div>
                   </label>
-                  {slot.video ? <p className="small break-anywhere">{slot.video.name}</p> : null}
 
                   <label>
                     Judul <span className="required-mark">*</span>
@@ -471,10 +524,11 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                       onChange={(event) =>
                         updateSlot(slot.slotNumber, (current) => ({
                           ...current,
-                          title: event.target.value
+                          title: event.target.value,
                         }))
                       }
                       disabled={loading || !canGenerate}
+                      placeholder="Judul singkat untuk hasil voice over"
                     />
                   </label>
 
@@ -486,10 +540,11 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                       onChange={(event) =>
                         updateSlot(slot.slotNumber, (current) => ({
                           ...current,
-                          description: event.target.value
+                          description: event.target.value,
                         }))
                       }
                       disabled={loading || !canGenerate}
+                      placeholder="Tulis arahan utama, angle promosi, atau narasi yang diinginkan"
                     />
                   </label>
 
@@ -501,7 +556,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                         onChange={(event) =>
                           updateSlot(slot.slotNumber, (current) => ({
                             ...current,
-                            contentType: event.target.value as ContentType
+                            contentType: event.target.value as ContentType,
                           }))
                         }
                         disabled={loading || !canGenerate}
@@ -520,7 +575,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                         onChange={(event) =>
                           updateSlot(slot.slotNumber, (current) => ({
                             ...current,
-                            voiceGender: event.target.value as JobVoiceGender
+                            voiceGender: event.target.value as JobVoiceGender,
                           }))
                         }
                         disabled={loading || !canGenerate}
@@ -542,7 +597,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                         onChange={(event) =>
                           updateSlot(slot.slotNumber, (current) => ({
                             ...current,
-                            tone: event.target.value
+                            tone: event.target.value,
                           }))
                         }
                         disabled={loading || !canGenerate}
@@ -562,7 +617,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                         onChange={(event) =>
                           updateSlot(slot.slotNumber, (current) => ({
                             ...current,
-                            ctaText: event.target.value
+                            ctaText: event.target.value,
                           }))
                         }
                         disabled={loading || !canGenerate}
@@ -572,17 +627,19 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
 
                   <label>
                     Link Referensi Opsional
-                    <input
-                      value={slot.referenceLink}
-                      placeholder="https://..."
-                      onChange={(event) =>
-                        updateSlot(slot.slotNumber, (current) => ({
-                          ...current,
-                          referenceLink: event.target.value
-                        }))
-                      }
-                      disabled={loading || !canGenerate}
-                    />
+                    <div className="slot-inline-note">
+                      <input
+                        value={slot.referenceLink}
+                        placeholder="https://..."
+                        onChange={(event) =>
+                          updateSlot(slot.slotNumber, (current) => ({
+                            ...current,
+                            referenceLink: event.target.value,
+                          }))
+                        }
+                        disabled={loading || !canGenerate}
+                      />
+                    </div>
                   </label>
 
                   {slot.error ? <p className="err-inline">{slot.error}</p> : null}
@@ -590,33 +647,60 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
               </section>
             );
           })}
+
+          {canAddSlot ? (
+            <div className="slot-placeholder-card">
+              <div className="slot-dropzone">
+                <Plus size={28} />
+                <strong>Tambah Slot</strong>
+                <span className="small">Buka slot berikutnya sampai maksimum 10 video.</span>
+              </div>
+            </div>
+          ) : null}
         </div>
 
-        <div className="batch-slot-toolbar">
-          <p className="small">
-            Slot aktif {activeSlotCount}/{MAX_BATCH_SLOTS}
-          </p>
-          {canAddSlot ? (
+        <div className="sticky-action-bar">
+          <div className="sticky-action-summary">
+            <div className="sticky-action-count">
+              <span className="eyebrow">Active Channels</span>
+              <strong>
+                {activeSlotCount} / {MAX_BATCH_SLOTS}
+              </strong>
+            </div>
+            <div className="sticky-action-count">
+              <span className="eyebrow">System Calculation</span>
+              <strong>{currentUser.isUnlimited ? "Unlimited" : formatRupiah(currentUser.generatePriceIdr)}</strong>
+            </div>
+            <div className="sticky-action-count">
+              <span className="eyebrow">Ready Slots</span>
+              <strong>{readySlotsCount}</strong>
+            </div>
+          </div>
+
+          <div className="sticky-action-buttons">
+            {canAddSlot ? (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={onAddSlot}
+                disabled={loading || !canGenerate || isServerOverloaded}
+              >
+                <Plus size={16} />
+                <span>Tambah Slot</span>
+              </button>
+            ) : (
+              <span className="small">Batas maksimum 10 slot sudah tercapai.</span>
+            )}
             <button
-              type="button"
+              type="submit"
               className="primary-button"
-              onClick={onAddSlot}
               disabled={loading || !canGenerate || isServerOverloaded}
             >
-              Tambah Slot
+              <CircleDollarSign size={16} />
+              <span>{loading ? "Memproses video..." : "Proses Video yang Siap"}</span>
             </button>
-          ) : (
-            <span className="small">Batas maksimum 10 slot sudah tercapai.</span>
-          )}
+          </div>
         </div>
-
-        <button
-          type="submit"
-          className="primary-button"
-          disabled={loading || !canGenerate || isServerOverloaded}
-        >
-          {loading ? "Memproses video..." : "Proses Video yang Siap"}
-        </button>
       </form>
 
       {summary ? (
@@ -658,7 +742,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
           {summary.successJobs.length ? (
             <div className="form-actions">
               <button type="button" onClick={() => onViewJobs(summary.successJobs[0]?.jobId)}>
-                Buka Riwayat Proses
+                Lihat Riwayat Proses
               </button>
             </div>
           ) : null}
@@ -669,4 +753,3 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
     </section>
   );
 }
-

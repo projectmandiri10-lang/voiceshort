@@ -1,10 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Ban, Gift, Save, ShieldUser, UserPlus } from "lucide-react";
 import {
   createAdminUser,
   disableAdminUser,
   fetchAdminUsers,
   grantAdminUserPackage,
-  updateAdminUser
+  updateAdminUser,
 } from "../api";
 import type { AdminUserRecord, AssignedPackageCode, UserRole } from "../types";
 
@@ -32,20 +33,20 @@ const PACKAGE_LABEL: Record<AssignedPackageCode, string> = {
   "10_video": "10 video",
   "50_video": "50 video",
   "100_video": "100 video",
-  custom: "Custom"
+  custom: "Custom",
 };
 
 const PACKAGE_CREDIT: Record<Exclude<AssignedPackageCode, "custom">, number> = {
   "10_video": 20_000,
   "50_video": 100_000,
-  "100_video": 200_000
+  "100_video": 200_000,
 };
 
 function formatRupiah(value: number): string {
   return new Intl.NumberFormat("id-ID", {
     style: "currency",
     currency: "IDR",
-    maximumFractionDigits: 0
+    maximumFractionDigits: 0,
   }).format(value);
 }
 
@@ -57,7 +58,7 @@ function toDraft(user: AdminUserRecord): UserDraft {
     isUnlimited: user.isUnlimited,
     disabled: Boolean(user.disabledAt),
     disabledReason: user.disabledReason ?? "",
-    assignedPackageCode: user.assignedPackageCode ?? ""
+    assignedPackageCode: user.assignedPackageCode ?? "",
   };
 }
 
@@ -65,7 +66,7 @@ function defaultGrantDraft(user: AdminUserRecord): GrantDraft {
   return {
     packageCode: user.assignedPackageCode ?? "10_video",
     customAmountIdr: 20_000,
-    description: ""
+    description: "",
   };
 }
 
@@ -85,7 +86,7 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
     displayName: "",
     role: "user" as UserRole,
     subscriptionStatus: "active" as "active" | "inactive",
-    isUnlimited: false
+    isUnlimited: false,
   });
   const [loading, setLoading] = useState(true);
   const [savingEmail, setSavingEmail] = useState<string | null>(null);
@@ -133,7 +134,7 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
     setDrafts((current) => ({ ...current, [updated.email]: toDraft(updated) }));
     setGrantDrafts((current) => ({
       ...current,
-      [updated.email]: current[updated.email] ?? defaultGrantDraft(updated)
+      [updated.email]: current[updated.email] ?? defaultGrantDraft(updated),
     }));
     await onRefreshSession();
   };
@@ -150,7 +151,7 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
         displayName: createDraft.displayName.trim() || undefined,
         role: createDraft.role,
         subscriptionStatus: createDraft.subscriptionStatus,
-        isUnlimited: createDraft.isUnlimited
+        isUnlimited: createDraft.isUnlimited,
       });
       await syncUpdatedUser(created);
       setCreateDraft({
@@ -159,7 +160,7 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
         displayName: "",
         role: "user",
         subscriptionStatus: "active",
-        isUnlimited: false
+        isUnlimited: false,
       });
       setMessage(`User ${created.email} berhasil dibuat.`);
     } catch (createError) {
@@ -185,7 +186,7 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
         isUnlimited: draft.isUnlimited,
         disabled: draft.disabled,
         disabledReason: draft.disabledReason.trim() || undefined,
-        assignedPackageCode: draft.assignedPackageCode || null
+        assignedPackageCode: draft.assignedPackageCode || null,
       });
       await syncUpdatedUser(updated);
       setMessage(`User ${email} berhasil diperbarui.`);
@@ -225,7 +226,7 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
       const updated = await grantAdminUserPackage(email, {
         packageCode: draft.packageCode,
         customAmountIdr: draft.packageCode === "custom" ? draft.customAmountIdr : undefined,
-        description: draft.description.trim() || undefined
+        description: draft.description.trim() || undefined,
       });
       await syncUpdatedUser(updated);
       setMessage(`Saldo ${email} berhasil ditambahkan.`);
@@ -246,18 +247,21 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
   }
 
   return (
-    <section className="card admin-page">
+    <section className="card app-page-card">
       <div className="section-heading compact">
         <span className="eyebrow">Superadmin</span>
         <h2>Kelola user, akses, dan paket saldo</h2>
-        <p>
+        <p className="section-note">
           Buat user baru, ubah akses, nonaktifkan akun, atau tambahkan paket saldo tanpa membuat
           invoice pembayaran.
         </p>
       </div>
 
       <form className="notice-box grid-form" onSubmit={onCreate}>
-        <strong>Buat user baru</strong>
+        <div className="row-head">
+          <strong>Buat user baru</strong>
+          <UserPlus size={18} />
+        </div>
         <div className="form-grid-2">
           <label>
             Email
@@ -314,7 +318,8 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
           </span>
         </label>
         <button type="submit" className="primary-button" disabled={creating}>
-          {creating ? "Membuat user..." : "Buat User"}
+          <UserPlus size={16} />
+          <span>{creating ? "Membuat user..." : "Buat User"}</span>
         </button>
       </form>
 
@@ -325,6 +330,7 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
           const balanceLabel = user.isUnlimited
             ? "Saldo Unlimited"
             : `${formatRupiah(user.walletBalanceIdr)} (${user.generateCreditsRemaining ?? 0} video)`;
+
           return (
             <article className="admin-user-card" key={user.email}>
               <div className="row-head">
@@ -361,7 +367,7 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
                       onChange={(event) =>
                         setDrafts((current) => ({
                           ...current,
-                          [user.email]: { ...draft, displayName: event.target.value }
+                          [user.email]: { ...draft, displayName: event.target.value },
                         }))
                       }
                     />
@@ -373,7 +379,7 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
                       onChange={(event) =>
                         setDrafts((current) => ({
                           ...current,
-                          [user.email]: { ...draft, role: event.target.value as UserRole }
+                          [user.email]: { ...draft, role: event.target.value as UserRole },
                         }))
                       }
                     >
@@ -393,8 +399,8 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
                           ...current,
                           [user.email]: {
                             ...draft,
-                            subscriptionStatus: event.target.value as "active" | "inactive"
-                          }
+                            subscriptionStatus: event.target.value as "active" | "inactive",
+                          },
                         }))
                       }
                     >
@@ -411,8 +417,8 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
                           ...current,
                           [user.email]: {
                             ...draft,
-                            assignedPackageCode: event.target.value as AssignedPackageCode | ""
-                          }
+                            assignedPackageCode: event.target.value as AssignedPackageCode | "",
+                          },
                         }))
                       }
                     >
@@ -433,7 +439,7 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
                       onChange={(event) =>
                         setDrafts((current) => ({
                           ...current,
-                          [user.email]: { ...draft, isUnlimited: event.target.checked }
+                          [user.email]: { ...draft, isUnlimited: event.target.checked },
                         }))
                       }
                     />{" "}
@@ -449,7 +455,7 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
                       onChange={(event) =>
                         setDrafts((current) => ({
                           ...current,
-                          [user.email]: { ...draft, disabledReason: event.target.value }
+                          [user.email]: { ...draft, disabledReason: event.target.value },
                         }))
                       }
                     />
@@ -463,7 +469,8 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
                     disabled={savingEmail === user.email}
                     onClick={() => void onSave(user.email)}
                   >
-                    {savingEmail === user.email ? "Menyimpan..." : "Simpan User"}
+                    <Save size={16} />
+                    <span>{savingEmail === user.email ? "Menyimpan..." : "Simpan User"}</span>
                   </button>
                   <button
                     type="button"
@@ -471,13 +478,17 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
                     disabled={savingEmail === user.email}
                     onClick={() => void onToggleDisabled(user)}
                   >
-                    {user.disabledAt ? "Aktifkan User" : "Nonaktifkan User"}
+                    <Ban size={16} />
+                    <span>{user.disabledAt ? "Aktifkan User" : "Nonaktifkan User"}</span>
                   </button>
                 </div>
               </div>
 
               <div className="section-divider grid-form">
-                <strong>Assign paket / saldo</strong>
+                <div className="row-head">
+                  <strong>Assign paket / saldo</strong>
+                  <Gift size={18} />
+                </div>
                 <div className="form-grid-2">
                   <label>
                     Paket
@@ -488,8 +499,8 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
                           ...current,
                           [user.email]: {
                             ...grantDraft,
-                            packageCode: event.target.value as AssignedPackageCode
-                          }
+                            packageCode: event.target.value as AssignedPackageCode,
+                          },
                         }))
                       }
                     >
@@ -516,8 +527,8 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
                           ...current,
                           [user.email]: {
                             ...grantDraft,
-                            customAmountIdr: Number(event.target.value)
-                          }
+                            customAmountIdr: Number(event.target.value),
+                          },
                         }))
                       }
                     />
@@ -530,7 +541,7 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
                     onChange={(event) =>
                       setGrantDrafts((current) => ({
                         ...current,
-                        [user.email]: { ...grantDraft, description: event.target.value }
+                        [user.email]: { ...grantDraft, description: event.target.value },
                       }))
                     }
                     placeholder="Contoh: bonus kompensasi"
@@ -542,7 +553,8 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
                   disabled={grantingEmail === user.email}
                   onClick={() => void onGrantPackage(user.email)}
                 >
-                  {grantingEmail === user.email ? "Menambahkan..." : "Tambahkan Saldo"}
+                  <ShieldUser size={16} />
+                  <span>{grantingEmail === user.email ? "Menambahkan..." : "Tambahkan Saldo"}</span>
                 </button>
               </div>
             </article>

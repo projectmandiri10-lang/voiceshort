@@ -1,22 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
+import { FolderClock, Settings2, ShieldUser, Sparkles, WalletCards } from "lucide-react";
 import { completeGoogleOAuthRedirect, fetchSession, logout, subscribeToAuthState } from "./api";
+import { DashboardShell, type DashboardTabDefinition } from "./components/DashboardShell";
 import { navigateToRoute, parseCurrentRoute, type AppRoute, type AppView } from "./navigation";
+import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { DepositPage } from "./pages/DepositPage";
 import { GeneratePage } from "./pages/GeneratePage";
 import { JobsPage } from "./pages/JobsPage";
 import { LandingPage } from "./pages/LandingPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { AdminUsersPage } from "./pages/AdminUsersPage";
 import type { AuthUser } from "./types";
 
 type DashboardView = Exclude<AppView, "landing">;
 
-const TAB_LABEL: Record<DashboardView, string> = {
-  generate: "Buat Audio",
-  deposit: "Isi Saldo",
-  jobs: "Riwayat",
-  settings: "Pengaturan",
-  admin: "Admin"
+const TAB_META: Record<
+  DashboardView,
+  {
+    label: string;
+    icon: DashboardTabDefinition<DashboardView>["icon"];
+  }
+> = {
+  generate: { label: "Buat Audio", icon: Sparkles },
+  deposit: { label: "Isi Saldo", icon: WalletCards },
+  jobs: { label: "Riwayat", icon: FolderClock },
+  settings: { label: "Pengaturan", icon: Settings2 },
+  admin: { label: "Admin", icon: ShieldUser },
 };
 
 function getAllowedView(user: AuthUser | null, route: AppRoute): AppView {
@@ -47,6 +55,13 @@ export default function App() {
       ? ["generate", "deposit", "jobs", "settings", "admin"]
       : ["generate", "deposit", "jobs"];
   }, [user]);
+  const dashboardTabDefinitions = useMemo<DashboardTabDefinition<DashboardView>[]>(() => {
+    return dashboardTabs.map((tabId) => ({
+      id: tabId,
+      label: TAB_META[tabId].label,
+      icon: TAB_META[tabId].icon,
+    }));
+  }, [dashboardTabs]);
 
   const refreshSession = async () => {
     const nextUser = await fetchSession();
@@ -159,10 +174,11 @@ export default function App() {
 
   if (loadingSession) {
     return (
-      <main className="app-shell app-shell-loading">
+      <main className="app-shell-loading">
         <section className="card">
+          <span className="eyebrow">Booting Workspace</span>
           <h1>Voiceshort</h1>
-          <p>Memuat akun Anda...</p>
+          <p className="section-note">Memuat akun Anda...</p>
         </section>
       </main>
     );
@@ -174,7 +190,7 @@ export default function App() {
 
   if (user.disabledAt) {
     return (
-      <main className="app-shell app-shell-loading">
+      <main className="app-shell-loading">
         <section className="card app-page-card">
           <span className="eyebrow">Akun Nonaktif</span>
           <h1>Akun Anda sedang dinonaktifkan</h1>
@@ -191,39 +207,14 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell dashboard-shell">
-      <header className="topbar dashboard-topbar">
-        <div>
-          <span className="eyebrow">Voiceshort Dashboard</span>
-          <h1>Buat voice over video pendek dengan lebih cepat</h1>
-          <p className="section-note">
-            {user.displayName} | {user.email} |{" "}
-            {user.isUnlimited
-              ? "saldo Unlimited"
-              : `saldo Rp${user.walletBalanceIdr.toLocaleString("id-ID")}`}{" "}
-            | sisa generate {user.isUnlimited ? "Unlimited" : user.generateCreditsRemaining}
-          </p>
-        </div>
-        <div className="dashboard-topbar-actions">
-          <nav>
-            {dashboardTabs.map((tabId) => (
-              <button
-                key={tabId}
-                className={activeView === tabId ? "tab active" : "tab"}
-                onClick={() => onNavigate(tabId)}
-              >
-                {TAB_LABEL[tabId]}
-              </button>
-            ))}
-          </nav>
-          <button type="button" className="danger-button" onClick={() => void onLogout()}>
-            Logout
-          </button>
-        </div>
-      </header>
-
-      {sessionError ? <p className="err-text">{sessionError}</p> : null}
-
+    <DashboardShell
+      user={user}
+      activeView={activeView as DashboardView}
+      tabs={dashboardTabDefinitions}
+      sessionError={sessionError}
+      onNavigate={onNavigate}
+      onLogout={onLogout}
+    >
       {activeView === "generate" ? (
         <GeneratePage
           currentUser={user}
@@ -239,6 +230,6 @@ export default function App() {
       {activeView === "admin" && user.role === "superadmin" ? (
         <AdminUsersPage onRefreshSession={onRefreshSession} />
       ) : null}
-    </main>
+    </DashboardShell>
   );
 }
