@@ -195,6 +195,33 @@ async function apiFetch<T>(
   return parseResponse<T>(res);
 }
 
+async function buildAuthorizedApiUrl(path: string): Promise<string> {
+  const accessToken = await getAccessToken();
+  if (!accessToken) {
+    throw new ApiError(401, "Silakan login terlebih dahulu.");
+  }
+
+  const url = new URL(`${API_BASE}${path}`);
+  url.searchParams.set("access_token", accessToken);
+  return url.toString();
+}
+
+async function triggerBrowserDownload(path: string): Promise<void> {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    throw new Error("Download file hanya tersedia di browser.");
+  }
+
+  const url = await buildAuthorizedApiUrl(path);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "";
+  anchor.rel = "noreferrer";
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
 export function resolveOutputUrl(outputPath: string): string {
   if (/^https?:\/\//i.test(outputPath)) {
     return outputPath;
@@ -655,6 +682,14 @@ export async function deleteJob(jobId: string): Promise<void> {
   await apiFetch<{ ok: boolean }>(`/api/jobs/${jobId}`, {
     method: "DELETE"
   });
+}
+
+export async function downloadJobCaption(jobId: string): Promise<void> {
+  await triggerBrowserDownload(`/api/jobs/${jobId}/download/caption`);
+}
+
+export async function downloadJobFinalVideo(jobId: string): Promise<void> {
+  await triggerBrowserDownload(`/api/jobs/${jobId}/download/final-video`);
 }
 
 export async function retryJob(jobId: string): Promise<void> {

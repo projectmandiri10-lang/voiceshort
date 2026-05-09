@@ -224,7 +224,11 @@ export default function App() {
       ) : null}
       {activeView === "deposit" ? <DepositPage onRefreshSession={onRefreshSession} /> : null}
       {activeView === "jobs" ? (
-        <JobsPage selectedJobId={route.jobId} onSelectJob={(jobId) => onNavigate("jobs", { jobId })} />
+        <JobsPage
+          currentUser={user}
+          selectedJobId={route.jobId}
+          onSelectJob={(jobId) => onNavigate("jobs", { jobId })}
+        />
       ) : null}
       {activeView === "settings" && user.role === "superadmin" ? <SettingsPage /> : null}
       {activeView === "admin" && user.role === "superadmin" ? (

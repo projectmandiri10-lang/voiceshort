@@ -1,25 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
-import { FolderOpen, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
+import { Download, FolderOpen, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import {
   deleteJob,
+  downloadJobCaption,
+  downloadJobFinalVideo,
   fetchJobDetail,
   fetchJobs,
   openJobOutputLocation,
-  resolveOutputUrl,
   retryJob,
-  subscribeToJobEvents,
+  subscribeToJobEvents
 } from "../api";
+import {
+  getCaptionArtifactPath,
+  isCaptionDownloadComplete,
+  isFinalVideoDownloadComplete,
+  isJobPendingRequiredDownloads
+} from "../job-download-policy";
 import { StatusBadge } from "../components/StatusBadge";
 import { CONTENT_LABEL, GENDER_LABEL } from "../job-form-options";
-import type { JobRecord } from "../types";
+import type { AuthUser, JobRecord } from "../types";
 
 interface JobsPageProps {
+  currentUser: AuthUser;
   selectedJobId?: string;
   onSelectJob: (jobId: string) => void;
-}
-
-function getCaptionOutputPath(job: JobRecord): string | undefined {
-  return job.output.captionPath || job.output.scriptPath;
 }
 
 function upsertJob(current: JobRecord[], nextJob: JobRecord): JobRecord[] {
@@ -35,16 +39,17 @@ function upsertJob(current: JobRecord[], nextJob: JobRecord): JobRecord[] {
 function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat("id-ID", {
     dateStyle: "medium",
-    timeStyle: "short",
+    timeStyle: "short"
   }).format(new Date(value));
 }
 
-export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
+export function JobsPage({ currentUser, selectedJobId, onSelectJob }: JobsPageProps) {
   const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
   const [displayPercent, setDisplayPercent] = useState(0);
+  const [downloadingArtifact, setDownloadingArtifact] = useState<"" | "caption" | "finalVideo">("");
 
   const selected = useMemo(() => {
     if (!jobs.length) {
@@ -55,7 +60,15 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
 
   const selectedPercent = selected?.progress.percent ?? 0;
   const isLiveStatus = selected?.status === "queued" || selected?.status === "running";
-  const captionOutputPath = selected ? getCaptionOutputPath(selected) : undefined;
+  const captionOutputPath = selected ? getCaptionArtifactPath(selected) : undefined;
+  const captionDownloaded = selected ? isCaptionDownloadComplete(selected) : false;
+  const finalVideoDownloaded = selected ? isFinalVideoDownloadComplete(selected) : false;
+  const pendingRequiredDownloads = selected ? isJobPendingRequiredDownloads(selected) : false;
+  const isDeleteBlocked =
+    selected?.status === "running" ||
+    (selected?.status === "success" &&
+      pendingRequiredDownloads &&
+      currentUser.role !== "superadmin");
 
   const loadJobs = async (preferredJobId?: string) => {
     const nextJobs = await fetchJobs();
@@ -147,7 +160,7 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
             // keep fallback polling silent
           }
         }, 5000);
-      },
+      }
     });
 
     return () => {
@@ -216,6 +229,44 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
     }
   };
 
+  const refreshDownloadedJob = async (jobId: string) => {
+    const refreshed = await fetchJobDetail(jobId);
+    setJobs((current) => upsertJob(current, refreshed));
+    return refreshed;
+  };
+
+  const onDownload = async (artifact: "caption" | "finalVideo") => {
+    if (!selected) {
+      return;
+    }
+
+    setActionMessage("");
+    setActionError("");
+    setDownloadingArtifact(artifact);
+    try {
+      if (artifact === "caption") {
+        await downloadJobCaption(selected.jobId);
+      } else {
+        await downloadJobFinalVideo(selected.jobId);
+      }
+
+      const refreshed = await refreshDownloadedJob(selected.jobId);
+      const nowComplete =
+        isCaptionDownloadComplete(refreshed) && isFinalVideoDownloadComplete(refreshed);
+      setActionMessage(
+        nowComplete
+          ? "Semua file wajib sudah diunduh. Generate job baru sekarang sudah aktif kembali."
+          : artifact === "caption"
+            ? "Caption berhasil diunduh."
+            : "Final video berhasil diunduh."
+      );
+    } catch (downloadError) {
+      setActionError((downloadError as Error).message);
+    } finally {
+      setDownloadingArtifact("");
+    }
+  };
+
   if (loading) {
     return (
       <section className="card app-page-card">
@@ -231,7 +282,9 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
         <div>
           <span className="eyebrow">Riwayat</span>
           <h2>Riwayat Proses</h2>
-          <p className="section-note">Pantau progress voice over dan unduh hasilnya saat sudah selesai.</p>
+          <p className="section-note">
+            Pantau progress, unduh caption dan final video, lalu buka kembali generate job baru.
+          </p>
         </div>
         <div className="form-actions">
           <button type="button" onClick={() => void onRefresh()}>
@@ -304,7 +357,7 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
                   <div className="progress-value" style={{ width: `${displayPercent}%` }} />
                 </div>
                 {selected.status === "success" ? (
-                  <p className="ok-text">Voice over selesai dibuat. File hasil siap diunduh.</p>
+                  <p className="ok-text">Voice over selesai dibuat. Unduh caption dan final video dari tombol di bawah.</p>
                 ) : null}
                 {selected.errorMessage ? <p className="err-text break-anywhere">{selected.errorMessage}</p> : null}
               </div>
@@ -350,18 +403,74 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
                 </p>
               ) : null}
 
+              <div className="meta-grid">
+                <div className="meta-card">
+                  <span className="small">Status Caption</span>
+                  <strong>
+                    {!captionOutputPath
+                      ? "Tidak tersedia"
+                      : captionDownloaded
+                        ? "Sudah diunduh"
+                        : "Belum diunduh"}
+                  </strong>
+                </div>
+                <div className="meta-card">
+                  <span className="small">Status Final Video</span>
+                  <strong>
+                    {!selected.output.finalVideoPath
+                      ? "Tidak tersedia"
+                      : finalVideoDownloaded
+                        ? "Sudah diunduh"
+                        : "Belum diunduh"}
+                  </strong>
+                </div>
+              </div>
+
+              {selected.status === "success" && pendingRequiredDownloads ? (
+                <div className="notice-box notice-box-overload">
+                  <div className="row-head">
+                    <strong>Generate job baru masih terkunci</strong>
+                    <span className="small">Unduh file wajib dulu</span>
+                  </div>
+                  <p className="err-text">
+                    Anda harus mengunduh caption dan final video job ini terlebih dahulu sebelum
+                    membuat job baru.
+                  </p>
+                </div>
+              ) : null}
+
+              {selected.status === "success" && !pendingRequiredDownloads ? (
+                <p className="ok-text">
+                  Semua file wajib sudah diunduh. Generate job baru sekarang sudah aktif kembali.
+                </p>
+              ) : null}
+
               {captionOutputPath || selected.output.finalVideoPath ? (
                 <div className="output-links">
-                  {captionOutputPath ? (
-                    <a href={resolveOutputUrl(captionOutputPath)} target="_blank" rel="noreferrer">
-                      Download Caption
-                    </a>
-                  ) : null}
-                  {selected.output.finalVideoPath ? (
-                    <a href={resolveOutputUrl(selected.output.finalVideoPath)} target="_blank" rel="noreferrer">
-                      Download Final Video
-                    </a>
-                  ) : null}
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => void onDownload("caption")}
+                    disabled={!captionOutputPath || Boolean(downloadingArtifact)}
+                  >
+                    <Download size={16} />
+                    <span>
+                      {downloadingArtifact === "caption" ? "Mengunduh Caption..." : "Download Caption"}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => void onDownload("finalVideo")}
+                    disabled={!selected.output.finalVideoPath || Boolean(downloadingArtifact)}
+                  >
+                    <Download size={16} />
+                    <span>
+                      {downloadingArtifact === "finalVideo"
+                        ? "Mengunduh Final Video..."
+                        : "Download Final Video"}
+                    </span>
+                  </button>
                 </div>
               ) : (
                 <p className="small">File output akan muncul otomatis saat proses selesai.</p>
@@ -384,7 +493,7 @@ export function JobsPage({ selectedJobId, onSelectJob }: JobsPageProps) {
                   type="button"
                   className="danger-button"
                   onClick={() => void onDelete()}
-                  disabled={selected.status === "running"}
+                  disabled={isDeleteBlocked}
                 >
                   <Trash2 size={16} />
                   <span>Hapus Proses</span>

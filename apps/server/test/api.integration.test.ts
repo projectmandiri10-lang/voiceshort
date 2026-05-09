@@ -399,6 +399,73 @@ describe("api integration", () => {
     });
   });
 
+  it("rejects create job when another owned job is still queued", async () => {
+    await jobsStore.create(
+      buildJobRecord({
+        jobId: "job-queued",
+        status: "queued",
+        progress: buildJobProgress("queued")
+      })
+    );
+    const form = buildCreateForm();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/jobs",
+      payload: form.getBuffer(),
+      headers: {
+        ...form.getHeaders(),
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      message:
+        "Masih ada job sebelumnya yang sedang antre atau diproses. Tunggu sampai selesai terlebih dahulu sebelum membuat job baru.",
+      jobId: "job-queued",
+      blockerType: "active-job"
+    });
+    expect(enqueueCalls).toEqual([]);
+  });
+
+  it("rejects create job until caption and final video are downloaded", async () => {
+    await jobsStore.create(
+      buildJobRecord({
+        jobId: "job-success-pending",
+        status: "success",
+        progress: buildJobProgress("success"),
+        output: {
+          captionPath: "/outputs/job-success-pending/caption.txt",
+          finalVideoPath: "/outputs/job-success-pending/final.mp4",
+          artifactPaths: [
+            "/outputs/job-success-pending/caption.txt",
+            "/outputs/job-success-pending/final.mp4"
+          ]
+        }
+      })
+    );
+    const form = buildCreateForm();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/jobs",
+      payload: form.getBuffer(),
+      headers: {
+        ...form.getHeaders(),
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      message:
+        "Job sebelumnya sudah selesai. Unduh caption dan final video terlebih dahulu sebelum membuat job baru.",
+      jobId: "job-success-pending",
+      blockerType: "pending-download"
+    });
+  });
+
   it("returns generation capacity snapshot for authenticated users", async () => {
     processorQueuedCount = 4;
 
@@ -441,6 +508,54 @@ describe("api integration", () => {
       speechRate: 1
     });
     expect(String(previewSpeechCalls[0]?.deliveryHint || "")).toContain("natural");
+  });
+
+  it("marks caption and final video as downloaded through authenticated endpoints", async () => {
+    await jobsStore.create(
+      buildJobRecord({
+        jobId: "job-downloadable",
+        status: "success",
+        progress: buildJobProgress("success"),
+        output: {
+          captionPath: "/outputs/job-downloadable/caption.txt",
+          finalVideoPath: "/outputs/job-downloadable/final.mp4",
+          artifactPaths: [
+            "/outputs/job-downloadable/caption.txt",
+            "/outputs/job-downloadable/final.mp4"
+          ]
+        }
+      })
+    );
+    const outputDir = path.join(OUTPUTS_DIR, "job-downloadable");
+    await mkdir(outputDir, { recursive: true });
+    await writeFile(path.join(outputDir, "caption.txt"), "caption", "utf8");
+    await writeFile(path.join(outputDir, "final.mp4"), "video", "utf8");
+
+    const captionResponse = await app.inject({
+      method: "GET",
+      url: "/api/jobs/job-downloadable/download/caption",
+      headers: {
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+    expect(captionResponse.statusCode).toBe(200);
+    expect(captionResponse.headers["content-disposition"]).toContain("attachment");
+    const afterCaption = await jobsStore.getById("job-downloadable");
+    expect(afterCaption?.output.captionDownloadedAt).toBeTruthy();
+    expect(afterCaption?.output.finalVideoDownloadedAt).toBeUndefined();
+
+    const finalResponse = await app.inject({
+      method: "GET",
+      url: "/api/jobs/job-downloadable/download/final-video",
+      headers: {
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+    expect(finalResponse.statusCode).toBe(200);
+    expect(finalResponse.headers["content-disposition"]).toContain("attachment");
+    const afterFinal = await jobsStore.getById("job-downloadable");
+    expect(afterFinal?.output.captionDownloadedAt).toBeTruthy();
+    expect(afterFinal?.output.finalVideoDownloadedAt).toBeTruthy();
   });
 
   it("rejects create job with server overload before reserving credit", async () => {
@@ -493,6 +608,45 @@ describe("api integration", () => {
     expect(user?.videoQuotaUsed).toBe(0);
   });
 
+  it("removes fully downloaded success jobs when a new job is created", async () => {
+    await jobsStore.create(
+      buildJobRecord({
+        jobId: "job-cleanup-old",
+        status: "success",
+        progress: buildJobProgress("success"),
+        output: {
+          captionPath: "/outputs/job-cleanup-old/caption.txt",
+          finalVideoPath: "/outputs/job-cleanup-old/final.mp4",
+          captionDownloadedAt: "2026-04-01T00:10:00.000Z",
+          finalVideoDownloadedAt: "2026-04-01T00:11:00.000Z",
+          artifactPaths: [
+            "/outputs/job-cleanup-old/caption.txt",
+            "/outputs/job-cleanup-old/final.mp4"
+          ]
+        }
+      })
+    );
+    const form = buildCreateForm({
+      title: "Job Baru Setelah Cleanup"
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/jobs",
+      payload: form.getBuffer(),
+      headers: {
+        ...form.getHeaders(),
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    const payload = response.json() as { jobId: string };
+    expect(payload.jobId).toBeTruthy();
+    expect(await jobsStore.getById("job-cleanup-old")).toBeUndefined();
+    expect(await jobsStore.getById(payload.jobId)).toBeTruthy();
+  });
+
   it("allows unlimited whitelist user to create jobs without reducing balance", async () => {
     const updatedAdmin = await usersStore.update("jho.j80@gmail.com", (current) => ({
       ...current,
@@ -541,6 +695,46 @@ describe("api integration", () => {
     expect(response.json()).toMatchObject({
       message: "Akun Anda sedang nonaktif. Hubungi admin untuk mengaktifkan kembali."
     });
+  });
+
+  it("blocks regular users from deleting success jobs that still require download and lets superadmin override", async () => {
+    await jobsStore.create(
+      buildJobRecord({
+        jobId: "job-delete-pending-download",
+        status: "success",
+        progress: buildJobProgress("success"),
+        output: {
+          captionPath: "/outputs/job-delete-pending-download/caption.txt",
+          finalVideoPath: "/outputs/job-delete-pending-download/final.mp4",
+          artifactPaths: [
+            "/outputs/job-delete-pending-download/caption.txt",
+            "/outputs/job-delete-pending-download/final.mp4"
+          ]
+        }
+      })
+    );
+
+    const forbiddenResponse = await app.inject({
+      method: "DELETE",
+      url: "/api/jobs/job-delete-pending-download",
+      headers: {
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+    expect(forbiddenResponse.statusCode).toBe(409);
+    expect(forbiddenResponse.json()).toMatchObject({
+      message: "Job selesai ini harus diunduh dulu sebelum bisa dihapus."
+    });
+
+    const adminResponse = await app.inject({
+      method: "DELETE",
+      url: "/api/jobs/job-delete-pending-download",
+      headers: {
+        Authorization: bearerHeader(adminToken)
+      }
+    });
+    expect(adminResponse.statusCode).toBe(200);
+    expect(await jobsStore.getById("job-delete-pending-download")).toBeUndefined();
   });
 
   it("allows superadmin to update settings and user quota", async () => {

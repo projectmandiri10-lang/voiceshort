@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { CircleDollarSign, Gauge, Layers3, Plus, Sparkles, UploadCloud } from "lucide-react";
-import { ApiError, createJob, fetchGenerationCapacity } from "../api";
+import { CircleDollarSign, FolderClock, Gauge, Sparkles, UploadCloud } from "lucide-react";
+import { ApiError, createJob, fetchGenerationCapacity, fetchJobs } from "../api";
+import { getGenerateBlocker } from "../job-download-policy";
 import { CONTENT_LABEL, GENDER_LABEL, TONE_OPTIONS } from "../job-form-options";
 import type { AuthUser, ContentType, GenerationCapacity, JobVoiceGender } from "../types";
 import { CONTENT_TYPES } from "../types";
@@ -8,21 +9,24 @@ import { readVideoDuration } from "../video-duration";
 import {
   calculateBilledMinutes,
   calculateEstimatedChargeIdr,
-  formatVideoDuration,
+  formatVideoDuration
 } from "../utils/billing";
 
-const MAX_BATCH_SLOTS = 10;
 const DEFAULT_CONTENT_TYPE: ContentType = "affiliate";
 const DEFAULT_VOICE_GENDER: JobVoiceGender = "female";
 const DEFAULT_TONE = "natural";
 const SERVER_OVERLOAD_FALLBACK =
   "Server overload. Antrean generate sedang penuh, coba lagi beberapa saat lagi.";
+const STATUS_CHECK_ERROR_MESSAGE =
+  "Status job sebelumnya belum bisa diverifikasi. Muat ulang halaman atau buka Riwayat untuk memastikan job lama sudah selesai dan terunduh.";
 
-type SlotVisualStatus = "kosong" | "siap" | "belum lengkap" | "mengirim" | "berhasil" | "gagal";
-type SlotSubmitState = "idle" | "submitting" | "success" | "failed";
+interface GeneratePageProps {
+  currentUser: AuthUser;
+  onRefreshSession: () => Promise<void>;
+  onViewJobs: (jobId?: string) => void;
+}
 
-interface BatchSlotState {
-  slotNumber: number;
+interface GenerateFormState {
   video: File | null;
   videoDurationSec: number | null;
   billedMinutes: number | null;
@@ -37,29 +41,14 @@ interface BatchSlotState {
   ctaText: string;
   referenceLink: string;
   fileInputKey: number;
-  submitState: SlotSubmitState;
-  error: string;
-}
-
-interface BatchSummary {
-  successJobs: Array<{ slotNumber: number; jobId: string }>;
-  failedSlots: Array<{ slotNumber: number; message: string }>;
-  incompleteSlots: number[];
-}
-
-interface GeneratePageProps {
-  currentUser: AuthUser;
-  onRefreshSession: () => Promise<void>;
-  onViewJobs: (jobId?: string) => void;
 }
 
 function formatRupiah(value: number): string {
   return `Rp${value.toLocaleString("id-ID")}`;
 }
 
-function createEmptySlot(slotNumber: number): BatchSlotState {
+function createInitialFormState(): GenerateFormState {
   return {
-    slotNumber,
     video: null,
     videoDurationSec: null,
     billedMinutes: null,
@@ -73,106 +62,22 @@ function createEmptySlot(slotNumber: number): BatchSlotState {
     tone: DEFAULT_TONE,
     ctaText: "",
     referenceLink: "",
-    fileInputKey: 0,
-    submitState: "idle",
-    error: "",
+    fileInputKey: 0
   };
 }
 
-function createInitialSlots(): BatchSlotState[] {
-  return Array.from({ length: MAX_BATCH_SLOTS }, (_, index) => createEmptySlot(index + 1));
-}
-
-function isSlotEmpty(slot: BatchSlotState): boolean {
-  return (
-    !slot.video &&
-    !slot.title.trim() &&
-    !slot.description.trim() &&
-    !slot.ctaText.trim() &&
-    !slot.referenceLink.trim() &&
-    slot.contentType === DEFAULT_CONTENT_TYPE &&
-    slot.voiceGender === DEFAULT_VOICE_GENDER &&
-    slot.tone === DEFAULT_TONE
-  );
-}
-
-function isSlotReady(slot: BatchSlotState): boolean {
+function isFormReady(form: GenerateFormState): boolean {
   return Boolean(
-    slot.video &&
-      slot.videoDurationSec &&
-      slot.billedMinutes &&
-      slot.estimatedChargeIdr &&
-      !slot.durationPending &&
-      !slot.durationError &&
-      slot.title.trim() &&
-      slot.description.trim() &&
-      slot.contentType &&
-      slot.voiceGender &&
-      slot.tone.trim()
+    form.video &&
+      form.videoDurationSec &&
+      form.billedMinutes &&
+      form.estimatedChargeIdr &&
+      !form.durationPending &&
+      !form.durationError &&
+      form.title.trim() &&
+      form.description.trim() &&
+      form.tone.trim()
   );
-}
-
-function getSlotVisualStatus(slot: BatchSlotState): SlotVisualStatus {
-  if (slot.submitState === "submitting") {
-    return "mengirim";
-  }
-  if (slot.submitState === "success") {
-    return "berhasil";
-  }
-  if (slot.submitState === "failed") {
-    return "gagal";
-  }
-  if (isSlotEmpty(slot)) {
-    return "kosong";
-  }
-  if (isSlotReady(slot)) {
-    return "siap";
-  }
-  return "belum lengkap";
-}
-
-function getSlotStatusLabel(status: SlotVisualStatus): string {
-  switch (status) {
-    case "kosong":
-      return "Kosong";
-    case "siap":
-      return "Siap";
-    case "belum lengkap":
-      return "Belum Lengkap";
-    case "mengirim":
-      return "Mengirim";
-    case "berhasil":
-      return "Berhasil";
-    case "gagal":
-      return "Gagal";
-  }
-}
-
-function getSlotStatusClassName(status: SlotVisualStatus): string {
-  switch (status) {
-    case "kosong":
-      return "batch-slot-status batch-slot-status-empty";
-    case "siap":
-      return "batch-slot-status batch-slot-status-ready";
-    case "belum lengkap":
-      return "batch-slot-status batch-slot-status-incomplete";
-    case "mengirim":
-      return "batch-slot-status batch-slot-status-submitting";
-    case "berhasil":
-      return "batch-slot-status batch-slot-status-success";
-    case "gagal":
-      return "batch-slot-status batch-slot-status-failed";
-  }
-}
-
-function getIncompleteSlotMessage(slot: BatchSlotState): string {
-  if (slot.video && slot.durationPending) {
-    return "Durasi video masih dibaca. Tunggu sebentar lalu coba lagi.";
-  }
-  if (slot.durationError) {
-    return slot.durationError;
-  }
-  return "Lengkapi video, judul, brief/deskripsi, kategori, gender suara, tone, dan pastikan durasi video terbaca.";
 }
 
 function buildOverloadedCapacity(
@@ -186,158 +91,90 @@ function buildOverloadedCapacity(
     maxRunningJobs: current?.maxRunningJobs ?? 3,
     maxQueuedJobs: current?.maxQueuedJobs ?? 20,
     maxRunningPerUser: current?.maxRunningPerUser ?? 1,
-    message,
+    message
   };
 }
 
-function isServerOverloadError(error: unknown): boolean {
-  if (error instanceof ApiError) {
-    return error.status === 503;
-  }
-
-  const message = String((error as { message?: string })?.message || error).toLowerCase();
-  return message.includes("server overload");
-}
-
 export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: GeneratePageProps) {
-  const [slots, setSlots] = useState<BatchSlotState[]>(() => createInitialSlots());
-  const [activeSlotCount, setActiveSlotCount] = useState(1);
+  const [form, setForm] = useState<GenerateFormState>(() => createInitialFormState());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [summary, setSummary] = useState<BatchSummary | null>(null);
   const [capacity, setCapacity] = useState<GenerationCapacity | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [statusError, setStatusError] = useState("");
+  const [blockerJobId, setBlockerJobId] = useState<string | undefined>(undefined);
+  const [blockerMessage, setBlockerMessage] = useState("");
 
-  const canGenerate = currentUser.isUnlimited || currentUser.walletBalanceIdr >= currentUser.generatePriceIdr;
+  const hasEnoughBalance =
+    currentUser.isUnlimited || currentUser.walletBalanceIdr >= currentUser.generatePriceIdr;
   const isServerOverloaded = Boolean(capacity?.overloaded);
-  const visibleSlots = slots.slice(0, activeSlotCount);
-  const canAddSlot = activeSlotCount < MAX_BATCH_SLOTS;
-  const readySlots = visibleSlots.filter((slot) => isSlotReady(slot));
-  const readyBilledMinutes = readySlots.reduce((total, slot) => total + (slot.billedMinutes ?? 0), 0);
-  const readyEstimatedChargeIdr = readySlots.reduce(
-    (total, slot) => total + (slot.estimatedChargeIdr ?? 0),
-    0
-  );
   const estimatedRemainingMinutes = currentUser.isUnlimited
     ? null
     : Math.max(
         0,
-        Math.floor((currentUser.walletBalanceIdr - readyEstimatedChargeIdr) / currentUser.generatePriceIdr)
+        Math.floor(
+          (currentUser.walletBalanceIdr - (form.estimatedChargeIdr ?? 0)) /
+            currentUser.generatePriceIdr
+        )
       );
+  const isBlocked = statusLoading || Boolean(statusError) || Boolean(blockerMessage);
+  const formDisabled = loading || !hasEnoughBalance || isServerOverloaded || isBlocked;
 
   useEffect(() => {
     let mounted = true;
 
-    const loadCapacity = async () => {
+    const loadWorkspaceState = async (surfaceFailure: boolean) => {
       try {
-        const next = await fetchGenerationCapacity();
+        const [jobs, nextCapacity] = await Promise.all([fetchJobs(), fetchGenerationCapacity()]);
         if (!mounted) {
           return;
         }
-        setCapacity(next);
-      } catch {
-        // Keep the last known capacity state if polling fails.
+
+        const blocker = getGenerateBlocker(currentUser, jobs);
+        setCapacity(nextCapacity);
+        setBlockerJobId(blocker?.jobId);
+        setBlockerMessage(blocker?.message || "");
+        setStatusError("");
+      } catch (workspaceError) {
+        if (!mounted) {
+          return;
+        }
+
+        if (surfaceFailure) {
+          const message = (workspaceError as Error).message || STATUS_CHECK_ERROR_MESSAGE;
+          setStatusError(message || STATUS_CHECK_ERROR_MESSAGE);
+        }
+      } finally {
+        if (mounted) {
+          setStatusLoading(false);
+        }
       }
     };
 
-    void loadCapacity();
+    void loadWorkspaceState(true);
     const timer = window.setInterval(() => {
-      void loadCapacity();
+      void loadWorkspaceState(false);
     }, 5000);
 
     return () => {
       mounted = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [currentUser]);
 
-  const updateSlot = (slotNumber: number, updater: (slot: BatchSlotState) => BatchSlotState) => {
-    setSlots((current) =>
-      current.map((slot) => {
-        if (slot.slotNumber !== slotNumber) {
-          return slot;
-        }
-
-        const next = updater(slot);
-        return {
-          ...next,
-          submitState: "idle",
-          error: "",
-        };
-      })
-    );
+  const updateForm = (updater: (current: GenerateFormState) => GenerateFormState) => {
+    setForm((current) => updater(current));
   };
 
-  const markIncompleteSlots = (entries: Array<{ slotNumber: number; message: string }>) => {
-    const slotErrors = new Map(entries.map((item) => [item.slotNumber, item.message]));
-    setSlots((current) =>
-      current.map((slot) => {
-        if (!slotErrors.has(slot.slotNumber)) {
-          return slot;
-        }
-        return {
-          ...slot,
-          submitState: "idle",
-          error: slotErrors.get(slot.slotNumber) || "",
-        };
-      })
-    );
-  };
-
-  const resetSlotAfterSuccess = (slotNumber: number) => {
-    setSlots((current) =>
-      current.map((slot) => {
-        if (slot.slotNumber !== slotNumber) {
-          return slot;
-        }
-        return {
-          ...createEmptySlot(slot.slotNumber),
-          fileInputKey: slot.fileInputKey + 1,
-        };
-      })
-    );
-  };
-
-  const setSubmittingState = (slotNumber: number) => {
-    setSlots((current) =>
-      current.map((slot) =>
-        slot.slotNumber === slotNumber
-          ? {
-              ...slot,
-              submitState: "submitting",
-              error: "",
-            }
-          : slot
-      )
-    );
-  };
-
-  const setFailedState = (slotNumber: number, message: string) => {
-    setSlots((current) =>
-      current.map((slot) =>
-        slot.slotNumber === slotNumber
-          ? {
-              ...slot,
-              submitState: "failed",
-              error: message,
-            }
-          : slot
-      )
-    );
-  };
-
-  const onAddSlot = () => {
-    setActiveSlotCount((current) => Math.min(current + 1, MAX_BATCH_SLOTS));
-  };
-
-  const onVideoSelected = (slotNumber: number, file: File | null) => {
-    updateSlot(slotNumber, (current) => ({
+  const onVideoSelected = (file: File | null) => {
+    updateForm((current) => ({
       ...current,
       video: file,
       videoDurationSec: null,
       billedMinutes: null,
       estimatedChargeIdr: null,
       durationPending: Boolean(file),
-      durationError: "",
+      durationError: ""
     }));
 
     if (!file) {
@@ -346,7 +183,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
 
     void readVideoDuration(file)
       .then((durationSec) => {
-        updateSlot(slotNumber, (current) => {
+        updateForm((current) => {
           if (current.video !== file) {
             return current;
           }
@@ -356,19 +193,20 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
             billedMinutes: calculateBilledMinutes(durationSec),
             estimatedChargeIdr: calculateEstimatedChargeIdr(durationSec, currentUser.generatePriceIdr),
             durationPending: false,
-            durationError: "",
+            durationError: ""
           };
         });
       })
       .catch((durationErrorValue) => {
-        updateSlot(slotNumber, (current) => {
+        updateForm((current) => {
           if (current.video !== file) {
             return current;
           }
           return {
             ...current,
             durationPending: false,
-            durationError: (durationErrorValue as Error).message || "Durasi video tidak bisa dibaca.",
+            durationError:
+              (durationErrorValue as Error).message || "Durasi video tidak bisa dibaca."
           };
         });
       });
@@ -377,123 +215,108 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
-    setSummary(null);
 
+    if (statusLoading) {
+      setError("Status workspace masih diperiksa. Tunggu sebentar lalu coba lagi.");
+      return;
+    }
+    if (statusError) {
+      setError(statusError || STATUS_CHECK_ERROR_MESSAGE);
+      return;
+    }
+    if (blockerMessage) {
+      setError(blockerMessage);
+      return;
+    }
     if (isServerOverloaded) {
       setError(capacity?.message || SERVER_OVERLOAD_FALLBACK);
       return;
     }
-
-    if (!canGenerate) {
+    if (!hasEnoughBalance) {
       setError("Saldo belum cukup. Isi saldo minimal Rp2.000 untuk memproses 1 menit video.");
       return;
     }
-
-    const incompleteSlots = visibleSlots
-      .filter((slot) => !isSlotEmpty(slot) && !isSlotReady(slot))
-      .map((slot) => ({ slotNumber: slot.slotNumber, message: getIncompleteSlotMessage(slot) }));
-
-    markIncompleteSlots(incompleteSlots);
-
-    if (!readySlots.length) {
-      setError("Belum ada video yang siap diproses. Lengkapi minimal satu video terlebih dahulu.");
+    if (!form.video) {
+      setError("File video wajib diisi.");
       return;
     }
-
-    if (!currentUser.isUnlimited && readyEstimatedChargeIdr > currentUser.walletBalanceIdr) {
-      setError(
-        `Total estimasi biaya slot siap diproses (${formatRupiah(readyEstimatedChargeIdr)}) melebihi saldo Anda (${formatRupiah(currentUser.walletBalanceIdr)}).`
-      );
+    if (form.durationPending) {
+      setError("Durasi video masih dibaca. Tunggu sebentar lalu coba lagi.");
+      return;
+    }
+    if (form.durationError) {
+      setError(form.durationError);
+      return;
+    }
+    if (!form.title.trim() || !form.description.trim()) {
+      setError("Lengkapi judul dan brief/deskripsi terlebih dahulu.");
+      return;
+    }
+    if (!isFormReady(form)) {
+      setError("Form belum lengkap. Pastikan video, judul, brief, kategori, gender, dan tone sudah siap.");
       return;
     }
 
     setLoading(true);
-    const successJobs: BatchSummary["successJobs"] = [];
-    const failedSlots: BatchSummary["failedSlots"] = [];
-    let nextJobIdToView: string | undefined;
-
     try {
-      for (const slot of readySlots) {
-        setSubmittingState(slot.slotNumber);
-
-        try {
-          const result = await createJob({
-            video: slot.video as File,
-            title: slot.title.trim(),
-            description: slot.description.trim(),
-            contentType: slot.contentType,
-            voiceGender: slot.voiceGender,
-            tone: slot.tone.trim(),
-            ctaText: slot.ctaText.trim(),
-            referenceLink: slot.referenceLink.trim(),
-          });
-
-          successJobs.push({
-            slotNumber: slot.slotNumber,
-            jobId: result.jobId,
-          });
-          resetSlotAfterSuccess(slot.slotNumber);
-        } catch (submitError) {
-          const message = (submitError as Error).message;
-          failedSlots.push({
-            slotNumber: slot.slotNumber,
-            message,
-          });
-          setFailedState(slot.slotNumber, message);
-          if (isServerOverloadError(submitError)) {
-            setCapacity((current) => buildOverloadedCapacity(message || SERVER_OVERLOAD_FALLBACK, current));
-            setError(message || SERVER_OVERLOAD_FALLBACK);
-            break;
-          }
-        }
-      }
+      const result = await createJob({
+        video: form.video,
+        title: form.title.trim(),
+        description: form.description.trim(),
+        contentType: form.contentType,
+        voiceGender: form.voiceGender,
+        tone: form.tone.trim(),
+        ctaText: form.ctaText.trim(),
+        referenceLink: form.referenceLink.trim()
+      });
 
       try {
         await onRefreshSession();
       } catch (refreshError) {
-        setError(`Proses selesai, tetapi pembaruan saldo gagal: ${(refreshError as Error).message}`);
+        setError(`Job berhasil dibuat, tetapi pembaruan saldo gagal: ${(refreshError as Error).message}`);
       }
 
-      setSummary({
-        successJobs,
-        failedSlots,
-        incompleteSlots: incompleteSlots.map((slot) => slot.slotNumber),
-      });
-      nextJobIdToView = successJobs[0]?.jobId;
+      setForm((current) => ({
+        ...createInitialFormState(),
+        fileInputKey: current.fileInputKey + 1
+      }));
+      onViewJobs(result.jobId);
+    } catch (submitError) {
+      if (submitError instanceof ApiError && submitError.status === 503) {
+        setCapacity((current) =>
+          buildOverloadedCapacity(submitError.message || SERVER_OVERLOAD_FALLBACK, current)
+        );
+      }
+      setError((submitError as Error).message);
     } finally {
       setLoading(false);
-    }
-
-    if (nextJobIdToView) {
-      onViewJobs(nextJobIdToView);
     }
   };
 
   return (
     <section className="card app-page-card generate-shell">
       <div className="section-heading compact">
-        <span className="eyebrow">Batch Generator</span>
-        <h2>Buat voice over dari 1 sampai 10 slot video dalam satu workspace.</h2>
+        <span className="eyebrow">Single Job Workspace</span>
+        <h2>Buat satu job baru hanya setelah hasil job sebelumnya selesai diunduh.</h2>
         <p className="section-note">
-          Sistem membaca durasi video upload langsung di browser, lalu menghitung estimasi biaya
-          Rp2.000 per menit dengan pembulatan ke atas.
+          Flow ini menjaga penggunaan storage lebih hemat di server. Setiap siklus: generate, tunggu
+          selesai, unduh caption dan final video, lalu baru lanjut job berikutnya.
         </p>
       </div>
 
       <div className="telemetry-grid">
         <section className="monitor-banner">
           <span className="eyebrow">Core Telemetry</span>
-          <h3>Active generation engine</h3>
+          <h3>Single active generation channel</h3>
           <p className="section-note">
-            Pantau slot aktif, kapasitas antrean, dan kesiapan saldo sebelum mengeksekusi batch.
+            Pantau status workspace, antrean server, dan estimasi biaya sebelum mengeksekusi job
+            berikutnya.
           </p>
           <div className="monitor-grid">
             <div className="monitor-cell">
-              <Layers3 size={18} />
-              <strong>
-                {activeSlotCount} / {MAX_BATCH_SLOTS}
-              </strong>
-              <span className="small">Slot aktif</span>
+              <Sparkles size={18} />
+              <strong>1</strong>
+              <span className="small">Slot aktif per siklus</span>
             </div>
             <div className="monitor-cell">
               <Gauge size={18} />
@@ -503,9 +326,9 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
               <span className="small">Job berjalan</span>
             </div>
             <div className="monitor-cell">
-              <Sparkles size={18} />
-              <strong>{readyBilledMinutes}</strong>
-              <span className="small">Menit billing siap submit</span>
+              <CircleDollarSign size={18} />
+              <strong>{form.billedMinutes ?? 0}</strong>
+              <span className="small">Menit billing job ini</span>
             </div>
           </div>
         </section>
@@ -527,15 +350,17 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                     cukup untuk {currentUser.generateCreditsRemaining} menit penuh.
                   </p>
                   <p className="small">
-                    Batch siap saat ini: {formatRupiah(readyEstimatedChargeIdr)} untuk{" "}
-                    {readyBilledMinutes} menit billing. Sisa estimasi setelah batch:{" "}
-                    {estimatedRemainingMinutes ?? 0} menit. Contoh pembulatan: 61 detik = 2 menit.
+                    Estimasi job ini: {formatRupiah(form.estimatedChargeIdr ?? 0)} untuk{" "}
+                    {form.billedMinutes ?? 0} menit billing. Sisa estimasi setelah job:{" "}
+                    {estimatedRemainingMinutes ?? 0} menit.
                   </p>
                 </>
               )}
             </div>
-            {!canGenerate ? (
+            {!hasEnoughBalance ? (
               <span className="status status-failed">Perlu isi saldo</span>
+            ) : blockerMessage ? (
+              <span className="status status-failed">Terkunci</span>
             ) : (
               <span className="status status-success">Siap diproses</span>
             )}
@@ -561,313 +386,274 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                 </span>
               </div>
               <p className="section-note">
-                Saat antrean longgar, slot siap bisa langsung dikirim berurutan dari form ini.
+                Workspace ini hanya mengizinkan satu job aktif per siklus sampai file hasil job
+                sebelumnya diunduh lengkap.
               </p>
             </div>
           )}
         </div>
       </div>
 
-      <form onSubmit={onSubmit} className="grid-form">
-        <div className="slot-grid">
-          {visibleSlots.map((slot) => {
-            const slotStatus = getSlotVisualStatus(slot);
-
-            return (
-              <section
-                key={slot.slotNumber}
-                role="region"
-                className="batch-slot-card"
-                aria-label={`Slot video ${slot.slotNumber}`}
-              >
-                <div className="slot-card-header">
-                  <div>
-                    <strong>Slot {slot.slotNumber}</strong>
-                    <p className="small">Video ini akan diproses sebagai 1 hasil terpisah.</p>
-                  </div>
-                  <span className={getSlotStatusClassName(slotStatus)}>{getSlotStatusLabel(slotStatus)}</span>
-                </div>
-
-                <div className="grid-form">
-                  <label>
-                    Video <span className="required-mark">*</span>
-                    <input
-                      key={slot.fileInputKey}
-                      type="file"
-                      accept="video/*"
-                      onChange={(event) => onVideoSelected(slot.slotNumber, event.target.files?.[0] || null)}
-                      disabled={loading || !canGenerate}
-                    />
-                    <div className="slot-dropzone" aria-hidden="true">
-                      <UploadCloud size={24} />
-                      <strong>{slot.video ? slot.video.name : "Unggah file MP4/MOV"}</strong>
-                      <span className="small">
-                        Maksimum 1 video per slot. Durasi dipakai untuk estimasi biaya sebelum submit.
-                      </span>
-                    </div>
-                  </label>
-
-                  <div className="slot-estimate-card">
-                    {slot.durationPending ? (
-                      <p className="small">Membaca durasi video...</p>
-                    ) : slot.durationError ? (
-                      <p className="err-inline">{slot.durationError}</p>
-                    ) : slot.videoDurationSec && slot.billedMinutes && slot.estimatedChargeIdr ? (
-                      <>
-                        <strong>
-                          {formatVideoDuration(slot.videoDurationSec)} | {slot.billedMinutes} menit billing
-                        </strong>
-                        <span className="small">
-                          Estimasi biaya {formatRupiah(slot.estimatedChargeIdr)} untuk slot ini.
-                        </span>
-                      </>
-                    ) : (
-                      <span className="small">
-                        Biaya akan dihitung otomatis dari durasi video upload.
-                      </span>
-                    )}
-                  </div>
-
-                  <label>
-                    Judul <span className="required-mark">*</span>
-                    <input
-                      value={slot.title}
-                      onChange={(event) =>
-                        updateSlot(slot.slotNumber, (current) => ({
-                          ...current,
-                          title: event.target.value,
-                        }))
-                      }
-                      disabled={loading || !canGenerate}
-                      placeholder="Judul singkat untuk hasil voice over"
-                    />
-                  </label>
-
-                  <label>
-                    Brief / Deskripsi <span className="required-mark">*</span>
-                    <textarea
-                      rows={5}
-                      value={slot.description}
-                      onChange={(event) =>
-                        updateSlot(slot.slotNumber, (current) => ({
-                          ...current,
-                          description: event.target.value,
-                        }))
-                      }
-                      disabled={loading || !canGenerate}
-                      placeholder="Tulis arahan utama, angle promosi, atau narasi yang diinginkan"
-                    />
-                  </label>
-
-                  <div className="form-grid-2">
-                    <label>
-                      Kategori Konten <span className="required-mark">*</span>
-                      <select
-                        value={slot.contentType}
-                        onChange={(event) =>
-                          updateSlot(slot.slotNumber, (current) => ({
-                            ...current,
-                            contentType: event.target.value as ContentType,
-                          }))
-                        }
-                        disabled={loading || !canGenerate}
-                      >
-                        {CONTENT_TYPES.map((item) => (
-                          <option key={item} value={item}>
-                            {CONTENT_LABEL[item]}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Gender Suara <span className="required-mark">*</span>
-                      <select
-                        value={slot.voiceGender}
-                        onChange={(event) =>
-                          updateSlot(slot.slotNumber, (current) => ({
-                            ...current,
-                            voiceGender: event.target.value as JobVoiceGender,
-                          }))
-                        }
-                        disabled={loading || !canGenerate}
-                      >
-                        {(Object.keys(GENDER_LABEL) as JobVoiceGender[]).map((gender) => (
-                          <option key={gender} value={gender}>
-                            {GENDER_LABEL[gender]}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-
-                  <div className="form-grid-2">
-                    <label>
-                      Tone <span className="required-mark">*</span>
-                      <select
-                        value={slot.tone}
-                        onChange={(event) =>
-                          updateSlot(slot.slotNumber, (current) => ({
-                            ...current,
-                            tone: event.target.value,
-                          }))
-                        }
-                        disabled={loading || !canGenerate}
-                      >
-                        {TONE_OPTIONS.map((item) => (
-                          <option key={item} value={item}>
-                            {item}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      CTA Opsional
-                      <input
-                        value={slot.ctaText}
-                        placeholder="Contoh: cek detailnya sekarang"
-                        onChange={(event) =>
-                          updateSlot(slot.slotNumber, (current) => ({
-                            ...current,
-                            ctaText: event.target.value,
-                          }))
-                        }
-                        disabled={loading || !canGenerate}
-                      />
-                    </label>
-                  </div>
-
-                  <label>
-                    Link Referensi Opsional
-                    <div className="slot-inline-note">
-                      <input
-                        value={slot.referenceLink}
-                        placeholder="https://..."
-                        onChange={(event) =>
-                          updateSlot(slot.slotNumber, (current) => ({
-                            ...current,
-                            referenceLink: event.target.value,
-                          }))
-                        }
-                        disabled={loading || !canGenerate}
-                      />
-                    </div>
-                  </label>
-
-                  {slot.error ? <p className="err-inline">{slot.error}</p> : null}
-                </div>
-              </section>
-            );
-          })}
-
-          {canAddSlot ? (
-            <div className="slot-placeholder-card">
-              <div className="slot-dropzone">
-                <Plus size={28} />
-                <strong>Tambah Slot</strong>
-                <span className="small">Buka slot berikutnya sampai maksimum 10 slot.</span>
-              </div>
-            </div>
-          ) : null}
+      {statusLoading ? (
+        <div className="notice-box">
+          <div className="row-head">
+            <strong>Memeriksa workspace</strong>
+            <span className="small">Sinkronisasi status job</span>
+          </div>
+          <p className="section-note">Sistem sedang memeriksa apakah masih ada job lama yang aktif atau belum diunduh.</p>
         </div>
+      ) : null}
+
+      {statusError ? (
+        <div className="notice-box notice-box-overload">
+          <div className="row-head">
+            <strong>Status belum terverifikasi</strong>
+            <span className="small">Generate dikunci sementara</span>
+          </div>
+          <p className="err-text">{statusError || STATUS_CHECK_ERROR_MESSAGE}</p>
+          <div className="form-actions">
+            <button type="button" onClick={() => onViewJobs()}>
+              <FolderClock size={16} />
+              <span>Buka Riwayat Proses</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {!statusError && blockerMessage ? (
+        <div className="notice-box notice-box-overload">
+          <div className="row-head">
+            <strong>Generate job baru masih terkunci</strong>
+            <span className="small">Selesaikan siklus job sebelumnya</span>
+          </div>
+          <p className="err-text">{blockerMessage}</p>
+          <div className="form-actions">
+            <button type="button" onClick={() => onViewJobs(blockerJobId)}>
+              <FolderClock size={16} />
+              <span>Buka Riwayat Proses</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <form onSubmit={onSubmit} className="grid-form">
+        <section className="batch-slot-card" role="region" aria-label="slot video 1">
+          <div className="slot-card-header">
+            <div>
+              <strong>Job Baru</strong>
+              <p className="small">Satu form ini akan membuat satu job voice over baru.</p>
+            </div>
+            <span className="batch-slot-status batch-slot-status-ready">
+              {isFormReady(form) ? "Siap" : "Belum Lengkap"}
+            </span>
+          </div>
+
+          <div className="grid-form">
+            <label>
+              Video <span className="required-mark">*</span>
+              <input
+                key={form.fileInputKey}
+                type="file"
+                accept="video/*"
+                onChange={(event) => onVideoSelected(event.target.files?.[0] || null)}
+                disabled={formDisabled}
+              />
+              <div className="slot-dropzone" aria-hidden="true">
+                <UploadCloud size={24} />
+                <strong>{form.video ? form.video.name : "Unggah file MP4/MOV"}</strong>
+                <span className="small">
+                  Maksimum 1 video per siklus. Durasi dipakai untuk estimasi biaya sebelum submit.
+                </span>
+              </div>
+            </label>
+
+            <div className="slot-estimate-card">
+              {form.durationPending ? (
+                <p className="small">Membaca durasi video...</p>
+              ) : form.durationError ? (
+                <p className="err-inline">{form.durationError}</p>
+              ) : form.videoDurationSec && form.billedMinutes && form.estimatedChargeIdr ? (
+                <>
+                  <strong>
+                    {formatVideoDuration(form.videoDurationSec)} | {form.billedMinutes} menit billing
+                  </strong>
+                  <span className="small">
+                    Estimasi biaya {formatRupiah(form.estimatedChargeIdr)} untuk job ini.
+                  </span>
+                </>
+              ) : (
+                <span className="small">
+                  Biaya akan dihitung otomatis dari durasi video upload.
+                </span>
+              )}
+            </div>
+
+            <label>
+              Judul <span className="required-mark">*</span>
+              <input
+                value={form.title}
+                onChange={(event) =>
+                  updateForm((current) => ({
+                    ...current,
+                    title: event.target.value
+                  }))
+                }
+                disabled={formDisabled}
+                placeholder="Judul singkat untuk hasil voice over"
+              />
+            </label>
+
+            <label>
+              Brief / Deskripsi <span className="required-mark">*</span>
+              <textarea
+                rows={5}
+                value={form.description}
+                onChange={(event) =>
+                  updateForm((current) => ({
+                    ...current,
+                    description: event.target.value
+                  }))
+                }
+                disabled={formDisabled}
+                placeholder="Tulis arahan utama, angle promosi, atau narasi yang diinginkan"
+              />
+            </label>
+
+            <div className="form-grid-2">
+              <label>
+                Kategori Konten <span className="required-mark">*</span>
+                <select
+                  value={form.contentType}
+                  onChange={(event) =>
+                    updateForm((current) => ({
+                      ...current,
+                      contentType: event.target.value as ContentType
+                    }))
+                  }
+                  disabled={formDisabled}
+                >
+                  {CONTENT_TYPES.map((item) => (
+                    <option key={item} value={item}>
+                      {CONTENT_LABEL[item]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Gender Suara <span className="required-mark">*</span>
+                <select
+                  value={form.voiceGender}
+                  onChange={(event) =>
+                    updateForm((current) => ({
+                      ...current,
+                      voiceGender: event.target.value as JobVoiceGender
+                    }))
+                  }
+                  disabled={formDisabled}
+                >
+                  {(Object.keys(GENDER_LABEL) as JobVoiceGender[]).map((gender) => (
+                    <option key={gender} value={gender}>
+                      {GENDER_LABEL[gender]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="form-grid-2">
+              <label>
+                Tone <span className="required-mark">*</span>
+                <select
+                  value={form.tone}
+                  onChange={(event) =>
+                    updateForm((current) => ({
+                      ...current,
+                      tone: event.target.value
+                    }))
+                  }
+                  disabled={formDisabled}
+                >
+                  {TONE_OPTIONS.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                CTA Opsional
+                <input
+                  value={form.ctaText}
+                  placeholder="Contoh: cek detailnya sekarang"
+                  onChange={(event) =>
+                    updateForm((current) => ({
+                      ...current,
+                      ctaText: event.target.value
+                    }))
+                  }
+                  disabled={formDisabled}
+                />
+              </label>
+            </div>
+
+            <label>
+              Link Referensi Opsional
+              <div className="slot-inline-note">
+                <input
+                  value={form.referenceLink}
+                  placeholder="https://..."
+                  onChange={(event) =>
+                    updateForm((current) => ({
+                      ...current,
+                      referenceLink: event.target.value
+                    }))
+                  }
+                  disabled={formDisabled}
+                />
+              </div>
+            </label>
+          </div>
+        </section>
 
         <div className="sticky-action-bar">
           <div className="sticky-action-summary">
             <div className="sticky-action-count">
-              <span className="eyebrow">Active Channels</span>
-              <strong>
-                {activeSlotCount} / {MAX_BATCH_SLOTS}
-              </strong>
+              <span className="eyebrow">Workspace Mode</span>
+              <strong>Single Job</strong>
             </div>
             <div className="sticky-action-count">
               <span className="eyebrow">System Calculation</span>
-              <strong>{currentUser.isUnlimited ? "Unlimited" : formatRupiah(readyEstimatedChargeIdr)}</strong>
+              <strong>{currentUser.isUnlimited ? "Unlimited" : formatRupiah(form.estimatedChargeIdr ?? 0)}</strong>
               <span className="small">
                 {currentUser.isUnlimited
                   ? "Tanpa estimasi biaya"
-                  : `${readyBilledMinutes} menit billing siap submit`}
+                  : `${form.billedMinutes ?? 0} menit billing siap submit`}
               </span>
             </div>
             <div className="sticky-action-count">
-              <span className="eyebrow">Saldo Setelah Batch</span>
+              <span className="eyebrow">Saldo Setelah Job</span>
               <strong>
-                {currentUser.isUnlimited
-                  ? "Unlimited"
-                  : `${estimatedRemainingMinutes ?? 0} menit`}
+                {currentUser.isUnlimited ? "Unlimited" : `${estimatedRemainingMinutes ?? 0} menit`}
               </strong>
             </div>
           </div>
 
           <div className="sticky-action-buttons">
-            {canAddSlot ? (
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={onAddSlot}
-                disabled={loading || !canGenerate || isServerOverloaded}
-              >
-                <Plus size={16} />
-                <span>Tambah Slot</span>
-              </button>
-            ) : (
-              <span className="small">Batas maksimum 10 slot sudah tercapai.</span>
-            )}
             <button
-              type="submit"
-              className="primary-button"
-              disabled={loading || !canGenerate || isServerOverloaded}
+              type="button"
+              className="secondary-button"
+              onClick={() => onViewJobs(blockerJobId)}
             >
+              <FolderClock size={16} />
+              <span>Lihat Riwayat</span>
+            </button>
+            <button type="submit" className="primary-button" disabled={formDisabled}>
               <CircleDollarSign size={16} />
-              <span>{loading ? "Memproses video..." : "Proses Slot yang Siap"}</span>
+              <span>{loading ? "Membuat job..." : "Generate Job Baru"}</span>
             </button>
           </div>
         </div>
       </form>
-
-      {summary ? (
-        <div className="notice-box">
-          <div className="row-head">
-            <strong>Ringkasan Hasil</strong>
-            <span className="small">
-              Berhasil {summary.successJobs.length} | Gagal {summary.failedSlots.length} | Perlu
-              dilengkapi {summary.incompleteSlots.length}
-            </span>
-          </div>
-
-          {summary.successJobs.length ? (
-            <ul className="summary-list">
-              {summary.successJobs.map((item) => (
-                <li key={`${item.slotNumber}-${item.jobId}`}>
-                  Slot {item.slotNumber}: proses <strong>#{item.jobId}</strong> berhasil dibuat.
-                </li>
-              ))}
-            </ul>
-          ) : null}
-
-          {summary.failedSlots.length ? (
-            <ul className="summary-list">
-              {summary.failedSlots.map((item) => (
-                <li key={`${item.slotNumber}-${item.message}`}>
-                  Slot {item.slotNumber}: {item.message}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-
-          {summary.incompleteSlots.length ? (
-            <p className="small">
-              Slot perlu dilengkapi: {summary.incompleteSlots.map((item) => `#${item}`).join(", ")}
-            </p>
-          ) : null}
-
-          {summary.successJobs.length ? (
-            <div className="form-actions">
-              <button type="button" onClick={() => onViewJobs(summary.successJobs[0]?.jobId)}>
-                Lihat Riwayat Proses
-              </button>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
 
       {error ? <p className="err-text">{error}</p> : null}
     </section>

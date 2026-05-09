@@ -1,13 +1,14 @@
 import cors from "@fastify/cors";
 import multipart, { type MultipartFile } from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import Fastify, {
   type FastifyBaseLogger,
   type FastifyInstance,
   type FastifyRequest,
   type FastifyReply
 } from "fastify";
-import { createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import { access, mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -42,6 +43,13 @@ import type { IJobProcessor } from "./services/job-processor.js";
 import { openPathInExplorer } from "./utils/open-location.js";
 import { writeWav24kMono } from "./utils/audio.js";
 import { normalizeApiError } from "./utils/api-error.js";
+import {
+  getCaptionArtifactPath,
+  getCreateJobBlocker,
+  getOwnedJobs,
+  isDownloadPendingJob,
+  isFullyDownloadedSuccessJob
+} from "./utils/job-download-policy.js";
 import { pruneVoicePreviewFiles } from "./utils/voice-preview.js";
 import { calculateBilledMinutes, calculateGenerateChargeIdr } from "./utils/billing.js";
 
@@ -155,6 +163,17 @@ function resolveJobOutputFolderPath(job: JobRecord): string {
   return absoluteOutput ? path.dirname(absoluteOutput) : path.join(OUTPUTS_DIR, job.jobId);
 }
 
+function buildDownloadHeaders(absolutePath: string): {
+  contentType: string;
+  contentDisposition: string;
+} {
+  const filename = path.basename(absolutePath);
+  return {
+    contentType: mime.lookup(absolutePath) || "application/octet-stream",
+    contentDisposition: `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`
+  };
+}
+
 async function maybeRegisterWebStatic(app: FastifyInstance): Promise<void> {
   try {
     await access(WEB_DIST_DIR);
@@ -245,6 +264,112 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     if (job) {
       publishJob(job);
     }
+  };
+
+  const markArtifactDownloaded = async (
+    jobId: string,
+    artifact: "caption" | "finalVideo",
+    client?: SupabaseClient
+  ) => {
+    const timestamp = nowIso();
+    const updated = await options.jobsStore.update(
+      jobId,
+      (current) => ({
+        ...current,
+        updatedAt: timestamp,
+        output: {
+          ...current.output,
+          captionPath: current.output.captionPath ?? current.output.scriptPath,
+          captionDownloadedAt:
+            artifact === "caption"
+              ? current.output.captionDownloadedAt || timestamp
+              : current.output.captionDownloadedAt,
+          finalVideoDownloadedAt:
+            artifact === "finalVideo"
+              ? current.output.finalVideoDownloadedAt || timestamp
+              : current.output.finalVideoDownloadedAt,
+          updatedAt: timestamp
+        }
+      }),
+      client
+    );
+
+    if (updated) {
+      publishJob(updated);
+    }
+
+    return updated;
+  };
+
+  const cleanupDownloadedSuccessJobs = async (
+    authUser: AuthSessionUser,
+    jobs: JobRecord[],
+    client?: SupabaseClient
+  ) => {
+    const cleanupTargets = getOwnedJobs(authUser, jobs).filter((job) => isFullyDownloadedSuccessJob(job));
+    if (!cleanupTargets.length) {
+      return;
+    }
+
+    await Promise.all(
+      cleanupTargets.map(async (job) => {
+        try {
+          await options.jobsStore.delete(job.jobId, client);
+        } catch (error) {
+          options.logger.warn(
+            { err: error, cleanupJobId: job.jobId, ownerEmail: authUser.email },
+            "Gagal membersihkan job sukses lama yang sudah diunduh."
+          );
+        }
+      })
+    );
+  };
+
+  const sendAuthenticatedArtifactDownload = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    artifact: "caption" | "finalVideo"
+  ) => {
+    const authContext = await requireAuth(request, reply);
+    if (!authContext) {
+      return;
+    }
+
+    const params = request.params as { jobId: string };
+    const job = await options.jobsStore.getById(params.jobId, authContext.db);
+    if (!job || !canAccessJob(authContext.user, job)) {
+      return reply.code(404).send({ message: "Job tidak ditemukan." });
+    }
+
+    const outputPath =
+      artifact === "caption" ? getCaptionArtifactPath(job) : job.output.finalVideoPath;
+    const absolutePath = outputPath ? outputUrlToAbsolutePath(outputPath) : undefined;
+    if (!absolutePath) {
+      return reply.code(404).send({
+        message:
+          artifact === "caption"
+            ? "File caption tidak tersedia."
+            : "File final video tidak tersedia."
+      });
+    }
+
+    try {
+      await access(absolutePath);
+    } catch {
+      return reply.code(404).send({
+        message:
+          artifact === "caption"
+            ? "File caption tidak ditemukan di server."
+            : "File final video tidak ditemukan di server."
+      });
+    }
+
+    await markArtifactDownloaded(params.jobId, artifact, authContext.db);
+    const headers = buildDownloadHeaders(absolutePath);
+    reply.header("Cache-Control", "private, no-store");
+    reply.header("Content-Disposition", headers.contentDisposition);
+    reply.type(headers.contentType);
+    return reply.send(createReadStream(absolutePath));
   };
 
   const getRequestAuthContext = async (request: FastifyRequest) => {
@@ -717,6 +842,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     return normalizeJobForApi(job);
   });
 
+  app.get("/api/jobs/:jobId/download/caption", async (request, reply) => {
+    return await sendAuthenticatedArtifactDownload(request, reply, "caption");
+  });
+
+  app.get("/api/jobs/:jobId/download/final-video", async (request, reply) => {
+    return await sendAuthenticatedArtifactDownload(request, reply, "finalVideo");
+  });
+
   app.get("/api/jobs/:jobId/events", async (request, reply) => {
     const authContext = await requireAuth(request, reply);
     if (!authContext) {
@@ -837,6 +970,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         message: "Job dengan status running tidak bisa dihapus."
       });
     }
+    if (job.status === "success" && isDownloadPendingJob(job) && authContext.user.role !== "superadmin") {
+      return reply.code(409).send({
+        message: "Job selesai ini harus diunduh dulu sebelum bisa dihapus."
+      });
+    }
 
     try {
       const removed = await options.jobsStore.delete(params.jobId, authContext.db);
@@ -944,6 +1082,29 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     if (!authContext) {
       return;
     }
+    let existingOwnedJobs: JobRecord[] = [];
+    try {
+      existingOwnedJobs = getOwnedJobs(authContext.user, await options.jobsStore.list(authContext.db));
+    } catch (error) {
+      return sendNormalizedError(reply, error, "Gagal memeriksa status job sebelumnya.");
+    }
+
+    const createBlocker = getCreateJobBlocker(authContext.user, existingOwnedJobs);
+    if (createBlocker) {
+      return reply.code(409).send({
+        message: createBlocker.message,
+        jobId: createBlocker.jobId,
+        blockerType: createBlocker.type
+      });
+    }
+
+    const initialCapacity = options.processor.getCapacitySnapshot();
+    if (initialCapacity.overloaded) {
+      return reply.code(503).send({
+        message: initialCapacity.message
+      });
+    }
+
     const parts = (
       request as unknown as {
         parts: () => AsyncIterable<MultipartFile | any>;
@@ -1014,13 +1175,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       const billedMinutes = calculateBilledMinutes(durationSec);
       chargeAmountIdr = calculateGenerateChargeIdr(durationSec, authContext.user.generatePriceIdr);
 
-      const capacity = options.processor.getCapacitySnapshot();
-      if (capacity.overloaded) {
-        return reply.code(503).send({
-          message: capacity.message
-        });
-      }
-
       await options.usersStore.reserveGenerateCredit(
         jobId,
         authContext.user.email,
@@ -1061,6 +1215,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         await options.jobsStore.delete(jobId, authContext.db).catch(() => false);
         throw createHttpError(503, options.processor.getCapacitySnapshot().message);
       }
+      await cleanupDownloadedSuccessJobs(authContext.user, existingOwnedJobs, authContext.db);
       keepUploadDir = true;
       publishJob(job);
 

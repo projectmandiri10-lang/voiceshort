@@ -64,6 +64,8 @@ export interface JobOutput {
   scriptPath?: string;
   voicePath?: string;
   finalVideoPath?: string;
+  captionDownloadedAt?: string;
+  finalVideoDownloadedAt?: string;
   artifactPaths: string[];
   updatedAt: string;
 }
