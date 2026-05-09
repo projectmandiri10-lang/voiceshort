@@ -87,7 +87,7 @@ export function DashboardShell<TView extends string>({
             <div>
               <div className="dashboard-mobile-brand">
                 <Menu size={18} />
-                <span>Voiceshort Dashboard</span>
+                <span>Real Voice Over Video</span>
               </div>
               <span className="eyebrow">Operational Interface</span>
               <h1>Kelola voice over video sampai 15 menit dengan alur yang lebih cepat dan rapi.</h1>

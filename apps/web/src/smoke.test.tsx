@@ -200,7 +200,7 @@ describe("web smoke", () => {
   it("renders landing page when session is empty", async () => {
     render(<App />);
 
-    expect(await screen.findByText(/Voiceshort/i)).toBeTruthy();
+    expect(await screen.findByText(/Real Voice Over Video/i)).toBeTruthy();
     expect(screen.getByRole("heading", { name: /Bikin voice over video sampai 15 menit lebih cepat/i })).toBeTruthy();
     expect(screen.getAllByText(/TikTok/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Rp20.000/i)).toBeTruthy();
@@ -210,7 +210,7 @@ describe("web smoke", () => {
   it("starts Google OAuth from landing page", async () => {
     render(<App />);
 
-    expect(await screen.findByText(/Voiceshort/i)).toBeTruthy();
+    expect(await screen.findByText(/Real Voice Over Video/i)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Masuk dengan Google/i }));
 
     await waitFor(() => {
@@ -222,7 +222,7 @@ describe("web smoke", () => {
     vi.mocked(api.isAuthReady).mockReturnValue(false);
     render(<App />);
 
-    expect(await screen.findByText(/Voiceshort/i)).toBeTruthy();
+    expect(await screen.findByText(/Real Voice Over Video/i)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Masuk dengan Google/i }));
 
     expect(await screen.findByText(/Masuk Google belum tersedia/i)).toBeTruthy();

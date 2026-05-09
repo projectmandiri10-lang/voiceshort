@@ -14,7 +14,7 @@ export function BrandMark({ compact = false }: BrandMarkProps) {
       </div>
       <div>
         <div className={compact ? "brand-title brand-title-compact" : "brand-title"}>
-          VOICESHORT<span>.</span>
+          Real Voice Over Video
         </div>
         {!compact ? <p className="brand-subtitle">AI voice over workspace untuk video sampai 15 menit</p> : null}
       </div>

@@ -154,9 +154,9 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
           <span className="eyebrow">AI-Powered Production</span>
           <h1>Bikin voice over video sampai 15 menit lebih cepat dan lebih rapi.</h1>
           <p className="landing-copy-lead">
-            Unggah video, tulis arahan singkat, lalu Voiceshort membantu menyiapkan narasi untuk
-            konten Anda. Cocok untuk creator, jualan online, dan video promosi harian dengan
-            billing transparan per menit.
+            Unggah video, tulis arahan singkat, lalu Real Voice Over Video membantu menyiapkan
+            narasi untuk konten Anda. Cocok untuk creator, jualan online, dan video promosi harian
+            dengan billing transparan per menit.
           </p>
 
           <div className="hero-price-banner surface-card">
@@ -300,7 +300,7 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
           <h2>Teknologi yang terasa rapi, bukan ribet.</h2>
           <p className="section-note">
             Visual baru mengikuti canvas, sementara perilaku produk tetap berakar pada workflow
-            Voiceshort yang sudah berjalan sekarang.
+            Real Voice Over Video yang sudah berjalan sekarang.
           </p>
         </div>
 
