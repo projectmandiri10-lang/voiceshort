@@ -1,5 +1,6 @@
 export const CONTENT_TYPES = [
   "affiliate",
+  "video-marketing",
   "komedi",
   "informasi",
   "hiburan",

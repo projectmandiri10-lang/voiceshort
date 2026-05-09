@@ -58,6 +58,21 @@ describe("prompt builder", () => {
     expect(prompt).toContain("Jangan menebak merek");
   });
 
+  it("scales visual brief beat guidance for longer videos", () => {
+    const prompt = buildVisualBriefPrompt({
+      settings: DEFAULT_SETTINGS,
+      title: "Tutorial Panjang",
+      description: "Video penjelasan dengan durasi lebih panjang.",
+      contentType: "edukasi",
+      voiceGender: "male",
+      tone: "informatif",
+      videoDurationSec: 900
+    });
+
+    expect(prompt).toContain("Pecah video menjadi 8-15 beat");
+    expect(prompt).not.toContain("video short");
+  });
+
   it("builds script prompt with visual brief grounding rules", () => {
     const prompt = buildScriptPrompt({
       settings: DEFAULT_SETTINGS,
@@ -75,6 +90,7 @@ describe("prompt builder", () => {
     expect(prompt).toContain("\"uncertainties\"");
     expect(prompt).toContain("timeline");
     expect(prompt).toContain("cek detailnya sekarang");
+    expect(prompt).not.toContain("video short");
     expect(prompt).not.toContain("Arahan hashtag user");
   });
 
@@ -95,6 +111,7 @@ describe("prompt builder", () => {
     expect(prompt).toContain("Referensi naskah voice over");
     expect(prompt).toContain("Sumber visual resmi");
     expect(prompt).toContain("Jangan membuat angle caption yang bertentangan");
+    expect(prompt).not.toContain("video short");
     expect(prompt).not.toContain("Arahan hashtag user");
   });
 });

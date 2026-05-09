@@ -120,10 +120,11 @@ describe("api integration", () => {
   const openCalls: string[] = [];
   const previewSpeechCalls: Array<Record<string, unknown>> = [];
   let processorOverloaded = false;
+  let forceEnqueueFailure = false;
   let processorQueuedCount = 0;
   const processor = {
     enqueue(jobId: string) {
-      if (processorOverloaded || processorQueuedCount >= 20) {
+      if (forceEnqueueFailure || processorOverloaded || processorQueuedCount >= 20) {
         return false;
       }
       enqueueCalls.push(jobId);
@@ -168,6 +169,7 @@ describe("api integration", () => {
     openCalls.length = 0;
     previewSpeechCalls.length = 0;
     processorOverloaded = false;
+    forceEnqueueFailure = false;
     processorQueuedCount = 0;
     probeDuration = async () => 30;
     await resetTestStorage();
@@ -338,6 +340,26 @@ describe("api integration", () => {
     expect(user?.walletBalanceIdr).toBe(18_000);
   });
 
+  it("charges 2 billed minutes for videos above 60 seconds", async () => {
+    probeDuration = async () => 61;
+    const form = buildCreateForm();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/jobs",
+      payload: form.getBuffer(),
+      headers: {
+        ...form.getHeaders(),
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    const user = await usersStore.getByEmail("creator@test.dev");
+    expect(user?.walletBalanceIdr).toBe(16_000);
+    expect(user?.videoQuotaUsed).toBe(1);
+  });
+
   it("rejects create job when deposit balance is insufficient", async () => {
     const form = buildCreateForm();
 
@@ -354,6 +376,26 @@ describe("api integration", () => {
     expect(response.statusCode).toBe(402);
     expect(response.json()).toMatchObject({
       message: "Gagal memproses upload video."
+    });
+  });
+
+  it("rejects create job above 15 minutes", async () => {
+    probeDuration = async () => 901;
+    const form = buildCreateForm();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/jobs",
+      payload: form.getBuffer(),
+      headers: {
+        ...form.getHeaders(),
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      message: "Durasi video 901.00s melebihi batas 900s."
     });
   });
 
@@ -424,6 +466,31 @@ describe("api integration", () => {
     expect(user?.videoQuotaUsed).toBe(0);
     expect(user?.walletBalanceIdr).toBe(20_000);
     expect(enqueueCalls).toEqual([]);
+  });
+
+  it("refunds the reserved variable charge when enqueue fails after reserve", async () => {
+    probeDuration = async () => 61;
+    forceEnqueueFailure = true;
+    const form = buildCreateForm();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/jobs",
+      payload: form.getBuffer(),
+      headers: {
+        ...form.getHeaders(),
+        Authorization: bearerHeader(creatorToken)
+      }
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({
+      message: "Gagal memproses upload video."
+    });
+
+    const user = await usersStore.getByEmail("creator@test.dev");
+    expect(user?.walletBalanceIdr).toBe(20_000);
+    expect(user?.videoQuotaUsed).toBe(0);
   });
 
   it("allows unlimited whitelist user to create jobs without reducing balance", async () => {

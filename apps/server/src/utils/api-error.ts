@@ -96,7 +96,7 @@ export function normalizeApiError(error: unknown): NormalizedApiError {
     };
   }
 
-  if (Number.isInteger(explicitStatus) && explicitStatus >= 400 && explicitStatus < 500) {
+  if (Number.isInteger(explicitStatus) && explicitStatus >= 400 && explicitStatus < 600) {
     return {
       statusCode: explicitStatus,
       error: message

@@ -28,7 +28,7 @@ export const settingsSchema = z.object({
   scriptModel: z.string().trim().min(1),
   ttsModel: z.string().trim().min(1),
   language: z.literal("id-ID"),
-  maxVideoSeconds: z.number().int().min(10).max(60),
+  maxVideoSeconds: z.number().int().min(10).max(900),
   safetyMode: z.literal("safe_marketing"),
   concurrency: z.literal(1),
   genderVoices: z

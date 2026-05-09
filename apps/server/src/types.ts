@@ -1,5 +1,6 @@
 export type ContentType =
   | "affiliate"
+  | "video-marketing"
   | "komedi"
   | "informasi"
   | "hiburan"
@@ -139,7 +140,7 @@ export interface AdminUserRecord extends AuthSessionUser {
 }
 
 export interface UploadedAiFile {
-  provider: "gemini" | "litellm";
+  provider: "gemini" | "litellm" | "snifox";
   mimeType: string;
   fileUri?: string;
   fileId?: string;

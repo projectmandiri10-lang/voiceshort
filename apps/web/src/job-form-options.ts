@@ -2,6 +2,7 @@ import type { ContentType, JobVoiceGender } from "./types";
 
 export const CONTENT_LABEL: Record<ContentType, string> = {
   affiliate: "Affiliate",
+  "video-marketing": "Video Marketing",
   komedi: "Komedi",
   informasi: "Informasi",
   hiburan: "Hiburan",

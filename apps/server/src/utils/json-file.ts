@@ -5,6 +5,17 @@ function stripUtf8Bom(input: string): string {
   return input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function isTransientRenameError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "EPERM" || code === "EBUSY" || code === "EACCES";
+}
+
 export class JsonFile<T> {
   private chain: Promise<unknown> = Promise.resolve();
 
@@ -45,7 +56,7 @@ export class JsonFile<T> {
     await mkdir(directory, { recursive: true });
     try {
       await writeFile(tempPath, JSON.stringify(data, null, 2), "utf8");
-      await rename(tempPath, this.filePath);
+      await this.renameWithRetry(tempPath, this.filePath);
     } catch (error) {
       throw new Error(
         `Gagal menulis file ${this.filePath}: ${
@@ -86,6 +97,21 @@ export class JsonFile<T> {
       return await fn();
     } finally {
       unlock();
+    }
+  }
+
+  private async renameWithRetry(fromPath: string, toPath: string): Promise<void> {
+    const maxAttempts = 5;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        await rename(fromPath, toPath);
+        return;
+      } catch (error) {
+        if (attempt >= maxAttempts || !isTransientRenameError(error)) {
+          throw error;
+        }
+        await delay(20 * attempt);
+      }
     }
   }
 }

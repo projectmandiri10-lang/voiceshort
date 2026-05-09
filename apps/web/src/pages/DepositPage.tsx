@@ -130,7 +130,8 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
         <span className="eyebrow">Isi Saldo</span>
         <h2>Isi saldo lewat QRIS dengan pembayaran otomatis.</h2>
         <p className="section-note">
-          Biaya pembuatan voice over saat ini {formatRupiah(wallet?.generatePriceIdr ?? 2000)} per video.
+          Biaya pembuatan voice over saat ini {formatRupiah(wallet?.generatePriceIdr ?? 2000)} per menit.
+          Pembulatan per menit berlaku, jadi 61 detik dihitung 2 menit.
         </p>
       </div>
 
@@ -146,7 +147,7 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
           <p className="small">
             {wallet?.isUnlimited
               ? "Akun whitelist dapat memproses video tanpa batas saldo."
-              : `Estimasi sisa generate: ${wallet?.generateCreditsRemaining ?? 0} video.`}
+              : `Estimasi sisa generate: ${wallet?.generateCreditsRemaining ?? 0} menit penuh.`}
           </p>
         </div>
         <span className="status status-success">Saldo aktif</span>
@@ -159,7 +160,7 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
               <div className="row-head">
                 <div>
                   <strong>Pilih paket saldo</strong>
-                  <p className="small">Semua paket langsung menambah kredit ke akun yang sedang aktif.</p>
+                  <p className="small">Semua paket langsung menambah kredit ke akun yang sedang aktif untuk billing per menit.</p>
                 </div>
                 <WalletMinimal size={18} />
               </div>
@@ -208,7 +209,7 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
               <div>
                 <span className="eyebrow">Checkout QRIS</span>
                 <h3>{selectedPackage?.label ?? "Paket saldo"}</h3>
-                <p className="small">Kredit saldo {formatRupiah(selectedPackage?.creditAmountIdr)}.</p>
+                <p className="small">Kredit saldo {formatRupiah(selectedPackage?.creditAmountIdr)} untuk estimasi {selectedPackage?.generateCredits ?? 0} menit.</p>
               </div>
               <button type="button" className="primary-button" onClick={onCreateTopup} disabled={creatingOrder}>
                 <QrCode size={16} />

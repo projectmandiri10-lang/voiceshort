@@ -5,6 +5,7 @@ export default defineConfig({
     environment: "node",
     include: ["test/**/*.test.ts"],
     setupFiles: ["./test/setup-env.ts"],
+    maxWorkers: 1,
     sequence: {
       concurrent: false
     }

@@ -4,9 +4,11 @@ import { AuthService } from "./services/auth-service.js";
 import { JobEvents } from "./services/job-events.js";
 import { JobProcessor } from "./services/job-processor.js";
 import { GeminiService } from "./services/gemini-service.js";
-import type { AiService } from "./services/ai-service.js";
+import type { AiService, SpeechService } from "./services/ai-service.js";
 import { BillingService } from "./services/billing-service.js";
+import { HybridAiService } from "./services/hybrid-ai-service.js";
 import { LiteLlmService } from "./services/litellm-service.js";
+import { SnifoxService } from "./services/snifox-service.js";
 import { SupabaseAuthConfigService } from "./services/supabase-auth-config-service.js";
 import { createSupabaseClient } from "./services/supabase-client.js";
 import { JobsStore } from "./stores/jobs-store.js";
@@ -24,6 +26,11 @@ async function bootstrap(): Promise<void> {
           scriptModel: env.litellmScriptModel,
           ttsModel: env.litellmTtsModel
         }
+      : env.aiProvider === "hybrid"
+        ? {
+            scriptModel: env.snifoxScriptModel,
+            ttsModel: env.litellmTtsModel
+          }
       : undefined;
   const adminDb = createSupabaseClient({
     supabaseUrl: env.supabaseUrl,
@@ -41,7 +48,8 @@ async function bootstrap(): Promise<void> {
   const authService = new AuthService({
     supabaseUrl: env.supabaseUrl,
     supabaseAnonKey: env.supabaseAnonKey,
-    supabaseServiceRoleKey: env.supabaseServiceRoleKey
+    supabaseServiceRoleKey: env.supabaseServiceRoleKey,
+    generatePriceIdr: env.generatePriceIdr
   });
   const supabaseAuthConfigService = new SupabaseAuthConfigService({
     logger,
@@ -57,17 +65,60 @@ async function bootstrap(): Promise<void> {
     logger.error({ err: error }, "Gagal sinkronisasi Google OAuth ke Supabase.");
   });
 
-  const aiService: AiService =
-    env.aiProvider === "litellm"
-      ? new LiteLlmService({
-          baseUrl: env.litellmBaseUrl,
-          apiKey: env.litellmApiKey,
-          scriptModel: env.litellmScriptModel,
-          ttsModel: env.litellmTtsModel,
-          fileTargetModel: env.litellmFileTargetModel,
-          logger
-        })
-      : new GeminiService(env.geminiApiKey, logger);
+  let aiService: AiService;
+  let speechGenerator: SpeechService;
+  let aiRouting: {
+    provider: string;
+    nonTts: string;
+    tts: string;
+  };
+
+  if (env.aiProvider === "litellm") {
+    const litellm = new LiteLlmService({
+      baseUrl: env.litellmBaseUrl,
+      apiKey: env.litellmApiKey,
+      scriptModel: env.litellmScriptModel,
+      ttsModel: env.litellmTtsModel,
+      fileTargetModel: env.litellmFileTargetModel,
+      logger
+    });
+    aiService = litellm;
+    speechGenerator = litellm;
+    aiRouting = {
+      provider: "litellm",
+      nonTts: "litellm",
+      tts: "litellm"
+    };
+  } else if (env.aiProvider === "hybrid") {
+    const snifox = new SnifoxService({
+      baseUrl: env.snifoxApiBase,
+      apiKey: env.snifoxApiKey,
+      scriptModel: env.snifoxScriptModel,
+      logger
+    });
+    const litellmSpeech = new LiteLlmService({
+      baseUrl: env.litellmBaseUrl,
+      apiKey: env.litellmApiKey,
+      ttsModel: env.litellmTtsModel,
+      logger
+    });
+    aiService = new HybridAiService(snifox, litellmSpeech);
+    speechGenerator = litellmSpeech;
+    aiRouting = {
+      provider: "hybrid",
+      nonTts: "snifox",
+      tts: "litellm"
+    };
+  } else {
+    const gemini = new GeminiService(env.geminiApiKey, logger);
+    aiService = gemini;
+    speechGenerator = gemini;
+    aiRouting = {
+      provider: "gemini",
+      nonTts: "gemini",
+      tts: "gemini"
+    };
+  }
   const billingService = new BillingService({
     db: adminDb,
     logger,
@@ -86,7 +137,7 @@ async function bootstrap(): Promise<void> {
     usersStore,
     processor,
     billingService,
-    speechGenerator: aiService,
+    speechGenerator,
     authService,
     jobEvents
   });
@@ -96,6 +147,14 @@ async function bootstrap(): Promise<void> {
     host: "0.0.0.0"
   });
 
+  logger.info(
+    {
+      aiProvider: aiRouting.provider,
+      nonTtsProvider: aiRouting.nonTts,
+      ttsProvider: aiRouting.tts
+    },
+    "AI routing aktif."
+  );
   logger.info(`Server berjalan di http://localhost:${env.port}`);
 }
 

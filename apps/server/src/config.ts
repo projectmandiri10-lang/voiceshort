@@ -6,8 +6,11 @@ import { DEFAULT_PORT } from "./constants.js";
 dotenv.config({ path: path.join(ROOT_DIR, ".env"), override: true });
 
 export interface AppEnv {
-  aiProvider: "gemini" | "litellm";
+  aiProvider: "gemini" | "litellm" | "hybrid";
   geminiApiKey: string;
+  snifoxApiBase: string;
+  snifoxApiKey: string;
+  snifoxScriptModel: string;
   litellmBaseUrl: string;
   litellmApiKey: string;
   litellmScriptModel: string;
@@ -36,12 +39,16 @@ export interface AppEnv {
 export function loadEnv(): AppEnv {
   const aiProviderRaw = process.env.AI_PROVIDER?.trim().toLowerCase() || "litellm";
   const aiProvider =
-    aiProviderRaw === "litellm" || aiProviderRaw === "gemini"
+    aiProviderRaw === "litellm" || aiProviderRaw === "gemini" || aiProviderRaw === "hybrid"
       ? aiProviderRaw
       : undefined;
   const geminiApiKey = process.env.GEMINI_API_KEY?.trim() ?? "";
+  const snifoxApiBase = process.env.SNIFOX_API_BASE?.trim() ?? "";
+  const snifoxApiKey = process.env.SNIFOX_API_KEY?.trim() ?? "";
+  const snifoxScriptModel = process.env.SNIFOX_SCRIPT_MODEL?.trim() ?? "";
   const litellmBaseUrl = process.env.LITELLM_BASE_URL?.trim() ?? "";
-  const litellmApiKey = process.env.LITELLM_API_KEY?.trim() ?? "";
+  const litellmApiKey =
+    process.env.LITELLM_SECRET_KEY?.trim() || process.env.LITELLM_API_KEY?.trim() || "";
   const litellmScriptModel = process.env.LITELLM_SCRIPT_MODEL?.trim() ?? "";
   const litellmTtsModel = process.env.LITELLM_TTS_MODEL?.trim() ?? "";
   const litellmFileTargetModel =
@@ -97,6 +104,21 @@ export function loadEnv(): AppEnv {
     }
   }
 
+  if (aiProvider === "hybrid") {
+    if (!snifoxApiBase) {
+      throw new Error("SNIFOX_API_BASE wajib diisi saat AI_PROVIDER=hybrid.");
+    }
+    if (!snifoxScriptModel) {
+      throw new Error("SNIFOX_SCRIPT_MODEL wajib diisi saat AI_PROVIDER=hybrid.");
+    }
+    if (!litellmBaseUrl) {
+      throw new Error("LITELLM_BASE_URL wajib diisi saat AI_PROVIDER=hybrid.");
+    }
+    if (!litellmTtsModel) {
+      throw new Error("LITELLM_TTS_MODEL wajib diisi saat AI_PROVIDER=hybrid.");
+    }
+  }
+
   if (!Number.isFinite(port) || port <= 0) {
     throw new Error(`PORT tidak valid: ${portRaw}`);
   }
@@ -120,6 +142,9 @@ export function loadEnv(): AppEnv {
   return {
     aiProvider,
     geminiApiKey,
+    snifoxApiBase,
+    snifoxApiKey,
+    snifoxScriptModel,
     litellmBaseUrl,
     litellmApiKey,
     litellmScriptModel,

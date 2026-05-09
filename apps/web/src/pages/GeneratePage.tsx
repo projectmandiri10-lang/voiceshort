@@ -4,6 +4,12 @@ import { ApiError, createJob, fetchGenerationCapacity } from "../api";
 import { CONTENT_LABEL, GENDER_LABEL, TONE_OPTIONS } from "../job-form-options";
 import type { AuthUser, ContentType, GenerationCapacity, JobVoiceGender } from "../types";
 import { CONTENT_TYPES } from "../types";
+import { readVideoDuration } from "../video-duration";
+import {
+  calculateBilledMinutes,
+  calculateEstimatedChargeIdr,
+  formatVideoDuration,
+} from "../utils/billing";
 
 const MAX_BATCH_SLOTS = 10;
 const DEFAULT_CONTENT_TYPE: ContentType = "affiliate";
@@ -18,6 +24,11 @@ type SlotSubmitState = "idle" | "submitting" | "success" | "failed";
 interface BatchSlotState {
   slotNumber: number;
   video: File | null;
+  videoDurationSec: number | null;
+  billedMinutes: number | null;
+  estimatedChargeIdr: number | null;
+  durationPending: boolean;
+  durationError: string;
   title: string;
   description: string;
   contentType: ContentType;
@@ -50,6 +61,11 @@ function createEmptySlot(slotNumber: number): BatchSlotState {
   return {
     slotNumber,
     video: null,
+    videoDurationSec: null,
+    billedMinutes: null,
+    estimatedChargeIdr: null,
+    durationPending: false,
+    durationError: "",
     title: "",
     description: "",
     contentType: DEFAULT_CONTENT_TYPE,
@@ -83,6 +99,11 @@ function isSlotEmpty(slot: BatchSlotState): boolean {
 function isSlotReady(slot: BatchSlotState): boolean {
   return Boolean(
     slot.video &&
+      slot.videoDurationSec &&
+      slot.billedMinutes &&
+      slot.estimatedChargeIdr &&
+      !slot.durationPending &&
+      !slot.durationError &&
       slot.title.trim() &&
       slot.description.trim() &&
       slot.contentType &&
@@ -144,6 +165,16 @@ function getSlotStatusClassName(status: SlotVisualStatus): string {
   }
 }
 
+function getIncompleteSlotMessage(slot: BatchSlotState): string {
+  if (slot.video && slot.durationPending) {
+    return "Durasi video masih dibaca. Tunggu sebentar lalu coba lagi.";
+  }
+  if (slot.durationError) {
+    return slot.durationError;
+  }
+  return "Lengkapi video, judul, brief/deskripsi, kategori, gender suara, tone, dan pastikan durasi video terbaca.";
+}
+
 function buildOverloadedCapacity(
   message: string,
   current: GenerationCapacity | null
@@ -180,7 +211,18 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
   const isServerOverloaded = Boolean(capacity?.overloaded);
   const visibleSlots = slots.slice(0, activeSlotCount);
   const canAddSlot = activeSlotCount < MAX_BATCH_SLOTS;
-  const readySlotsCount = visibleSlots.filter((slot) => isSlotReady(slot)).length;
+  const readySlots = visibleSlots.filter((slot) => isSlotReady(slot));
+  const readyBilledMinutes = readySlots.reduce((total, slot) => total + (slot.billedMinutes ?? 0), 0);
+  const readyEstimatedChargeIdr = readySlots.reduce(
+    (total, slot) => total + (slot.estimatedChargeIdr ?? 0),
+    0
+  );
+  const estimatedRemainingMinutes = currentUser.isUnlimited
+    ? null
+    : Math.max(
+        0,
+        Math.floor((currentUser.walletBalanceIdr - readyEstimatedChargeIdr) / currentUser.generatePriceIdr)
+      );
 
   useEffect(() => {
     let mounted = true;
@@ -225,17 +267,17 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
     );
   };
 
-  const markIncompleteSlots = (slotNumbers: number[]) => {
-    const slotNumberSet = new Set(slotNumbers);
+  const markIncompleteSlots = (entries: Array<{ slotNumber: number; message: string }>) => {
+    const slotErrors = new Map(entries.map((item) => [item.slotNumber, item.message]));
     setSlots((current) =>
       current.map((slot) => {
-        if (!slotNumberSet.has(slot.slotNumber)) {
+        if (!slotErrors.has(slot.slotNumber)) {
           return slot;
         }
         return {
           ...slot,
           submitState: "idle",
-          error: "Lengkapi video, judul, brief/deskripsi, kategori, gender suara, dan tone.",
+          error: slotErrors.get(slot.slotNumber) || "",
         };
       })
     );
@@ -287,6 +329,51 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
     setActiveSlotCount((current) => Math.min(current + 1, MAX_BATCH_SLOTS));
   };
 
+  const onVideoSelected = (slotNumber: number, file: File | null) => {
+    updateSlot(slotNumber, (current) => ({
+      ...current,
+      video: file,
+      videoDurationSec: null,
+      billedMinutes: null,
+      estimatedChargeIdr: null,
+      durationPending: Boolean(file),
+      durationError: "",
+    }));
+
+    if (!file) {
+      return;
+    }
+
+    void readVideoDuration(file)
+      .then((durationSec) => {
+        updateSlot(slotNumber, (current) => {
+          if (current.video !== file) {
+            return current;
+          }
+          return {
+            ...current,
+            videoDurationSec: durationSec,
+            billedMinutes: calculateBilledMinutes(durationSec),
+            estimatedChargeIdr: calculateEstimatedChargeIdr(durationSec, currentUser.generatePriceIdr),
+            durationPending: false,
+            durationError: "",
+          };
+        });
+      })
+      .catch((durationErrorValue) => {
+        updateSlot(slotNumber, (current) => {
+          if (current.video !== file) {
+            return current;
+          }
+          return {
+            ...current,
+            durationPending: false,
+            durationError: (durationErrorValue as Error).message || "Durasi video tidak bisa dibaca.",
+          };
+        });
+      });
+  };
+
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
@@ -298,14 +385,13 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
     }
 
     if (!canGenerate) {
-      setError("Saldo belum cukup. Isi saldo minimal untuk memproses 1 video.");
+      setError("Saldo belum cukup. Isi saldo minimal Rp2.000 untuk memproses 1 menit video.");
       return;
     }
 
     const incompleteSlots = visibleSlots
       .filter((slot) => !isSlotEmpty(slot) && !isSlotReady(slot))
-      .map((slot) => slot.slotNumber);
-    const readySlots = visibleSlots.filter((slot) => isSlotReady(slot));
+      .map((slot) => ({ slotNumber: slot.slotNumber, message: getIncompleteSlotMessage(slot) }));
 
     markIncompleteSlots(incompleteSlots);
 
@@ -314,9 +400,9 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
       return;
     }
 
-    if (!currentUser.isUnlimited && readySlots.length > (currentUser.generateCreditsRemaining ?? 0)) {
+    if (!currentUser.isUnlimited && readyEstimatedChargeIdr > currentUser.walletBalanceIdr) {
       setError(
-        `Jumlah video siap diproses (${readySlots.length}) melebihi sisa saldo Anda (${currentUser.generateCreditsRemaining} video).`
+        `Total estimasi biaya slot siap diproses (${formatRupiah(readyEstimatedChargeIdr)}) melebihi saldo Anda (${formatRupiah(currentUser.walletBalanceIdr)}).`
       );
       return;
     }
@@ -371,7 +457,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
       setSummary({
         successJobs,
         failedSlots,
-        incompleteSlots,
+        incompleteSlots: incompleteSlots.map((slot) => slot.slotNumber),
       });
       nextJobIdToView = successJobs[0]?.jobId;
     } finally {
@@ -389,8 +475,8 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
         <span className="eyebrow">Batch Generator</span>
         <h2>Buat voice over dari 1 sampai 10 slot video dalam satu workspace.</h2>
         <p className="section-note">
-          Layout baru mengikuti cockpit canvas, tetapi aturan validasi, batas slot, dan proses submit
-          tetap sama seperti sebelumnya.
+          Sistem membaca durasi video upload langsung di browser, lalu menghitung estimasi biaya
+          Rp2.000 per menit dengan pembulatan ke atas.
         </p>
       </div>
 
@@ -418,8 +504,8 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
             </div>
             <div className="monitor-cell">
               <Sparkles size={18} />
-              <strong>{readySlotsCount}</strong>
-              <span className="small">Slot siap submit</span>
+              <strong>{readyBilledMinutes}</strong>
+              <span className="small">Menit billing siap submit</span>
             </div>
           </div>
         </section>
@@ -435,10 +521,17 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
               {currentUser.isUnlimited ? (
                 <p className="small">Akun whitelist dapat memproses video tanpa batas saldo.</p>
               ) : (
-                <p className="small">
-                  Biaya {formatRupiah(currentUser.generatePriceIdr)} per video. Sisa estimasi:{" "}
-                  {currentUser.generateCreditsRemaining} video.
-                </p>
+                <>
+                  <p className="small">
+                    Biaya {formatRupiah(currentUser.generatePriceIdr)} per menit. Saldo saat ini
+                    cukup untuk {currentUser.generateCreditsRemaining} menit penuh.
+                  </p>
+                  <p className="small">
+                    Batch siap saat ini: {formatRupiah(readyEstimatedChargeIdr)} untuk{" "}
+                    {readyBilledMinutes} menit billing. Sisa estimasi setelah batch:{" "}
+                    {estimatedRemainingMinutes ?? 0} menit. Contoh pembulatan: 61 detik = 2 menit.
+                  </p>
+                </>
               )}
             </div>
             {!canGenerate ? (
@@ -502,20 +595,38 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                       key={slot.fileInputKey}
                       type="file"
                       accept="video/*"
-                      onChange={(event) =>
-                        updateSlot(slot.slotNumber, (current) => ({
-                          ...current,
-                          video: event.target.files?.[0] || null,
-                        }))
-                      }
+                      onChange={(event) => onVideoSelected(slot.slotNumber, event.target.files?.[0] || null)}
                       disabled={loading || !canGenerate}
                     />
                     <div className="slot-dropzone" aria-hidden="true">
                       <UploadCloud size={24} />
                       <strong>{slot.video ? slot.video.name : "Unggah file MP4/MOV"}</strong>
-                      <span className="small">Maksimum 1 video per slot. File tersimpan lokal sampai submit.</span>
+                      <span className="small">
+                        Maksimum 1 video per slot. Durasi dipakai untuk estimasi biaya sebelum submit.
+                      </span>
                     </div>
                   </label>
+
+                  <div className="slot-estimate-card">
+                    {slot.durationPending ? (
+                      <p className="small">Membaca durasi video...</p>
+                    ) : slot.durationError ? (
+                      <p className="err-inline">{slot.durationError}</p>
+                    ) : slot.videoDurationSec && slot.billedMinutes && slot.estimatedChargeIdr ? (
+                      <>
+                        <strong>
+                          {formatVideoDuration(slot.videoDurationSec)} | {slot.billedMinutes} menit billing
+                        </strong>
+                        <span className="small">
+                          Estimasi biaya {formatRupiah(slot.estimatedChargeIdr)} untuk slot ini.
+                        </span>
+                      </>
+                    ) : (
+                      <span className="small">
+                        Biaya akan dihitung otomatis dari durasi video upload.
+                      </span>
+                    )}
+                  </div>
 
                   <label>
                     Judul <span className="required-mark">*</span>
@@ -653,7 +764,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
               <div className="slot-dropzone">
                 <Plus size={28} />
                 <strong>Tambah Slot</strong>
-                <span className="small">Buka slot berikutnya sampai maksimum 10 video.</span>
+                <span className="small">Buka slot berikutnya sampai maksimum 10 slot.</span>
               </div>
             </div>
           ) : null}
@@ -669,11 +780,20 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
             </div>
             <div className="sticky-action-count">
               <span className="eyebrow">System Calculation</span>
-              <strong>{currentUser.isUnlimited ? "Unlimited" : formatRupiah(currentUser.generatePriceIdr)}</strong>
+              <strong>{currentUser.isUnlimited ? "Unlimited" : formatRupiah(readyEstimatedChargeIdr)}</strong>
+              <span className="small">
+                {currentUser.isUnlimited
+                  ? "Tanpa estimasi biaya"
+                  : `${readyBilledMinutes} menit billing siap submit`}
+              </span>
             </div>
             <div className="sticky-action-count">
-              <span className="eyebrow">Ready Slots</span>
-              <strong>{readySlotsCount}</strong>
+              <span className="eyebrow">Saldo Setelah Batch</span>
+              <strong>
+                {currentUser.isUnlimited
+                  ? "Unlimited"
+                  : `${estimatedRemainingMinutes ?? 0} menit`}
+              </strong>
             </div>
           </div>
 
@@ -697,7 +817,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
               disabled={loading || !canGenerate || isServerOverloaded}
             >
               <CircleDollarSign size={16} />
-              <span>{loading ? "Memproses video..." : "Proses Video yang Siap"}</span>
+              <span>{loading ? "Memproses video..." : "Proses Slot yang Siap"}</span>
             </button>
           </div>
         </div>

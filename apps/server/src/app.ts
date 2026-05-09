@@ -43,6 +43,7 @@ import { openPathInExplorer } from "./utils/open-location.js";
 import { writeWav24kMono } from "./utils/audio.js";
 import { normalizeApiError } from "./utils/api-error.js";
 import { pruneVoicePreviewFiles } from "./utils/voice-preview.js";
+import { calculateBilledMinutes, calculateGenerateChargeIdr } from "./utils/billing.js";
 
 interface BuildAppOptions {
   logger: FastifyBaseLogger;
@@ -646,13 +647,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       const settings = await options.settingsStore.get();
       const sampleText =
         payload.text ||
-        "Ini contoh voice over general untuk video short maksimal 60 detik dengan delivery natural dan jelas.";
+        "Ini contoh voice over general untuk video sampai 15 menit dengan delivery natural dan jelas.";
       const audio = await options.speechGenerator.generateSpeech({
         model: settings.ttsModel,
         text: sampleText,
         voiceName: voice.voiceName,
         speechRate: payload.speechRate,
-        deliveryHint: `${voice.tone.toLowerCase()} dan natural untuk voice over video short berbahasa Indonesia`
+        deliveryHint: `${voice.tone.toLowerCase()} dan natural untuk voice over video berbahasa Indonesia`
       });
 
       const previewDir = path.join(OUTPUTS_DIR, "_voice_previews");
@@ -955,6 +956,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const jobId = nanoid(10);
     let keepUploadDir = false;
     let creditReserved = false;
+    let chargeAmountIdr = 0;
 
     const cleanupUploadDir = async () => {
       if (!uploadDir) {
@@ -1009,6 +1011,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           message: `Durasi video ${durationSec.toFixed(2)}s melebihi batas ${settings.maxVideoSeconds}s.`
         });
       }
+      const billedMinutes = calculateBilledMinutes(durationSec);
+      chargeAmountIdr = calculateGenerateChargeIdr(durationSec, authContext.user.generatePriceIdr);
 
       const capacity = options.processor.getCapacitySnapshot();
       if (capacity.overloaded) {
@@ -1017,7 +1021,16 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         });
       }
 
-      await options.usersStore.reserveGenerateCredit(jobId, authContext.user.email);
+      await options.usersStore.reserveGenerateCredit(
+        jobId,
+        authContext.user.email,
+        {
+          chargeAmountIdr,
+          billedMinutes,
+          videoDurationSec: durationSec
+        },
+        authContext.db
+      );
       creditReserved = true;
 
       const now = nowIso();
@@ -1059,7 +1072,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     } catch (error) {
       if (creditReserved) {
         await options.usersStore
-          .refundGenerateCredit(jobId, authContext.user.email, "Refund karena job gagal dibuat")
+          .refundGenerateCredit(
+            jobId,
+            authContext.user.email,
+            {
+              reason: "Refund karena job gagal dibuat",
+              refundAmountIdr: chargeAmountIdr
+            },
+            authContext.db
+          )
           .catch(() => undefined);
       }
       if (!keepUploadDir) {

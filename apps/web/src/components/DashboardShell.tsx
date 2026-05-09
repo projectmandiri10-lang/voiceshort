@@ -73,7 +73,7 @@ export function DashboardShell<TView extends string>({
             </div>
             <div className="sidebar-note-row">
               <Sparkles size={16} />
-              <span>{user.isUnlimited ? "Unlimited generation" : "Billing per video aktif"}</span>
+              <span>{user.isUnlimited ? "Unlimited generation" : "Billing per menit aktif"}</span>
             </div>
             <button type="button" className="danger-button sidebar-logout" onClick={() => void onLogout()}>
               <LogOut size={16} />
@@ -90,7 +90,7 @@ export function DashboardShell<TView extends string>({
                 <span>Voiceshort Dashboard</span>
               </div>
               <span className="eyebrow">Operational Interface</span>
-              <h1>Kelola voice over video pendek dengan alur yang lebih cepat dan rapi.</h1>
+              <h1>Kelola voice over video sampai 15 menit dengan alur yang lebih cepat dan rapi.</h1>
               <p className="section-note">
                 Semua fitur lama tetap ada, sekarang dibungkus dalam workspace yang lebih fokus untuk
                 upload, antrean, saldo, dan admin.
@@ -102,13 +102,13 @@ export function DashboardShell<TView extends string>({
                 <span className="metric-label">Saldo</span>
                 <strong>{user.isUnlimited ? "Unlimited" : formatRupiah(user.walletBalanceIdr)}</strong>
                 <p className="small">
-                  {user.isUnlimited ? "Tanpa batas saldo" : `${user.generateCreditsRemaining ?? 0} video tersisa`}
+                  {user.isUnlimited ? "Tanpa batas saldo" : `${user.generateCreditsRemaining ?? 0} menit penuh tersisa`}
                 </p>
               </article>
               <article className="metric-card">
                 <span className="metric-label">Biaya</span>
                 <strong>{formatRupiah(user.generatePriceIdr)}</strong>
-                <p className="small">Per video voice over</p>
+                <p className="small">Per menit voice over</p>
               </article>
               <article className="metric-card">
                 <span className="metric-label">Status akun</span>
@@ -126,7 +126,7 @@ export function DashboardShell<TView extends string>({
               </div>
               <div className="telemetry-chip">
                 <CircleDollarSign size={16} />
-                <span>{user.isUnlimited ? "Tanpa potong saldo" : `${user.generateCreditsRemaining ?? 0} sesi siap`}</span>
+                <span>{user.isUnlimited ? "Tanpa potong saldo" : `${user.generateCreditsRemaining ?? 0} menit siap dipakai`}</span>
               </div>
             </div>
             <div className="telemetry-chip telemetry-chip-highlight">

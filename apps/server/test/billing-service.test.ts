@@ -352,7 +352,12 @@ describe("BillingService", () => {
     });
     expect(wallet.packages).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ code: "100_video", creditAmountIdr: 200_000, generateCredits: 100 })
+        expect.objectContaining({
+          code: "100_video",
+          label: "100 menit",
+          creditAmountIdr: 200_000,
+          generateCredits: 100
+        })
       ])
     );
     expect(wallet.recentLedger).toHaveLength(1);

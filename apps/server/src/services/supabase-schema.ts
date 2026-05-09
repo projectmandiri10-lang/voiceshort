@@ -1,5 +1,6 @@
 import type { AppSettings, AssignedPackageCode, AuthSessionUser, JobRecord, UserRecord } from "../types.js";
 import { buildProgressFromStatus } from "../utils/job-progress.js";
+import { GENERATE_PRICE_IDR_DEFAULT, normalizeGeneratePriceIdr } from "../utils/billing.js";
 
 export const SUPERADMIN_WHITELIST_EMAIL = "jho.j80@gmail.com";
 
@@ -102,12 +103,15 @@ export function userRecordToProfilePatch(record: UserRecord): Partial<ProfileRow
   };
 }
 
-export function userRecordToSessionUser(record: UserRecord): AuthSessionUser {
-  const generatePriceIdr = 2000;
+export function userRecordToSessionUser(
+  record: UserRecord,
+  generatePriceIdr = GENERATE_PRICE_IDR_DEFAULT
+): AuthSessionUser {
+  const normalizedGeneratePriceIdr = normalizeGeneratePriceIdr(generatePriceIdr);
   const isUnlimited = record.isUnlimited || record.email === SUPERADMIN_WHITELIST_EMAIL;
   const generateCreditsRemaining = isUnlimited
     ? null
-    : Math.floor(Math.max(0, record.walletBalanceIdr) / generatePriceIdr);
+    : Math.floor(Math.max(0, record.walletBalanceIdr) / normalizedGeneratePriceIdr);
   return {
     id: record.id,
     email: record.email,
@@ -118,7 +122,7 @@ export function userRecordToSessionUser(record: UserRecord): AuthSessionUser {
     videoQuotaUsed: record.videoQuotaUsed,
     videoQuotaRemaining: generateCreditsRemaining,
     walletBalanceIdr: record.walletBalanceIdr,
-    generatePriceIdr,
+    generatePriceIdr: normalizedGeneratePriceIdr,
     generateCreditsRemaining,
     isUnlimited,
     disabledAt: isUnlimited && record.email === SUPERADMIN_WHITELIST_EMAIL ? null : record.disabledAt ?? null,

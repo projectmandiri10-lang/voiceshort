@@ -39,6 +39,25 @@ export function estimateWordRange(durationSec: number): {
   return { min, target, max };
 }
 
+function estimateVisualBeatRange(durationSec: number): {
+  min: number;
+  max: number;
+} {
+  const safeDuration = Math.max(10, durationSec);
+  if (safeDuration <= 60) {
+    return { min: 3, max: 8 };
+  }
+  if (safeDuration >= 900) {
+    return { min: 8, max: 15 };
+  }
+
+  const progress = (safeDuration - 60) / 840;
+  return {
+    min: Math.max(3, Math.min(8, Math.round(3 + progress * 5))),
+    max: Math.max(8, Math.min(15, Math.round(8 + progress * 7)))
+  };
+}
+
 function voiceGenderLabel(gender: JobVoiceGender): string {
   return gender === "male" ? "pria" : "wanita";
 }
@@ -99,6 +118,7 @@ function buildVisualSourceLines(visualBrief?: VisualBrief): string[] {
 }
 
 export function buildVisualBriefPrompt(input: PromptInput): string {
+  const beats = estimateVisualBeatRange(input.videoDurationSec);
   const schemaExample = {
     summary: "ringkasan visual utama video",
     hook: {
@@ -123,13 +143,13 @@ export function buildVisualBriefPrompt(input: PromptInput): string {
   };
 
   return [
-    "Anda adalah analis visual video short berbahasa Indonesia.",
+    "Anda adalah analis visual video berbahasa Indonesia.",
     "Tugas Anda adalah membuat visual brief terstruktur yang akan dipakai untuk menulis voice over dan caption.",
     "Metadata job di bawah hanya konteks tujuan konten. Jika metadata bertentangan dengan video, prioritaskan bukti visual/audio dari video.",
     "Aturan penting:",
     "- Analisis hanya berdasarkan bukti visual/audio yang benar-benar ada di video.",
     "- Jangan menebak merek, lokasi, manfaat produk, hasil penggunaan, identitas orang, atau teks layar bila tidak terlihat jelas.",
-    "- Pecah video menjadi 3-8 beat berurutan yang menutup seluruh durasi video.",
+    `- Pecah video menjadi ${beats.min}-${beats.max} beat berurutan yang menutup seluruh durasi video.`,
     "- Setiap beat wajib menjelaskan visual utama, aksi/perubahan, teks layar yang jelas terlihat, fokus narasi, dan klaim yang harus dihindari.",
     "- Tandai momen hook visual terbaik untuk pembuka voice over.",
     "- Jika ada detail ambigu, masukkan ke uncertainties; jangan jadikan fakta.",
@@ -147,14 +167,14 @@ export function buildScriptPrompt(input: ScriptPromptInput): string {
   const content = CONTENT_CONFIG[input.contentType];
 
   return [
-    "Anda adalah penulis naskah voice over video short berbahasa Indonesia.",
+    "Anda adalah penulis naskah voice over video berbahasa Indonesia.",
     input.contentType === "affiliate"
       ? "Fokus Anda adalah naskah affiliate yang persuasif, aman, natural, dan akurat terhadap visual."
       : "Fokus Anda adalah naskah general content yang natural, aman, enak didengar, dan akurat terhadap visual.",
     "Aturan penting:",
     "- Gunakan Bahasa Indonesia yang natural dan mudah diucapkan.",
     "- Kalimat pembuka wajib menjadi hook kuat agar penonton berhenti scroll.",
-    "- Naskah harus cocok dibacakan sebagai voice over untuk video short.",
+    "- Naskah harus cocok dibacakan sebagai voice over untuk video ini.",
     "- Hindari klaim medis, absolut, menyesatkan, atau berlebihan.",
     `- Panjang naskah sekitar ${words.target} kata (rentang ${words.min}-${words.max} kata) agar pas untuk durasi video ${input.videoDurationSec.toFixed(2)} detik.`,
     `- Gaya hook: ${content.hookStyle}.`,
@@ -182,7 +202,7 @@ export function buildCaptionPrompt(input: CaptionPromptInput): string {
   const content = CONTENT_CONFIG[input.contentType];
 
   return [
-    "Anda adalah penulis caption media sosial untuk video short berbahasa Indonesia.",
+    "Anda adalah penulis caption media sosial untuk video berbahasa Indonesia.",
     input.contentType === "affiliate"
       ? "Fokus Anda adalah membuat caption affiliate yang menarik, aman, natural, dan selaras dengan visual."
       : "Fokus Anda adalah membuat caption general content yang engaging, aman, natural, dan selaras dengan visual.",
@@ -195,7 +215,7 @@ export function buildCaptionPrompt(input: CaptionPromptInput): string {
     "- Jangan menambah klaim, manfaat, situasi, atau teks layar yang tidak didukung visual.",
     "- Hindari markdown, penjelasan tambahan, code fence, dan label apa pun.",
     "- Field `caption` tidak boleh berisi hashtag.",
-    "- Field `hashtags` berisi hashtag relevan dan aman untuk video short.",
+    "- Field `hashtags` berisi hashtag relevan dan aman untuk video ini.",
     "- Kembalikan JSON valid saja dengan format: {\"caption\":\"...\",\"hashtags\":[\"#tag1\",\"#tag2\"]}.",
     "",
     `Gaya hook video: ${content.hookStyle}.`,
@@ -214,7 +234,7 @@ export function buildSpeechSynthesisPrompt(input: SpeechSynthesisPromptInput): s
   const deliveryHint = input.deliveryHint?.trim();
 
   return [
-    "Bacakan naskah berikut sebagai voice over video short berbahasa Indonesia.",
+    "Bacakan naskah berikut sebagai voice over video berbahasa Indonesia.",
     "Aturan penting:",
     "- Baca teks persis seperti yang diberikan, tanpa menambah, mengurangi, atau mengubah kata.",
     "- Delivery harus natural, realistis, percakapan, dan terdengar seperti manusia asli.",

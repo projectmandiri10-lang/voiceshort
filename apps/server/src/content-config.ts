@@ -10,6 +10,7 @@ export interface ContentDefinition {
 
 export const CONTENT_TYPES: ContentType[] = [
   "affiliate",
+  "video-marketing",
   "komedi",
   "informasi",
   "hiburan",
@@ -27,6 +28,13 @@ export const CONTENT_CONFIG: Record<ContentType, ContentDefinition> = {
     briefFocus: "tekankan manfaat, relevansi produk, dan alasan orang tertarik mencoba",
     hookStyle: "scroll-stopping, rasa penasaran, cepat masuk inti",
     deliveryStyle: "persuasif, natural, tidak hard sell berlebihan",
+    ctaIntensity: "high"
+  },
+  "video-marketing": {
+    label: "Video Marketing",
+    briefFocus: "tekankan nilai jual, diferensiasi, dan alasan audiens perlu peduli sejak awal",
+    hookStyle: "tajam, problem-solution, dan cepat masuk ke value utama",
+    deliveryStyle: "meyakinkan, rapi, tetap natural, dan cocok untuk promosi brand atau jasa",
     ctaIntensity: "high"
   },
   komedi: {

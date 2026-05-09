@@ -3,27 +3,26 @@ import type { FastifyBaseLogger } from "fastify";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { nanoid } from "nanoid";
 import type { AuthSessionUser } from "../types.js";
-
-export const GENERATE_PRICE_IDR_DEFAULT = 2000;
+import { GENERATE_PRICE_IDR_DEFAULT, normalizeGeneratePriceIdr } from "../utils/billing.js";
 
 export const DEPOSIT_PACKAGES = [
   {
     code: "10_video",
-    label: "10 video",
+    label: "10 menit",
     payAmountIdr: 20_000,
     creditAmountIdr: 20_000,
     bonusAmountIdr: 0
   },
   {
     code: "50_video",
-    label: "50 video",
+    label: "50 menit",
     payAmountIdr: 90_000,
     creditAmountIdr: 100_000,
     bonusAmountIdr: 10_000
   },
   {
     code: "100_video",
-    label: "100 video",
+    label: "100 menit",
     payAmountIdr: 170_000,
     creditAmountIdr: 200_000,
     bonusAmountIdr: 30_000
@@ -109,10 +108,6 @@ function normalizeBaseUrl(url: string): string {
   return (url.trim() || "https://webqris.com").replace(/\/+$/, "");
 }
 
-function normalizeGeneratePrice(value: number): number {
-  return Number.isFinite(value) && value > 0 ? Math.trunc(value) : GENERATE_PRICE_IDR_DEFAULT;
-}
-
 export function getDepositPackage(packageCode: string) {
   return DEPOSIT_PACKAGES.find((item) => item.code === packageCode);
 }
@@ -176,7 +171,7 @@ export class BillingService {
     this.webqrisBaseUrl = normalizeBaseUrl(options.webqrisBaseUrl);
     this.webqrisApiToken = options.webqrisApiToken.trim();
     this.webqrisWebhookSecret = options.webqrisWebhookSecret.trim();
-    this.generatePriceIdr = normalizeGeneratePrice(options.generatePriceIdr);
+    this.generatePriceIdr = normalizeGeneratePriceIdr(options.generatePriceIdr);
   }
 
   public getPackages() {

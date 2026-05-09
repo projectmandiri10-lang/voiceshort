@@ -5,6 +5,7 @@ import { GeneratePage } from "./pages/GeneratePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { AuthUser, JobRecord } from "./types";
 import * as api from "./api";
+import * as videoDuration from "./video-duration";
 
 vi.mock("./api", async () => {
   const actual = await vi.importActual<typeof import("./api")>("./api");
@@ -41,6 +42,10 @@ vi.mock("./api", async () => {
     updateSettings: vi.fn()
   };
 });
+
+vi.mock("./video-duration", () => ({
+  readVideoDuration: vi.fn(async () => 60)
+}));
 
 const activeUser: AuthUser = {
   id: "user-creator",
@@ -82,7 +87,7 @@ const mockSettings = {
   scriptModel: "gemini-3-flash-preview",
   ttsModel: "gemini-2.5-flash-preview-tts",
   language: "id-ID" as const,
-  maxVideoSeconds: 60,
+  maxVideoSeconds: 900,
   safetyMode: "safe_marketing" as const,
   concurrency: 1 as const,
   genderVoices: [
@@ -176,7 +181,7 @@ beforeEach(() => {
     packages: [
       {
         code: "10_video",
-        label: "10 video",
+        label: "10 menit",
         payAmountIdr: 20_000,
         creditAmountIdr: 20_000,
         bonusAmountIdr: 0,
@@ -186,6 +191,7 @@ beforeEach(() => {
     recentLedger: [],
     recentTopups: []
   });
+  vi.mocked(videoDuration.readVideoDuration).mockResolvedValue(60);
   vi.mocked(api.fetchTtsVoices).mockResolvedValue(mockVoices);
   vi.mocked(api.updateSettings).mockResolvedValue(mockSettings);
 });
@@ -195,9 +201,10 @@ describe("web smoke", () => {
     render(<App />);
 
     expect(await screen.findByText(/Voiceshort/i)).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /Bikin voice over video pendek lebih cepat/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Bikin voice over video sampai 15 menit lebih cepat/i })).toBeTruthy();
     expect(screen.getAllByText(/TikTok/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Rp20.000/i)).toBeTruthy();
+    expect(screen.getByText(/Rp\.2000\/menit/i)).toBeTruthy();
   });
 
   it("starts Google OAuth from landing page", async () => {
@@ -230,7 +237,7 @@ describe("web smoke", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: /Bikin voice over video pendek/i });
+    await screen.findByRole("heading", { name: /Bikin voice over video sampai 15 menit/i });
     fireEvent.change(screen.getByLabelText(/^Email$/i), {
       target: { value: activeUser.email }
     });
@@ -258,7 +265,7 @@ describe("web smoke", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: /Bikin voice over video pendek/i });
+    await screen.findByRole("heading", { name: /Bikin voice over video sampai 15 menit/i });
     fireEvent.click(screen.getByRole("button", { name: /^Daftar$/i }));
     fireEvent.change(screen.getByLabelText(/^Nama$/i), {
       target: { value: "Creator Baru" }
@@ -301,6 +308,11 @@ describe("web smoke", () => {
     expect(
       within(screen.getByRole("region", { name: /^slot video 1$/i })).getByLabelText(/Brief \/ Deskripsi/i)
     ).toBeTruthy();
+    const contentSelect = within(screen.getByRole("region", { name: /^slot video 1$/i })).getByLabelText(
+      /Kategori Konten/i
+    );
+    expect(within(contentSelect).getByRole("option", { name: /Video Marketing/i })).toBeTruthy();
+    expect(within(contentSelect).getByRole("option", { name: /^Cerita$/i })).toBeTruthy();
     expect(screen.getByLabelText(/Link Referensi Opsional/i)).toBeTruthy();
     await waitFor(() => {
       expect(api.fetchGenerationCapacity).toHaveBeenCalled();
@@ -345,7 +357,7 @@ describe("web smoke", () => {
     );
 
     expect(screen.getByText(/Saldo Unlimited/i)).toBeTruthy();
-    expect((screen.getByRole("button", { name: /Proses Video yang Siap/i }) as HTMLButtonElement).disabled).toBe(
+    expect((screen.getByRole("button", { name: /Proses Slot yang Siap/i }) as HTMLButtonElement).disabled).toBe(
       false
     );
     await waitFor(() => {
@@ -385,6 +397,9 @@ describe("web smoke", () => {
     fireEvent.change(within(slotOne).getByLabelText(/^Video/i), {
       target: { files: [file] }
     });
+    await waitFor(() => {
+      expect(videoDuration.readVideoDuration).toHaveBeenCalledTimes(1);
+    });
     fireEvent.change(within(slotOne).getByLabelText(/^Judul/i), {
       target: { value: "Judul Slot 1" }
     });
@@ -396,7 +411,7 @@ describe("web smoke", () => {
       target: { value: "Judul Belum Lengkap" }
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /proses video yang siap/i }));
+    fireEvent.click(screen.getByRole("button", { name: /proses slot yang siap/i }));
 
     await waitFor(() => {
       expect(api.createJob).toHaveBeenCalledTimes(1);
@@ -449,6 +464,9 @@ describe("web smoke", () => {
     fireEvent.change(within(slotTwo).getByLabelText(/^Video/i), {
       target: { files: [secondFile] }
     });
+    await waitFor(() => {
+      expect(videoDuration.readVideoDuration).toHaveBeenCalledTimes(2);
+    });
     fireEvent.change(within(slotTwo).getByLabelText(/^Judul/i), {
       target: { value: "Judul Slot 2" }
     });
@@ -456,9 +474,9 @@ describe("web smoke", () => {
       target: { value: "Brief slot dua" }
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /proses video yang siap/i }));
+    fireEvent.click(screen.getByRole("button", { name: /proses slot yang siap/i }));
 
-    expect(await screen.findByText(/melebihi sisa saldo anda/i)).toBeTruthy();
+    expect(await screen.findByText(/melebihi saldo anda/i)).toBeTruthy();
     expect(api.createJob).not.toHaveBeenCalled();
   });
 
@@ -484,7 +502,7 @@ describe("web smoke", () => {
     expect(await screen.findByText(/^Server overload$/i)).toBeTruthy();
     expect(screen.getByText(/Aktif 3\/3 \| Antrean 20\/20/i)).toBeTruthy();
     expect(
-      (screen.getByRole("button", { name: /Proses Video yang Siap/i }) as HTMLButtonElement).disabled
+      (screen.getByRole("button", { name: /Proses Slot yang Siap/i }) as HTMLButtonElement).disabled
     ).toBe(true);
   });
 
@@ -535,8 +553,11 @@ describe("web smoke", () => {
         target: { value: description }
       });
     }
+    await waitFor(() => {
+      expect(videoDuration.readVideoDuration).toHaveBeenCalledTimes(3);
+    });
 
-    fireEvent.click(screen.getByRole("button", { name: /proses video yang siap/i }));
+    fireEvent.click(screen.getByRole("button", { name: /proses slot yang siap/i }));
 
     await waitFor(() => {
       expect(api.createJob).toHaveBeenCalledTimes(2);
@@ -576,7 +597,7 @@ describe("web smoke", () => {
     fireEvent.click(screen.getByRole("button", { name: /Isi Saldo/i }));
 
     expect(await screen.findByRole("heading", { name: /Isi saldo lewat QRIS/i })).toBeTruthy();
-    expect(screen.getAllByText(/10 video/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/10 menit/i).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: /Tampilkan QRIS/i }));
 
@@ -620,6 +641,9 @@ describe("web smoke", () => {
     fireEvent.change(within(slotOne).getByLabelText(/^Video/i), {
       target: { files: [new File(["video-one"], "slot-1.mp4", { type: "video/mp4" })] }
     });
+    await waitFor(() => {
+      expect(videoDuration.readVideoDuration).toHaveBeenCalledTimes(1);
+    });
     fireEvent.change(within(slotOne).getByLabelText(/^Judul/i), {
       target: { value: "Judul Slot 1" }
     });
@@ -630,6 +654,9 @@ describe("web smoke", () => {
     fireEvent.change(within(slotTwo).getByLabelText(/^Video/i), {
       target: { files: [new File(["video-two"], "slot-2.mp4", { type: "video/mp4" })] }
     });
+    await waitFor(() => {
+      expect(videoDuration.readVideoDuration).toHaveBeenCalledTimes(2);
+    });
     fireEvent.change(within(slotTwo).getByLabelText(/^Judul/i), {
       target: { value: "Judul Slot 2" }
     });
@@ -637,7 +664,7 @@ describe("web smoke", () => {
       target: { value: "Brief slot dua" }
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /proses video yang siap/i }));
+    fireEvent.click(screen.getByRole("button", { name: /proses slot yang siap/i }));
 
     await waitFor(() => {
       expect(api.createJob).toHaveBeenCalledTimes(2);
@@ -666,6 +693,9 @@ describe("web smoke", () => {
     fireEvent.change(within(slotOne).getByLabelText(/^Video/i), {
       target: { files: [new File(["video-one"], "slot-1.mp4", { type: "video/mp4" })] }
     });
+    await waitFor(() => {
+      expect(videoDuration.readVideoDuration).toHaveBeenCalledTimes(1);
+    });
     fireEvent.change(within(slotOne).getByLabelText(/^Judul/i), {
       target: { value: "Judul Slot 1" }
     });
@@ -673,7 +703,7 @@ describe("web smoke", () => {
       target: { value: "Brief slot satu" }
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /proses video yang siap/i }));
+    fireEvent.click(screen.getByRole("button", { name: /proses slot yang siap/i }));
 
     expect(await within(slotOne).findByText(/Server gagal total/i)).toBeTruthy();
     expect(onViewJobs).not.toHaveBeenCalled();

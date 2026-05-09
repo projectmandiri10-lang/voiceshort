@@ -13,11 +13,11 @@ describe("validation", () => {
     expect(parsed.genderVoices[1]?.gender).toBe("female");
   });
 
-  it("rejects settings above hard max 60 seconds", () => {
+  it("rejects settings above hard max 900 seconds", () => {
     expect(() =>
       parseSettings({
         ...DEFAULT_SETTINGS,
-        maxVideoSeconds: 61
+        maxVideoSeconds: 901
       })
     ).toThrow();
   });
@@ -26,14 +26,14 @@ describe("validation", () => {
     const parsed = parseJobCreateInput({
       title: "Judul",
       description: "Brief singkat",
-      contentType: "edukasi",
+      contentType: "video-marketing",
       voiceGender: "male",
       tone: "informatif",
       ctaText: "  ",
       referenceLink: " https://contoh.test/ref "
     });
 
-    expect(parsed.contentType).toBe("edukasi");
+    expect(parsed.contentType).toBe("video-marketing");
     expect(parsed.voiceGender).toBe("male");
     expect(parsed.ctaText).toBeUndefined();
     expect(parsed.referenceLink).toBe("https://contoh.test/ref");

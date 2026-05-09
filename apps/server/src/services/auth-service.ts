@@ -19,6 +19,7 @@ interface AuthServiceOptions {
   supabaseUrl: string;
   supabaseAnonKey: string;
   supabaseServiceRoleKey: string;
+  generatePriceIdr: number;
 }
 
 function readBearerToken(headerValue: string | undefined): string | undefined {
@@ -36,10 +37,12 @@ export class AuthService {
   public readonly adminClient: SupabaseClient;
   private readonly supabaseUrl: string;
   private readonly supabaseAnonKey: string;
+  private readonly generatePriceIdr: number;
 
   public constructor(options: AuthServiceOptions) {
     this.supabaseUrl = options.supabaseUrl;
     this.supabaseAnonKey = options.supabaseAnonKey;
+    this.generatePriceIdr = options.generatePriceIdr;
     const adminClient = createSupabaseClient({
       supabaseUrl: options.supabaseUrl,
       supabaseKey: options.supabaseServiceRoleKey
@@ -127,7 +130,7 @@ export class AuthService {
     return {
       accessToken,
       db,
-      user: userRecordToSessionUser(profileRowToUserRecord(nextProfile))
+      user: userRecordToSessionUser(profileRowToUserRecord(nextProfile), this.generatePriceIdr)
     };
   }
 }

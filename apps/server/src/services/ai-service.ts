@@ -12,15 +12,20 @@ export interface GeneratedAudio {
   mimeType: string;
 }
 
-export interface AiService {
+export interface ContentAiService {
   uploadVideo(filePath: string, mimeType: string): Promise<UploadedAiFile>;
   generateScript(input: GenerateScriptInput): Promise<string>;
   generateVisualBrief(input: GenerateVisualBriefInput): Promise<VisualBrief>;
   generateCaptionMetadata(
     input: GenerateCaptionMetadataInput
   ): Promise<{ caption: string; hashtags: string[] }>;
+}
+
+export interface SpeechService {
   generateSpeech(input: GenerateSpeechInput): Promise<GeneratedAudio>;
 }
+
+export interface AiService extends ContentAiService, SpeechService {}
 
 // Keep the name for backwards compatibility with existing tests/imports.
 export class InvalidGeminiStructuredOutputError extends Error {

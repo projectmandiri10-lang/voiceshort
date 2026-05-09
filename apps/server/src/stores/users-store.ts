@@ -8,6 +8,7 @@ import {
   SUPERADMIN_WHITELIST_EMAIL,
   userRecordToProfilePatch
 } from "../services/supabase-schema.js";
+import { GENERATE_PRICE_IDR_DEFAULT } from "../utils/billing.js";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -31,6 +32,10 @@ export function normalizeUserEmail(email: string): string {
 
 function fallbackDisplayName(email: string): string {
   return email.split("@")[0] || email;
+}
+
+function formatRupiah(value: number): string {
+  return `Rp${Math.max(0, Math.trunc(value)).toLocaleString("id-ID")}`;
 }
 
 function normalizeLegacyUser(user: Partial<UserRecord> & { passwordHash?: string; googleSub?: string }): UserRecord {
@@ -232,10 +237,28 @@ export class UsersStore {
   }
 
   public async reserveQuota(email: string, client?: SupabaseClient): Promise<UserRecord> {
-    return await this.reserveGenerateCredit(crypto.randomUUID(), email, client);
+    return await this.reserveGenerateCredit(
+      crypto.randomUUID(),
+      email,
+      {
+        chargeAmountIdr: GENERATE_PRICE_IDR_DEFAULT,
+        billedMinutes: 1,
+        videoDurationSec: 60
+      },
+      client
+    );
   }
 
-  public async reserveGenerateCredit(jobId: string, email: string, client?: SupabaseClient): Promise<UserRecord> {
+  public async reserveGenerateCredit(
+    jobId: string,
+    email: string,
+    input: {
+      chargeAmountIdr: number;
+      billedMinutes: number;
+      videoDurationSec: number;
+    },
+    client?: SupabaseClient
+  ): Promise<UserRecord> {
     const db = this.adminClient ?? client;
     if (db) {
       const normalizedEmail = normalizeUserEmail(email);
@@ -253,7 +276,10 @@ export class UsersStore {
 
       const { data, error } = await db.rpc("reserve_generate_credit", {
         job_id: jobId,
-        target_user_id: profile.id
+        target_user_id: profile.id,
+        charge_amount_idr: input.chargeAmountIdr,
+        billed_minutes: input.billedMinutes,
+        video_duration_sec: input.videoDurationSec
       });
       if (error) {
         throw createHttpError(402, error.message);
@@ -286,12 +312,15 @@ export class UsersStore {
         next[index] = updated;
         return next;
       }
-      if (current.walletBalanceIdr < 2000) {
-        throw createHttpError(402, "Saldo deposit tidak cukup. Top up minimal Rp2.000 untuk membuat 1 voice over.");
+      if (current.walletBalanceIdr < input.chargeAmountIdr) {
+        throw createHttpError(
+          402,
+          `Saldo deposit tidak cukup. Video ini memerlukan ${formatRupiah(input.chargeAmountIdr)} untuk ${input.billedMinutes} menit billing.`
+        );
       }
       updated = {
         ...current,
-        walletBalanceIdr: current.walletBalanceIdr - 2000,
+        walletBalanceIdr: current.walletBalanceIdr - input.chargeAmountIdr,
         videoQuotaUsed: current.videoQuotaUsed + 1,
         updatedAt: nowIso()
       };
@@ -303,13 +332,24 @@ export class UsersStore {
   }
 
   public async releaseQuota(email: string, client?: SupabaseClient): Promise<UserRecord | undefined> {
-    return await this.refundGenerateCredit(crypto.randomUUID(), email, "Refund generate voice over", client);
+    return await this.refundGenerateCredit(
+      crypto.randomUUID(),
+      email,
+      {
+        reason: "Refund generate voice over",
+        refundAmountIdr: GENERATE_PRICE_IDR_DEFAULT
+      },
+      client
+    );
   }
 
   public async refundGenerateCredit(
     jobId: string,
     email: string,
-    reason: string,
+    input: {
+      reason: string;
+      refundAmountIdr?: number;
+    },
     client?: SupabaseClient
   ): Promise<UserRecord | undefined> {
     const db = this.adminClient ?? client;
@@ -330,7 +370,7 @@ export class UsersStore {
       const { data, error } = await db.rpc("refund_generate_credit", {
         job_id: jobId,
         target_user_id: profile.id,
-        reason
+        reason: input.reason
       });
       if (error) {
         throw createHttpError(400, error.message);
@@ -342,7 +382,9 @@ export class UsersStore {
       email,
       (current) => ({
         ...current,
-        walletBalanceIdr: current.isUnlimited ? current.walletBalanceIdr : current.walletBalanceIdr + 2000,
+        walletBalanceIdr: current.isUnlimited
+          ? current.walletBalanceIdr
+          : current.walletBalanceIdr + Math.max(0, Math.trunc(input.refundAmountIdr ?? GENERATE_PRICE_IDR_DEFAULT)),
         videoQuotaUsed: Math.max(0, current.videoQuotaUsed - 1),
         updatedAt: nowIso()
       }),

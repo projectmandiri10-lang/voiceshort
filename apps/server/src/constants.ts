@@ -7,7 +7,7 @@ import type {
 } from "./types.js";
 
 export const MAX_HISTORY = 20;
-export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 export const DEFAULT_PORT = 8788;
 export const GENDER_ORDER: JobVoiceGender[] = ["male", "female"];
 
@@ -15,7 +15,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   scriptModel: "gemini-3-flash-preview",
   ttsModel: "gemini-2.5-flash-preview-tts",
   language: "id-ID",
-  maxVideoSeconds: 60,
+  maxVideoSeconds: 900,
   safetyMode: "safe_marketing",
   concurrency: 1,
   genderVoices: [

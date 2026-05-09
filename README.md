@@ -1,6 +1,6 @@
-# General AI Voice Over Shorts App
+# General AI Voice Over App
 
-Aplikasi untuk otomatisasi voice over general short-form berbahasa Indonesia dengan durasi maksimal 60 detik.
+Aplikasi untuk otomatisasi voice over general berbahasa Indonesia dengan durasi video sampai 15 menit.
 
 ## Fungsi Utama
 
@@ -13,6 +13,7 @@ Aplikasi untuk otomatisasi voice over general short-form berbahasa Indonesia den
 ## Kategori Konten
 
 - affiliate
+- video-marketing
 - komedi
 - informasi
 - hiburan
@@ -27,7 +28,7 @@ Aplikasi untuk otomatisasi voice over general short-form berbahasa Indonesia den
 
 - Frontend: React + Vite + TypeScript
 - Backend: Fastify + TypeScript
-- AI: repo ini memakai LiteLLM proxy untuk mengakses model Gemini lewat endpoint OpenAI-compatible
+- AI: repo ini mendukung mode hybrid, yaitu Snifox OpenAI-compatible untuk non-TTS dan LiteLLM untuk TTS Gemini
 - Media: `ffmpeg-static` + `ffprobe-static`
 - Runtime: Node.js
 
@@ -50,14 +51,15 @@ npm install
 ```bash
 copy .env.example .env
 ```
-3. `.env` lokal project ini saat ini memakai mode LiteLLM:
+3. `.env` yang direkomendasikan sekarang memakai mode hybrid:
 ```env
-AI_PROVIDER=litellm
+AI_PROVIDER=hybrid
+SNIFOX_API_BASE=http://127.0.0.1:8000
+SNIFOX_API_KEY=
+SNIFOX_SCRIPT_MODEL=gemini/gemini-3-flash-preview
 LITELLM_BASE_URL=http://127.0.0.1:4000
-LITELLM_API_KEY=
-LITELLM_SCRIPT_MODEL=gemini/gemini-3-flash-preview
+LITELLM_SECRET_KEY=
 LITELLM_TTS_MODEL=gemini/gemini-2.5-pro-preview-tts
-LITELLM_FILE_TARGET_MODEL=gemini/gemini-3-flash-preview
 PORT=8788
 WEB_ORIGIN=http://localhost:5174,http://192.168.1.20:5174
 APP_WEB_URL=http://localhost:5174
@@ -77,7 +79,7 @@ ADDITIONAL_REDIRECT_URLS=http://127.0.0.1:5174,http://192.168.1.20:5174,https://
 - `SUPERADMIN_PASSWORD`
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
-5. Env billing seperti `WEBQRIS_*` dan `GENERATE_PRICE_IDR` bersifat opsional, tidak wajib untuk `.env` lokal default.
+5. Env billing seperti `WEBQRIS_*` dan `GENERATE_PRICE_IDR` bersifat opsional, tidak wajib untuk `.env` lokal default. Default billing sekarang `Rp2.000/menit`.
 
 ## Menjalankan (dev)
 
@@ -90,13 +92,17 @@ Default:
 - Backend API: `http://localhost:8788`
 - Frontend UI: `http://localhost:5174`
 
-## LiteLLM Proxy
+## Routing AI
 
-- Project ini sekarang mendukung LiteLLM proxy eksternal untuk seluruh flow Gemini: upload file, analisis visual, script, caption, dan TTS.
-- Endpoint default yang diasumsikan di `.env` adalah `http://127.0.0.1:4000`.
-- TTS default di mode LiteLLM diarahkan ke `gemini/gemini-2.5-pro-preview-tts` agar hasil voice over lebih natural dan realistis.
-- `LITELLM_API_KEY` boleh kosong jika proxy lokal Anda tidak memakai auth.
-- Seluruh request AI pada setup default repo ini diarahkan ke LiteLLM, bukan ke Gemini API direct.
+- Setup yang direkomendasikan sekarang adalah `AI_PROVIDER=hybrid`.
+- Di mode hybrid:
+  - non-TTS (`upload file`, `visual brief`, `script`, `caption`) diarahkan ke Snifox via `SNIFOX_API_BASE`
+  - TTS diarahkan ke LiteLLM via `LITELLM_BASE_URL`
+- `SNIFOX_API_KEY` dan `LITELLM_SECRET_KEY` boleh kosong jika gateway lokal Anda tidak memakai auth.
+- Alias lama `LITELLM_API_KEY` masih tetap didukung.
+- Mode legacy tetap tersedia:
+  - `AI_PROVIDER=litellm` untuk seluruh flow lewat LiteLLM
+  - `AI_PROVIDER=gemini` untuk seluruh flow lewat Gemini direct API
 
 Alternatif launcher Windows:
 
@@ -140,11 +146,14 @@ npm run start
 ## Catatan Operasional
 
 - Bahasa utama: `id-ID`
-- Batas durasi hard cap: `60 detik`
+- Batas durasi hard cap: `15 menit` (`900 detik`)
+- Billing default: `Rp2.000/menit` dengan pembulatan ke atas per menit
+- Contoh billing: `61 detik = 2 menit = Rp4.000`
 - V1 memakai single general job, bukan multi-platform batch
 - Default voice diatur per gender pada halaman settings
-- Mode default dan yang direkomendasikan untuk repo ini adalah `AI_PROVIDER=litellm`
-- Di mode LiteLLM, model runtime script/TTS mengikuti env `LITELLM_SCRIPT_MODEL` dan `LITELLM_TTS_MODEL`
+- Mode yang direkomendasikan untuk repo ini adalah `AI_PROVIDER=hybrid`
+- Di mode hybrid, model runtime script dipaksa mengikuti `SNIFOX_SCRIPT_MODEL` dan model TTS mengikuti `LITELLM_TTS_MODEL`
+- Di mode legacy `litellm`, model runtime script/TTS mengikuti `LITELLM_SCRIPT_MODEL` dan `LITELLM_TTS_MODEL`
 - Backend akan gagal boot jika `SUPABASE_URL`, `SUPABASE_ANON_KEY`, atau `SUPABASE_SERVICE_ROLE_KEY` belum diisi di `.env`
 - `WEBQRIS_*` dan `GENERATE_PRICE_IDR` hanya dibutuhkan jika fitur billing/generate berbayar diaktifkan
 

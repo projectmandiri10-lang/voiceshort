@@ -33,14 +33,14 @@ const PACKAGES = [
   {
     name: "Mulai",
     price: "Rp20.000",
-    quota: "10 video",
+    quota: "10 menit",
     note: "Pas untuk mencoba alur kerja dan mulai produksi konten secara ringan.",
     badge: "Starter",
   },
   {
     name: "Harian",
     price: "Rp90.000",
-    quota: "50 video",
+    quota: "50 menit",
     note: "Cocok untuk produksi rutin dengan bonus saldo dibanding beli satuan.",
     badge: "Lebih irit",
     popular: true,
@@ -48,7 +48,7 @@ const PACKAGES = [
   {
     name: "Produksi",
     price: "Rp170.000",
-    quota: "100 video",
+    quota: "100 menit",
     note: "Pilihan terbaik untuk volume tinggi dan kebutuhan tim kecil.",
     badge: "Tim kecil",
   },
@@ -152,11 +152,21 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
       <section className="hero-grid">
         <div className="landing-copy">
           <span className="eyebrow">AI-Powered Production</span>
-          <h1>Bikin voice over video pendek lebih cepat dan lebih rapi.</h1>
+          <h1>Bikin voice over video sampai 15 menit lebih cepat dan lebih rapi.</h1>
           <p className="landing-copy-lead">
             Unggah video, tulis arahan singkat, lalu Voiceshort membantu menyiapkan narasi untuk
-            konten Anda. Cocok untuk creator, jualan online, dan video promosi harian.
+            konten Anda. Cocok untuk creator, jualan online, dan video promosi harian dengan
+            billing transparan per menit.
           </p>
+
+          <div className="hero-price-banner surface-card">
+            <span className="eyebrow">Harga Transparan</span>
+            <strong>Rp.2000/menit</strong>
+            <p className="small">
+              Biaya mengikuti durasi video upload dan dibulatkan ke atas per menit. Contoh:
+              61 detik dihitung 2 menit.
+            </p>
+          </div>
 
           <div className="hero-actions">
             <a className="primary-button" href="#pricing">
@@ -171,8 +181,8 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
 
           <div className="hero-stat-grid">
             <article className="hero-stat-card surface-card">
-              <strong>Rp2.000</strong>
-              <span className="small">Biaya per voice over video</span>
+              <strong>15 menit</strong>
+              <span className="small">Batas durasi default tiap upload</span>
             </article>
             <article className="hero-stat-card surface-card">
               <strong>1 sampai 10</strong>
@@ -330,9 +340,10 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
       <section className="landing-section" id="pricing">
         <div className="section-heading">
           <span className="eyebrow">Paket Saldo</span>
-          <h2>Pilih saldo sesuai jumlah video yang ingin Anda proses.</h2>
+          <h2>Pilih saldo sesuai total menit video yang ingin Anda proses.</h2>
           <p className="section-note">
-            Setiap 1 voice over memotong saldo Rp2.000. Semakin besar paketnya, semakin hemat.
+            Setiap 1 menit voice over memotong saldo Rp2.000. Pembulatan per menit berlaku, jadi
+            61 detik dihitung 2 menit. Semakin besar paketnya, semakin hemat.
           </p>
         </div>
 

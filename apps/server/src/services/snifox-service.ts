@@ -1,23 +1,20 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
-import type { AiService } from "./ai-service.js";
+import type { ContentAiService } from "./ai-service.js";
 import { InvalidGeminiStructuredOutputError } from "./ai-service.js";
 import type {
   GenerateCaptionMetadataInput,
   GenerateScriptInput,
-  GenerateSpeechInput,
   GenerateVisualBriefInput,
   UploadedAiFile
 } from "../types.js";
 import { withRetry } from "../utils/retry.js";
 import {
-  extractAudioFromResponse,
   extractScriptText,
   extractSocialMetadata,
   extractVisualBrief
 } from "../utils/model-output.js";
-import { buildSpeechSynthesisPrompt } from "./prompt-builder.js";
 import {
   buildOpenAiCompatibleUserContent,
   isOpenAiCompatibleTransientError,
@@ -26,44 +23,24 @@ import {
   parseOpenAiCompatibleJsonResponse
 } from "./openai-compatible.js";
 
-interface LiteLlmServiceOptions {
+interface SnifoxServiceOptions {
   baseUrl: string;
   apiKey: string;
-  scriptModel?: string;
-  ttsModel: string;
-  fileTargetModel?: string;
+  scriptModel: string;
   logger: FastifyBaseLogger;
 }
 
-export class LiteLlmService implements AiService {
+export class SnifoxService implements ContentAiService {
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly scriptModel: string;
-  private readonly ttsModel: string;
-  private readonly fileTargetModel: string;
   private readonly logger: FastifyBaseLogger;
 
-  public constructor(options: LiteLlmServiceOptions) {
+  public constructor(options: SnifoxServiceOptions) {
     this.baseUrl = normalizeOpenAiCompatibleBaseUrl(options.baseUrl);
     this.apiKey = options.apiKey.trim();
-    this.scriptModel = options.scriptModel?.trim() || "";
-    this.ttsModel = options.ttsModel.trim();
-    this.fileTargetModel = options.fileTargetModel?.trim() || this.scriptModel;
+    this.scriptModel = options.scriptModel.trim();
     this.logger = options.logger;
-  }
-
-  private requireScriptModel(): string {
-    if (!this.scriptModel) {
-      throw new Error("LiteLLM script model belum dikonfigurasi.");
-    }
-    return this.scriptModel;
-  }
-
-  private requireFileTargetModel(): string {
-    if (!this.fileTargetModel) {
-      throw new Error("LiteLLM file target model belum dikonfigurasi.");
-    }
-    return this.fileTargetModel;
   }
 
   private buildHeaders(json = true): HeadersInit {
@@ -78,7 +55,7 @@ export class LiteLlmService implements AiService {
   }
 
   private async parseJsonResponse(response: Response): Promise<unknown> {
-    return await parseOpenAiCompatibleJsonResponse(response, "LiteLLM");
+    return await parseOpenAiCompatibleJsonResponse(response, "Snifox");
   }
 
   private async requestJson(pathname: string, body: unknown): Promise<unknown> {
@@ -106,17 +83,12 @@ export class LiteLlmService implements AiService {
     });
   }
 
-  public async uploadVideo(
-    filePath: string,
-    mimeType: string
-  ): Promise<UploadedAiFile> {
+  public async uploadVideo(filePath: string, mimeType: string): Promise<UploadedAiFile> {
     return await withRetry(
       async () => {
         const fileBuffer = await readFile(filePath);
         const form = new FormData();
         form.append("purpose", "user_data");
-        form.append("custom_llm_provider", "gemini");
-        form.append("target_model_names", JSON.stringify([this.requireFileTargetModel()]));
         form.append(
           "file",
           new Blob([fileBuffer], { type: mimeType }),
@@ -133,11 +105,11 @@ export class LiteLlmService implements AiService {
         };
 
         if (!parsed.id) {
-          throw new Error("Upload video ke LiteLLM gagal: file id tidak tersedia.");
+          throw new Error("Upload video ke Snifox gagal: file id tidak tersedia.");
         }
 
         return {
-          provider: "litellm",
+          provider: "snifox",
           fileId: parsed.id,
           mimeType
         };
@@ -154,7 +126,7 @@ export class LiteLlmService implements AiService {
   public async generateScript(input: GenerateScriptInput): Promise<string> {
     const execute = async (prompt: string) => {
       const response = await this.generateUserContent({
-        model: input.model || this.requireScriptModel(),
+        model: input.model || this.scriptModel,
         prompt,
         video: input.video
       });
@@ -169,14 +141,14 @@ export class LiteLlmService implements AiService {
     });
 
     if (!script) {
-      this.logger.warn("Script kosong dari LiteLLM, mencoba ulang dengan strict prompt.");
+      this.logger.warn("Script kosong dari Snifox, mencoba ulang dengan strict prompt.");
       script = await execute(
         `${input.prompt}\n\nKembalikan hanya satu paragraf naskah final tanpa format markdown.`
       );
     }
 
     if (!script) {
-      throw new Error("Layanan LiteLLM mengembalikan naskah kosong.");
+      throw new Error("Layanan Snifox mengembalikan naskah kosong.");
     }
     return script;
   }
@@ -184,7 +156,7 @@ export class LiteLlmService implements AiService {
   public async generateVisualBrief(input: GenerateVisualBriefInput) {
     const run = async (prompt: string) => {
       const response = await this.generateUserContent({
-        model: input.model || this.requireScriptModel(),
+        model: input.model || this.scriptModel,
         prompt,
         video: input.video
       });
@@ -215,7 +187,7 @@ export class LiteLlmService implements AiService {
 
       this.logger.warn(
         { err: error },
-        "Visual brief LiteLLM tidak valid, mencoba ulang dengan strict JSON prompt."
+        "Visual brief Snifox tidak valid, mencoba ulang dengan strict JSON prompt."
       );
       return await execute(
         `${input.prompt}\n\nKembalikan hanya JSON valid sesuai struktur yang diminta, tanpa markdown dan tanpa teks tambahan.`
@@ -228,7 +200,7 @@ export class LiteLlmService implements AiService {
   ): Promise<{ caption: string; hashtags: string[] }> {
     const execute = async (prompt: string) => {
       const response = await this.generateUserContent({
-        model: input.model || this.requireScriptModel(),
+        model: input.model || this.scriptModel,
         prompt,
         video: input.video
       });
@@ -243,50 +215,12 @@ export class LiteLlmService implements AiService {
     });
 
     if (!social.caption && social.hashtags.length === 0) {
-      this.logger.warn("Caption LiteLLM kosong, mencoba ulang dengan strict prompt.");
+      this.logger.warn("Caption Snifox kosong, mencoba ulang dengan strict prompt.");
       social = await execute(
         `${input.prompt}\n\nKembalikan hanya JSON valid tanpa markdown dan tanpa teks tambahan.`
       );
     }
 
     return social;
-  }
-
-  public async generateSpeech(
-    input: GenerateSpeechInput
-  ): Promise<{ data: Buffer; mimeType: string }> {
-    const execute = async () => {
-      const response = await this.requestJson("/v1/chat/completions", {
-        model: input.model || this.ttsModel,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a realistic Indonesian voice actor for video narration. Follow the script exactly and do not add or remove words."
-          },
-          {
-            role: "user",
-            content: buildSpeechSynthesisPrompt({
-              text: input.text,
-              deliveryHint: input.deliveryHint
-            })
-          }
-        ],
-        modalities: ["audio"],
-        audio: {
-          voice: input.voiceName,
-          format: "pcm16"
-        }
-      });
-
-      return extractAudioFromResponse(response);
-    };
-
-    return await withRetry(execute, {
-      attempts: 3,
-      baseDelayMs: 700,
-      shouldRetry: isOpenAiCompatibleTransientError,
-      getDelayMs: openAiCompatibleRetryDelayMs
-    });
   }
 }
