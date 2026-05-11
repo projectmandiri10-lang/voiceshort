@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import path from "node:path";
+import { DEFAULT_SUCCESS_OUTPUT_RETENTION_HOURS } from "./services/success-output-retention.js";
 import { ROOT_DIR } from "./utils/paths.js";
 import { DEFAULT_PORT } from "./constants.js";
 
@@ -34,6 +35,7 @@ export interface AppEnv {
   webqrisApiToken: string;
   webqrisWebhookSecret: string;
   generatePriceIdr: number;
+  successOutputRetentionHours: number;
 }
 
 export function loadEnv(): AppEnv {
@@ -79,6 +81,10 @@ export function loadEnv(): AppEnv {
   const webqrisWebhookSecret = process.env.WEBQRIS_WEBHOOK_SECRET?.trim() || "";
   const generatePriceRaw = process.env.GENERATE_PRICE_IDR?.trim();
   const generatePriceIdr = generatePriceRaw ? Number(generatePriceRaw) : 2000;
+  const successOutputRetentionHoursRaw = process.env.SUCCESS_OUTPUT_RETENTION_HOURS?.trim();
+  const successOutputRetentionHours = successOutputRetentionHoursRaw
+    ? Number(successOutputRetentionHoursRaw)
+    : DEFAULT_SUCCESS_OUTPUT_RETENTION_HOURS;
 
   if (!aiProvider) {
     throw new Error(`AI_PROVIDER tidak valid: ${aiProviderRaw}`);
@@ -139,6 +145,15 @@ export function loadEnv(): AppEnv {
     throw new Error(`GENERATE_PRICE_IDR tidak valid: ${generatePriceRaw}`);
   }
 
+  if (
+    !Number.isFinite(successOutputRetentionHours) ||
+    successOutputRetentionHours <= 0
+  ) {
+    throw new Error(
+      `SUCCESS_OUTPUT_RETENTION_HOURS tidak valid: ${successOutputRetentionHoursRaw}`
+    );
+  }
+
   return {
     aiProvider,
     geminiApiKey,
@@ -167,6 +182,7 @@ export function loadEnv(): AppEnv {
     webqrisBaseUrl,
     webqrisApiToken,
     webqrisWebhookSecret,
-    generatePriceIdr
+    generatePriceIdr,
+    successOutputRetentionHours
   };
 }

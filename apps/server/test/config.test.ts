@@ -44,6 +44,7 @@ describe("env config", () => {
     expect(env.aiProvider).toBe("litellm");
     expect(env.geminiApiKey).toBe("");
     expect(env.litellmFileTargetModel).toBe("gemini/gemini-3-flash-preview");
+    expect(env.successOutputRetentionHours).toBe(72);
   });
 
   it("throws a clear error when litellm base url is missing", () => {
@@ -126,5 +127,28 @@ describe("env config", () => {
     process.env.LITELLM_TTS_MODEL = "";
 
     expect(() => loadEnv()).toThrow("LITELLM_TTS_MODEL wajib diisi");
+  });
+
+  it("loads custom success output retention hours", () => {
+    applyBaseEnv();
+    process.env.AI_PROVIDER = "litellm";
+    process.env.LITELLM_BASE_URL = "http://127.0.0.1:4000";
+    process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
+    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
+    process.env.SUCCESS_OUTPUT_RETENTION_HOURS = "96";
+
+    const env = loadEnv();
+    expect(env.successOutputRetentionHours).toBe(96);
+  });
+
+  it("throws a clear error when success output retention hours is invalid", () => {
+    applyBaseEnv();
+    process.env.AI_PROVIDER = "litellm";
+    process.env.LITELLM_BASE_URL = "http://127.0.0.1:4000";
+    process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
+    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
+    process.env.SUCCESS_OUTPUT_RETENTION_HOURS = "0";
+
+    expect(() => loadEnv()).toThrow("SUCCESS_OUTPUT_RETENTION_HOURS tidak valid");
   });
 });

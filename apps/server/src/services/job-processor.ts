@@ -13,7 +13,7 @@ import {
   buildScriptPrompt,
   buildVisualBriefPrompt
 } from "./prompt-builder.js";
-import { OUTPUTS_DIR, outputUrlToAbsolutePath } from "../utils/paths.js";
+import { OUTPUTS_DIR, UPLOADS_DIR, outputUrlToAbsolutePath } from "../utils/paths.js";
 import { combineVideoWithVoiceOver, writeWav24kMono } from "../utils/audio.js";
 import { buildJobProgress } from "../utils/job-progress.js";
 import { ensureSocialMetadata, formatSocialMetadataFile } from "../utils/model-output.js";
@@ -103,6 +103,14 @@ async function removeExistingArtifacts(job: JobRecord): Promise<void> {
     .filter((value): value is string => Boolean(value));
 
   await Promise.all(paths.map((filePath) => rm(filePath, { recursive: false, force: true })));
+}
+
+async function cleanupSuccessfulUpload(jobId: string, logger: FastifyBaseLogger): Promise<void> {
+  try {
+    await rm(path.join(UPLOADS_DIR, jobId), { recursive: true, force: true });
+  } catch (error) {
+    logger.warn({ err: error, jobId }, "Gagal menghapus upload mentah setelah job sukses.");
+  }
 }
 
 function buildFallbackHashtags(contentType: JobRecord["contentType"]): string[] {
@@ -442,6 +450,7 @@ export class JobProcessor implements IJobProcessor {
       await combineVideoWithVoiceOver(job.videoPath, voicePath, finalPath, job.videoDurationSec);
       await rm(voiceTempDir, { recursive: true, force: true });
       voiceTempDir = "";
+      await cleanupSuccessfulUpload(job.jobId, this.logger);
 
       const artifactUrls = [
         toOutputUrl(job.jobId, captionFilename),

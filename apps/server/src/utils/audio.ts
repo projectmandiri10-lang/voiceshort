@@ -22,6 +22,11 @@ function resolveFfmpegExecutable(): string {
 }
 
 const FFMPEG_EXEC = resolveFfmpegExecutable();
+export const FINAL_VIDEO_MAX_DIMENSION = 1280;
+export const FINAL_VIDEO_FPS = 30;
+export const FINAL_VIDEO_CRF = 26;
+export const FINAL_AUDIO_BITRATE = "64k";
+export const FINAL_AUDIO_SAMPLE_RATE = 24000;
 
 function createWavHeader(
   dataLength: number,
@@ -107,6 +112,74 @@ function buildAtempoFilter(targetFactor: number): string {
   return filters.join(",");
 }
 
+function buildVideoCompressionFilter(): string {
+  return [
+    `fps=${FINAL_VIDEO_FPS}`,
+    [
+      "scale=",
+      `w='if(gte(iw,ih),trunc(min(iw\\,${FINAL_VIDEO_MAX_DIMENSION})/2)*2,-2)'`,
+      ":",
+      `h='if(gte(iw,ih),-2,trunc(min(ih\\,${FINAL_VIDEO_MAX_DIMENSION})/2)*2)'`
+    ].join(""),
+    "setsar=1"
+  ].join(",");
+}
+
+export function buildFinalVideoFfmpegArgs(input: {
+  sourceVideoPath: string;
+  voiceWavPath: string;
+  outputVideoPath: string;
+  targetDurationSec: number;
+  voiceDurationSec: number;
+}): string[] {
+  const safeTargetDurationSec = Math.max(1, input.targetDurationSec);
+  const durationDiff = Math.abs(input.voiceDurationSec - safeTargetDurationSec);
+  const tempoFactor = input.voiceDurationSec / safeTargetDurationSec;
+  const tempoFilter =
+    durationDiff > 0.12 ? `${buildAtempoFilter(tempoFactor)},` : "";
+  const targetDurationText = safeTargetDurationSec.toFixed(3);
+  const videoFilter = buildVideoCompressionFilter();
+  const audioFilter = `${tempoFilter}atrim=0:${targetDurationText},apad=pad_dur=${targetDurationText}`;
+  const filterGraph = `[0:v:0]${videoFilter}[vout];[1:a]${audioFilter}[aout]`;
+
+  return [
+    "-y",
+    "-i",
+    input.sourceVideoPath,
+    "-i",
+    input.voiceWavPath,
+    "-filter_complex",
+    filterGraph,
+    "-map",
+    "[vout]",
+    "-map",
+    "[aout]",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "medium",
+    "-crf",
+    String(FINAL_VIDEO_CRF),
+    "-pix_fmt",
+    "yuv420p",
+    "-movflags",
+    "+faststart",
+    "-map_metadata",
+    "-1",
+    "-c:a",
+    "aac",
+    "-b:a",
+    FINAL_AUDIO_BITRATE,
+    "-ar",
+    String(FINAL_AUDIO_SAMPLE_RATE),
+    "-ac",
+    "1",
+    "-t",
+    targetDurationText,
+    input.outputVideoPath
+  ];
+}
+
 export async function writeWav24kMono(
   audioData: Buffer,
   mimeType: string,
@@ -146,43 +219,14 @@ export async function combineVideoWithVoiceOver(
   outputVideoPath: string,
   targetDurationSec: number
 ): Promise<void> {
-  const safeTargetDurationSec = Math.max(1, targetDurationSec);
   const voiceDurationSec = await probeVideoDuration(voiceWavPath);
-  const durationDiff = Math.abs(voiceDurationSec - safeTargetDurationSec);
-  const tempoFactor = voiceDurationSec / safeTargetDurationSec;
-  const tempoFilter =
-    durationDiff > 0.12 ? `${buildAtempoFilter(tempoFactor)},` : "";
-  const targetDurationText = safeTargetDurationSec.toFixed(3);
-  const audioFilter = `${tempoFilter}atrim=0:${targetDurationText},apad=pad_dur=${targetDurationText}`;
-
-  await runFfmpeg([
-    "-y",
-    "-i",
-    sourceVideoPath,
-    "-i",
-    voiceWavPath,
-    "-filter_complex",
-    `[1:a]${audioFilter}[aout]`,
-    "-map",
-    "0:v:0",
-    "-map",
-    "[aout]",
-    "-c:v",
-    "libx264",
-    "-preset",
-    "veryfast",
-    "-crf",
-    "23",
-    "-pix_fmt",
-    "yuv420p",
-    "-c:a",
-    "aac",
-    "-ar",
-    "24000",
-    "-ac",
-    "1",
-    "-t",
-    targetDurationText,
-    outputVideoPath
-  ]);
+  await runFfmpeg(
+    buildFinalVideoFfmpegArgs({
+      sourceVideoPath,
+      voiceWavPath,
+      outputVideoPath,
+      targetDurationSec,
+      voiceDurationSec
+    })
+  );
 }

@@ -5,7 +5,7 @@ declare module "@fastify/static" {
 }
 
 declare module "ffprobe-static" {
-  const ffprobe: { path: string };
+  const ffprobe: { path?: string };
   export default ffprobe;
 }
 

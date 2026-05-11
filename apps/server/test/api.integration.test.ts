@@ -2,7 +2,7 @@ import FormData from "form-data";
 import pino from "pino";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 import { JobEvents } from "../src/services/job-events.js";
 import { DEFAULT_SETTINGS } from "../src/constants.js";
@@ -553,9 +553,9 @@ describe("api integration", () => {
     });
     expect(finalResponse.statusCode).toBe(200);
     expect(finalResponse.headers["content-disposition"]).toContain("attachment");
-    const afterFinal = await jobsStore.getById("job-downloadable");
-    expect(afterFinal?.output.captionDownloadedAt).toBeTruthy();
-    expect(afterFinal?.output.finalVideoDownloadedAt).toBeTruthy();
+    await vi.waitFor(async () => {
+      expect(await jobsStore.getById("job-downloadable")).toBeUndefined();
+    });
   });
 
   it("rejects create job with server overload before reserving credit", async () => {

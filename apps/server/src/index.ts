@@ -14,6 +14,7 @@ import { createSupabaseClient } from "./services/supabase-client.js";
 import { JobsStore } from "./stores/jobs-store.js";
 import { SettingsStore } from "./stores/settings-store.js";
 import { UsersStore } from "./stores/users-store.js";
+import { SuccessOutputRetentionSweeper } from "./services/success-output-retention.js";
 import { logger } from "./utils/logger.js";
 import { ensureAppDirs } from "./utils/paths.js";
 
@@ -128,6 +129,13 @@ async function bootstrap(): Promise<void> {
     generatePriceIdr: env.generatePriceIdr
   });
   const processor = new JobProcessor(jobsStore, settingsStore, aiService, logger, jobEvents);
+  const successOutputRetentionSweeper = new SuccessOutputRetentionSweeper(
+    jobsStore,
+    logger,
+    env.successOutputRetentionHours
+  );
+  await successOutputRetentionSweeper.sweepOnce();
+  successOutputRetentionSweeper.start();
   await processor.hydrateQueuedJobs();
   const app = await buildApp({
     logger,

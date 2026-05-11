@@ -364,12 +364,23 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       });
     }
 
-    await markArtifactDownloaded(params.jobId, artifact, authContext.db);
+    const updatedJob = await markArtifactDownloaded(params.jobId, artifact, authContext.db);
     const headers = buildDownloadHeaders(absolutePath);
+    const downloadStream = createReadStream(absolutePath);
+    if (updatedJob && isFullyDownloadedSuccessJob(updatedJob)) {
+      downloadStream.once("close", () => {
+        void options.jobsStore.delete(params.jobId, authContext.db).catch((error) => {
+          options.logger.warn(
+            { err: error, cleanupJobId: params.jobId, ownerEmail: authContext.user.email },
+            "Gagal membersihkan job sukses yang seluruh artifact-nya sudah diunduh."
+          );
+        });
+      });
+    }
     reply.header("Cache-Control", "private, no-store");
     reply.header("Content-Disposition", headers.contentDisposition);
     reply.type(headers.contentType);
-    return reply.send(createReadStream(absolutePath));
+    return reply.send(downloadStream);
   };
 
   const getRequestAuthContext = async (request: FastifyRequest) => {

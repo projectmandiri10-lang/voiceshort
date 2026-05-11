@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import pino from "pino";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -172,6 +172,7 @@ describe("job processor", () => {
       "caption.txt",
       "final.mp4"
     ]);
+    await expect(access(path.join(UPLOADS_DIR, jobId))).rejects.toThrow();
   });
 
   it("falls back to legacy multimodal flow when visual brief output is invalid", async () => {
@@ -234,6 +235,7 @@ describe("job processor", () => {
       "caption.txt",
       "final.mp4"
     ]);
+    await expect(access(path.join(UPLOADS_DIR, jobId))).rejects.toThrow();
   });
 
   it("runs up to three jobs in parallel for different users", async () => {
