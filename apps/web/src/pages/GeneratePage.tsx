@@ -1,5 +1,22 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { CircleDollarSign, FolderClock, Gauge, Sparkles, UploadCloud } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleDollarSign,
+  Clock3,
+  Cpu,
+  FolderClock,
+  Gauge,
+  Globe,
+  History,
+  Layers3,
+  Link2,
+  PenSquare,
+  Radio,
+  ShieldCheck,
+  Sparkles,
+  UploadCloud,
+  Wallet,
+} from "lucide-react";
 import { ApiError, createJob, fetchGenerationCapacity, fetchJobs } from "../api";
 import { getGenerateBlocker } from "../job-download-policy";
 import { CONTENT_LABEL, GENDER_LABEL, TONE_OPTIONS } from "../job-form-options";
@@ -9,7 +26,7 @@ import { readVideoDuration } from "../video-duration";
 import {
   calculateBilledMinutes,
   calculateEstimatedChargeIdr,
-  formatVideoDuration
+  formatVideoDuration,
 } from "../utils/billing";
 
 const DEFAULT_CONTENT_TYPE: ContentType = "affiliate";
@@ -47,6 +64,13 @@ function formatRupiah(value: number): string {
   return `Rp${value.toLocaleString("id-ID")}`;
 }
 
+function formatWaitMinutes(value: number): string {
+  if (value <= 0) {
+    return "0m";
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)}m`;
+}
+
 function createInitialFormState(): GenerateFormState {
   return {
     video: null,
@@ -62,7 +86,7 @@ function createInitialFormState(): GenerateFormState {
     tone: DEFAULT_TONE,
     ctaText: "",
     referenceLink: "",
-    fileInputKey: 0
+    fileInputKey: 0,
   };
 }
 
@@ -91,7 +115,7 @@ function buildOverloadedCapacity(
     maxRunningJobs: current?.maxRunningJobs ?? 3,
     maxQueuedJobs: current?.maxQueuedJobs ?? 20,
     maxRunningPerUser: current?.maxRunningPerUser ?? 1,
-    message
+    message,
   };
 }
 
@@ -117,8 +141,78 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
             currentUser.generatePriceIdr
         )
       );
+  const projectedBalanceIdr = currentUser.isUnlimited
+    ? null
+    : Math.max(0, currentUser.walletBalanceIdr - (form.estimatedChargeIdr ?? 0));
   const isBlocked = statusLoading || Boolean(statusError) || Boolean(blockerMessage);
   const formDisabled = loading || !hasEnoughBalance || isServerOverloaded || isBlocked;
+  const maxRunningJobs = capacity?.maxRunningJobs ?? 3;
+  const maxQueuedJobs = capacity?.maxQueuedJobs ?? 20;
+  const utilizationPercent = Math.round(
+    Math.min(
+      100,
+      ((capacity?.runningCount ?? 0) / Math.max(maxRunningJobs, 1)) * 72 +
+        ((capacity?.queuedCount ?? 0) / Math.max(maxQueuedJobs, 1)) * 28
+    )
+  );
+  const estimatedWaitMinutes = capacity
+    ? Number((capacity.queuedCount * 4 + capacity.runningCount * 1.5).toFixed(1))
+    : 0;
+  const latencyMs = 12 + (capacity?.runningCount ?? 0) * 4 + (capacity?.queuedCount ?? 0) * 2;
+
+  let workspaceStatusLabel = "Lengkapi data";
+  let workspaceStatusTone = "status-queued";
+  let workspaceStatusDescription = "Isi video, judul, dan brief agar job siap diproses.";
+
+  if (loading) {
+    workspaceStatusLabel = "Membuat job...";
+    workspaceStatusTone = "status-running";
+    workspaceStatusDescription =
+      "Permintaan generate sedang dikirim ke backend dan saldo akan disinkronkan ulang setelah job masuk antrean.";
+  } else if (statusLoading) {
+    workspaceStatusLabel = "Memeriksa";
+    workspaceStatusTone = "status-running";
+    workspaceStatusDescription = "Sistem sedang mengecek apakah masih ada job sebelumnya.";
+  } else if (statusError) {
+    workspaceStatusLabel = "Belum bisa diproses";
+    workspaceStatusTone = "status-failed";
+    workspaceStatusDescription = statusError || STATUS_CHECK_ERROR_MESSAGE;
+  } else if (blockerMessage) {
+    workspaceStatusLabel = "Selesaikan job sebelumnya";
+    workspaceStatusTone = "status-failed";
+    workspaceStatusDescription = blockerMessage;
+  } else if (isServerOverloaded) {
+    workspaceStatusLabel = "Server sedang sibuk";
+    workspaceStatusTone = "status-failed";
+    workspaceStatusDescription = capacity?.message || SERVER_OVERLOAD_FALLBACK;
+  } else if (!hasEnoughBalance) {
+    workspaceStatusLabel = "Saldo kurang";
+    workspaceStatusTone = "status-interrupted";
+    workspaceStatusDescription = "Isi saldo dulu untuk memulai job baru.";
+  } else if (isFormReady(form)) {
+    workspaceStatusLabel = "Siap diproses";
+    workspaceStatusTone = "status-success";
+    workspaceStatusDescription = "Semua data utama sudah siap. Job bisa langsung dikirim.";
+  }
+
+  const telemetryStatusLabel = statusError
+    ? "Perlu dicek"
+    : blockerMessage
+      ? "Tuntaskan job lama"
+      : isServerOverloaded
+        ? "Server sedang sibuk"
+        : !hasEnoughBalance
+          ? "Saldo belum cukup"
+          : workspaceStatusLabel;
+  const telemetryStatusDescription = statusError
+    ? "Status job sebelumnya perlu dicek ulang sebelum Anda bisa membuat job baru."
+    : blockerMessage
+      ? "Caption dan video hasil job sebelumnya masih perlu diselesaikan dari halaman Riwayat."
+      : isServerOverloaded
+        ? "Server sedang padat. Tunggu sebentar lalu coba lagi."
+        : !hasEnoughBalance
+          ? "Tambahkan saldo terlebih dahulu agar job baru bisa diproses."
+          : workspaceStatusDescription;
 
   useEffect(() => {
     let mounted = true;
@@ -174,7 +268,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
       billedMinutes: null,
       estimatedChargeIdr: null,
       durationPending: Boolean(file),
-      durationError: ""
+      durationError: "",
     }));
 
     if (!file) {
@@ -191,9 +285,12 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
             ...current,
             videoDurationSec: durationSec,
             billedMinutes: calculateBilledMinutes(durationSec),
-            estimatedChargeIdr: calculateEstimatedChargeIdr(durationSec, currentUser.generatePriceIdr),
+            estimatedChargeIdr: calculateEstimatedChargeIdr(
+              durationSec,
+              currentUser.generatePriceIdr
+            ),
             durationPending: false,
-            durationError: ""
+            durationError: "",
           };
         });
       })
@@ -206,7 +303,7 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
             ...current,
             durationPending: false,
             durationError:
-              (durationErrorValue as Error).message || "Durasi video tidak bisa dibaca."
+              (durationErrorValue as Error).message || "Durasi video tidak bisa dibaca.",
           };
         });
       });
@@ -253,7 +350,9 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
       return;
     }
     if (!isFormReady(form)) {
-      setError("Form belum lengkap. Pastikan video, judul, brief, kategori, gender, dan tone sudah siap.");
+      setError(
+        "Form belum lengkap. Pastikan video, judul, brief, kategori, gender, dan tone sudah siap."
+      );
       return;
     }
 
@@ -267,18 +366,20 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
         voiceGender: form.voiceGender,
         tone: form.tone.trim(),
         ctaText: form.ctaText.trim(),
-        referenceLink: form.referenceLink.trim()
+        referenceLink: form.referenceLink.trim(),
       });
 
       try {
         await onRefreshSession();
       } catch (refreshError) {
-        setError(`Job berhasil dibuat, tetapi pembaruan saldo gagal: ${(refreshError as Error).message}`);
+        setError(
+          `Job berhasil dibuat, tetapi pembaruan saldo gagal: ${(refreshError as Error).message}`
+        );
       }
 
       setForm((current) => ({
         ...createInitialFormState(),
-        fileInputKey: current.fileInputKey + 1
+        fileInputKey: current.fileInputKey + 1,
       }));
       onViewJobs(result.jobId);
     } catch (submitError) {
@@ -294,81 +395,53 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
   };
 
   return (
-    <section className="card app-page-card generate-shell">
-      <div className="section-heading compact">
-        <span className="eyebrow">Single Job Workspace</span>
-        <h2>Buat satu job baru hanya setelah hasil job sebelumnya selesai diunduh.</h2>
-        <p className="section-note">
-          Flow ini menjaga penggunaan storage lebih hemat di server. Setiap siklus: generate, tunggu
-          selesai, unduh caption dan final video, lalu baru lanjut job berikutnya.
-        </p>
-      </div>
-
-      <div className="telemetry-grid">
-        <section className="monitor-banner">
-          <span className="eyebrow">Core Telemetry</span>
-          <h3>Single active generation channel</h3>
-          <p className="section-note">
-            Pantau status workspace, antrean server, dan estimasi biaya sebelum mengeksekusi job
-            berikutnya.
-          </p>
-          <div className="monitor-grid">
-            <div className="monitor-cell">
-              <Sparkles size={18} />
-              <strong>1</strong>
-              <span className="small">Slot aktif per siklus</span>
-            </div>
-            <div className="monitor-cell">
-              <Gauge size={18} />
-              <strong>
-                {capacity?.runningCount ?? 0} / {capacity?.maxRunningJobs ?? 3}
-              </strong>
-              <span className="small">Job berjalan</span>
-            </div>
-            <div className="monitor-cell">
-              <CircleDollarSign size={18} />
-              <strong>{form.billedMinutes ?? 0}</strong>
-              <span className="small">Menit billing job ini</span>
-            </div>
+    <section className="generate-concise-shell">
+      <div className="generate-editor-column">
+        <div className="generate-hero">
+          <div className="generate-hero-tags">
+            <span className="eyebrow">Buat Voice Over</span>
+            <span className="generate-hero-chip">Single Job Workspace</span>
           </div>
-        </section>
+          <h2>Buat voice over untuk video Anda</h2>
+          <p>Unggah video, isi arahan singkat, lalu kirim job dalam beberapa langkah saja.</p>
+        </div>
 
-        <div className="grid-form">
-          <div className="quota-banner">
-            <div>
-              <strong>
-                {currentUser.isUnlimited
-                  ? "Saldo Unlimited"
-                  : `Saldo deposit ${formatRupiah(currentUser.walletBalanceIdr)}`}
-              </strong>
-              {currentUser.isUnlimited ? (
-                <p className="small">Akun whitelist dapat memproses video tanpa batas saldo.</p>
-              ) : (
-                <>
-                  <p className="small">
-                    Biaya {formatRupiah(currentUser.generatePriceIdr)} per menit. Saldo saat ini
-                    cukup untuk {currentUser.generateCreditsRemaining} menit penuh.
-                  </p>
-                  <p className="small">
-                    Estimasi job ini: {formatRupiah(form.estimatedChargeIdr ?? 0)} untuk{" "}
-                    {form.billedMinutes ?? 0} menit billing. Sisa estimasi setelah job:{" "}
-                    {estimatedRemainingMinutes ?? 0} menit.
-                  </p>
-                </>
-              )}
-            </div>
-            {!hasEnoughBalance ? (
-              <span className="status status-failed">Perlu isi saldo</span>
-            ) : blockerMessage ? (
-              <span className="status status-failed">Terkunci</span>
-            ) : (
-              <span className="status status-success">Siap diproses</span>
-            )}
-          </div>
+        <div className="generate-editor-stack">
+          {statusError ? (
+            <section className="workspace-inline-card workspace-inline-card-danger">
+              <div className="workspace-inline-card-head">
+                <strong>Status belum terverifikasi</strong>
+                <span className="small">Coba cek riwayat proses</span>
+              </div>
+              <p className="err-text">{statusError || STATUS_CHECK_ERROR_MESSAGE}</p>
+              <div className="form-actions">
+                <button type="button" onClick={() => onViewJobs()}>
+                  <FolderClock size={16} />
+                  <span>Riwayat Proses</span>
+                </button>
+              </div>
+            </section>
+          ) : null}
 
-          {isServerOverloaded ? (
-            <div className="notice-box notice-box-overload">
-              <div className="row-head">
+          {!statusError && blockerMessage ? (
+            <section className="workspace-inline-card workspace-inline-card-danger">
+              <div className="workspace-inline-card-head">
+                <strong>Generate job baru masih terkunci</strong>
+                <span className="small">Selesaikan job sebelumnya</span>
+              </div>
+              <p className="err-text">{blockerMessage}</p>
+              <div className="form-actions">
+                <button type="button" onClick={() => onViewJobs(blockerJobId)}>
+                  <FolderClock size={16} />
+                  <span>Riwayat Proses</span>
+                </button>
+              </div>
+            </section>
+          ) : null}
+
+          {!statusError && !blockerMessage && isServerOverloaded ? (
+            <section className="workspace-inline-card workspace-inline-card-danger">
+              <div className="workspace-inline-card-head">
                 <strong>Server overload</strong>
                 <span className="small">
                   Aktif {capacity?.runningCount ?? 0}/{capacity?.maxRunningJobs ?? 3} | Antrean{" "}
@@ -376,286 +449,465 @@ export function GeneratePage({ currentUser, onRefreshSession, onViewJobs }: Gene
                 </span>
               </div>
               <p className="err-text">{capacity?.message || SERVER_OVERLOAD_FALLBACK}</p>
-            </div>
-          ) : (
-            <div className="notice-box">
-              <div className="row-head">
-                <strong>Status antrean</strong>
-                <span className="small">
-                  Queue {capacity?.queuedCount ?? 0}/{capacity?.maxQueuedJobs ?? 20}
-                </span>
+            </section>
+          ) : null}
+
+          {statusLoading && !statusError ? (
+            <section className="workspace-inline-card">
+              <div className="workspace-inline-card-head">
+                <strong>Memeriksa workspace</strong>
+                <span className="small">Cek status job</span>
               </div>
               <p className="section-note">
-                Workspace ini hanya mengizinkan satu job aktif per siklus sampai file hasil job
-                sebelumnya diunduh lengkap.
+                Sistem sedang mengecek apakah masih ada job lama yang aktif atau belum selesai.
               </p>
+            </section>
+          ) : null}
+
+          <form onSubmit={onSubmit} className="generate-workspace-form">
+            <section className="generate-upload-card" role="region" aria-label="slot video 1">
+              <div className="generate-section-head">
+                <div>
+                  <span className="generate-section-label">Upload Video</span>
+                  <h3>Video Utama</h3>
+                  <p className="small">Satu video untuk satu job voice over.</p>
+                </div>
+                <span
+                  className={
+                    isFormReady(form) ? "batch-slot-status batch-slot-status-ready" : "batch-slot-status batch-slot-status-empty"
+                  }
+                >
+                  {isFormReady(form) ? "Siap" : "Belum Lengkap"}
+                </span>
+              </div>
+
+              <label className="generate-upload-label">
+                <span className="generate-field-label">
+                  Video <span className="required-mark">*</span>
+                </span>
+                <input
+                  key={form.fileInputKey}
+                  className="sr-only"
+                  type="file"
+                  accept="video/*"
+                  onChange={(event) => onVideoSelected(event.target.files?.[0] || null)}
+                  disabled={formDisabled}
+                />
+                <div className="generate-upload-dropzone" aria-hidden="true">
+                  <div className="generate-upload-main">
+                    <div className="generate-upload-icon">
+                      <UploadCloud size={30} strokeWidth={2} />
+                    </div>
+                    <div className="generate-upload-copy">
+                      <h4>{form.video ? form.video.name : "Pilih video (.mp4 / .mov)"}</h4>
+                      <p>Maksimal 500MB. Durasi video akan dihitung otomatis untuk estimasi biaya.</p>
+                    </div>
+                  </div>
+                  <div className="generate-upload-side">
+                    <div className="generate-ready-indicator">
+                      <span className="generate-ready-dot" aria-hidden="true" />
+                      <span>{formDisabled ? "Belum siap" : "Siap"}</span>
+                    </div>
+                    <span className="generate-upload-trigger">Pilih File</span>
+                  </div>
+                </div>
+              </label>
+
+              <div className="generate-upload-meta">
+                <div className="generate-meta-item">
+                  <Clock3 size={15} strokeWidth={2} />
+                  <div>
+                    <span className="generate-meta-label">Durasi</span>
+                    <strong className="generate-meta-value">
+                      {form.durationPending
+                        ? "Membaca..."
+                        : form.videoDurationSec
+                          ? formatVideoDuration(form.videoDurationSec)
+                          : "00:00"}
+                    </strong>
+                  </div>
+                </div>
+                <div className="generate-meta-divider" aria-hidden="true" />
+                <div className="generate-meta-item">
+                  <CircleDollarSign size={15} strokeWidth={2} />
+                  <div>
+                    <span className="generate-meta-label">Biaya</span>
+                    <strong className="generate-meta-value">
+                      {currentUser.isUnlimited
+                        ? "Unlimited"
+                        : formatRupiah(form.estimatedChargeIdr ?? 0)}
+                    </strong>
+                  </div>
+                </div>
+                <div className="generate-meta-divider" aria-hidden="true" />
+                <div className="generate-meta-item">
+                  <Gauge size={15} strokeWidth={2} />
+                  <div>
+                    <span className="generate-meta-label">Menit</span>
+                    <strong className="generate-meta-value">{form.billedMinutes ?? 0}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {form.durationError ? <p className="err-inline">{form.durationError}</p> : null}
+            </section>
+
+            <section className="generate-fields-card">
+              <div className="generate-section-head">
+                <div>
+                  <span className="generate-section-label">Isi Detail</span>
+                  <h3>Detail Voice Over</h3>
+                  <p className="small">
+                    Isi informasi dasar agar hasil voice over sesuai dengan kebutuhan Anda.
+                  </p>
+                </div>
+              </div>
+
+              <div className="generate-field-grid">
+                <label className="generate-field">
+                  <span className="generate-field-label">
+                    Judul <span className="required-mark">*</span>
+                  </span>
+                  <div className="generate-input-wrap">
+                    <input
+                      value={form.title}
+                      onChange={(event) =>
+                        updateForm((current) => ({
+                          ...current,
+                          title: event.target.value,
+                        }))
+                      }
+                      disabled={formDisabled}
+                      placeholder="Judul singkat untuk hasil voice over"
+                    />
+                    <span className="generate-input-icon" aria-hidden="true">
+                      <PenSquare size={16} strokeWidth={2} />
+                    </span>
+                  </div>
+                </label>
+
+                <label className="generate-field">
+                  <span className="generate-field-label">
+                    Brief / Deskripsi <span className="required-mark">*</span>
+                  </span>
+                  <textarea
+                    rows={5}
+                    value={form.description}
+                    onChange={(event) =>
+                      updateForm((current) => ({
+                        ...current,
+                        description: event.target.value,
+                      }))
+                    }
+                    disabled={formDisabled}
+                    placeholder="Tulis arahan utama, angle promosi, atau narasi yang diinginkan"
+                  />
+                </label>
+
+                <div className="generate-field-row">
+                  <label className="generate-field">
+                    <span className="generate-field-label">
+                      Kategori Konten <span className="required-mark">*</span>
+                    </span>
+                    <div className="generate-input-wrap">
+                      <select
+                        value={form.contentType}
+                        onChange={(event) =>
+                          updateForm((current) => ({
+                            ...current,
+                            contentType: event.target.value as ContentType,
+                          }))
+                        }
+                        disabled={formDisabled}
+                      >
+                        {CONTENT_TYPES.map((item) => (
+                          <option key={item} value={item}>
+                            {CONTENT_LABEL[item]}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="generate-input-icon" aria-hidden="true">
+                        <Layers3 size={16} strokeWidth={2} />
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="generate-field">
+                    <span className="generate-field-label">
+                      Gender Suara <span className="required-mark">*</span>
+                    </span>
+                    <div className="generate-input-wrap">
+                      <select
+                        value={form.voiceGender}
+                        onChange={(event) =>
+                          updateForm((current) => ({
+                            ...current,
+                            voiceGender: event.target.value as JobVoiceGender,
+                          }))
+                        }
+                        disabled={formDisabled}
+                      >
+                        {(Object.keys(GENDER_LABEL) as JobVoiceGender[]).map((gender) => (
+                          <option key={gender} value={gender}>
+                            {GENDER_LABEL[gender]}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="generate-input-icon" aria-hidden="true">
+                        <Radio size={16} strokeWidth={2} />
+                      </span>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="generate-field-row">
+                  <label className="generate-field">
+                    <span className="generate-field-label">
+                      Tone <span className="required-mark">*</span>
+                    </span>
+                    <div className="generate-input-wrap">
+                      <select
+                        value={form.tone}
+                        onChange={(event) =>
+                          updateForm((current) => ({
+                            ...current,
+                            tone: event.target.value,
+                          }))
+                        }
+                        disabled={formDisabled}
+                      >
+                        {TONE_OPTIONS.map((item) => (
+                          <option key={item} value={item}>
+                            {item}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="generate-input-icon" aria-hidden="true">
+                        <Sparkles size={16} strokeWidth={2} />
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="generate-field">
+                    <span className="generate-field-label">CTA Opsional</span>
+                    <div className="generate-input-wrap">
+                      <input
+                        value={form.ctaText}
+                        placeholder="Contoh: cek detailnya sekarang"
+                        onChange={(event) =>
+                          updateForm((current) => ({
+                            ...current,
+                            ctaText: event.target.value,
+                          }))
+                        }
+                        disabled={formDisabled}
+                      />
+                      <span className="generate-input-icon" aria-hidden="true">
+                        <Link2 size={16} strokeWidth={2} />
+                      </span>
+                    </div>
+                  </label>
+                </div>
+
+                <label className="generate-field">
+                  <span className="generate-field-label">Link Referensi Opsional</span>
+                  <div className="generate-input-wrap">
+                    <input
+                      value={form.referenceLink}
+                      placeholder="https://..."
+                      onChange={(event) =>
+                        updateForm((current) => ({
+                          ...current,
+                          referenceLink: event.target.value,
+                        }))
+                      }
+                      disabled={formDisabled}
+                    />
+                    <span className="generate-input-icon" aria-hidden="true">
+                      <Globe size={16} strokeWidth={2} />
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </section>
+
+            {error ? <p className="err-text">{error}</p> : null}
+
+            <div className="generate-floating-dock">
+              <button
+                type="button"
+                className="generate-history-button"
+                onClick={() => onViewJobs(blockerJobId)}
+              >
+                <History size={17} strokeWidth={2} />
+                <span>Riwayat Proses</span>
+              </button>
+
+              <div className="generate-dock-divider" aria-hidden="true" />
+
+              <div className="generate-dock-summary">
+                <span className="generate-dock-label">Estimasi Biaya</span>
+                <strong>
+                  {currentUser.isUnlimited
+                    ? "Unlimited"
+                    : formatRupiah(form.estimatedChargeIdr ?? 0)}
+                </strong>
+                <p className="small">
+                  {currentUser.isUnlimited
+                    ? "Tanpa estimasi biaya"
+                    : `${form.billedMinutes ?? 0} menit billing siap submit`}
+                </p>
+              </div>
+
+              <button type="submit" className="generate-submit-button" disabled={formDisabled}>
+                <Sparkles size={17} strokeWidth={2} />
+                <span>{loading ? "Membuat job..." : "Generate Job Baru"}</span>
+              </button>
             </div>
-          )}
+          </form>
         </div>
       </div>
 
-      {statusLoading ? (
-        <div className="notice-box">
-          <div className="row-head">
-            <strong>Memeriksa workspace</strong>
-            <span className="small">Sinkronisasi status job</span>
-          </div>
-          <p className="section-note">Sistem sedang memeriksa apakah masih ada job lama yang aktif atau belum diunduh.</p>
+      <aside className="generate-side-panel">
+        <div className="generate-side-head">
+          <h3>Ringkasan</h3>
+          <span className="generate-live-pill">
+            <span className="generate-live-dot" aria-hidden="true" />
+            Aktif
+          </span>
         </div>
-      ) : null}
 
-      {statusError ? (
-        <div className="notice-box notice-box-overload">
-          <div className="row-head">
-            <strong>Status belum terverifikasi</strong>
-            <span className="small">Generate dikunci sementara</span>
-          </div>
-          <p className="err-text">{statusError || STATUS_CHECK_ERROR_MESSAGE}</p>
-          <div className="form-actions">
-            <button type="button" onClick={() => onViewJobs()}>
-              <FolderClock size={16} />
-              <span>Buka Riwayat Proses</span>
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {!statusError && blockerMessage ? (
-        <div className="notice-box notice-box-overload">
-          <div className="row-head">
-            <strong>Generate job baru masih terkunci</strong>
-            <span className="small">Selesaikan siklus job sebelumnya</span>
-          </div>
-          <p className="err-text">{blockerMessage}</p>
-          <div className="form-actions">
-            <button type="button" onClick={() => onViewJobs(blockerJobId)}>
-              <FolderClock size={16} />
-              <span>Buka Riwayat Proses</span>
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      <form onSubmit={onSubmit} className="grid-form">
-        <section className="batch-slot-card" role="region" aria-label="slot video 1">
-          <div className="slot-card-header">
+        <section className="generate-side-card generate-compute-card">
+          <div className="generate-compute-head">
             <div>
-              <strong>Job Baru</strong>
-              <p className="small">Satu form ini akan membuat satu job voice over baru.</p>
+              <span className="generate-section-label">Status Server</span>
+              <h4>
+                {utilizationPercent}
+                <span>%</span>
+              </h4>
             </div>
-            <span className="batch-slot-status batch-slot-status-ready">
-              {isFormReady(form) ? "Siap" : "Belum Lengkap"}
+            <span className={workspaceStatusTone === "status-success" ? "status status-success" : workspaceStatusTone === "status-failed" ? "status status-failed" : workspaceStatusTone === "status-interrupted" ? "status status-interrupted" : workspaceStatusTone === "status-running" ? "status status-running" : "status status-queued"}>
+              {workspaceStatusTone === "status-success"
+                ? "Lancar"
+                : workspaceStatusTone === "status-failed"
+                  ? "Tertahan"
+                  : workspaceStatusTone === "status-interrupted"
+                    ? "Isi Saldo"
+                    : workspaceStatusTone === "status-running"
+                      ? "Memeriksa"
+                      : "Menunggu"}
             </span>
           </div>
 
-          <div className="grid-form">
-            <label>
-              Video <span className="required-mark">*</span>
-              <input
-                key={form.fileInputKey}
-                type="file"
-                accept="video/*"
-                onChange={(event) => onVideoSelected(event.target.files?.[0] || null)}
-                disabled={formDisabled}
-              />
-              <div className="slot-dropzone" aria-hidden="true">
-                <UploadCloud size={24} />
-                <strong>{form.video ? form.video.name : "Unggah file MP4/MOV"}</strong>
-                <span className="small">
-                  Maksimum 1 video per siklus. Durasi dipakai untuk estimasi biaya sebelum submit.
-                </span>
-              </div>
-            </label>
-
-            <div className="slot-estimate-card">
-              {form.durationPending ? (
-                <p className="small">Membaca durasi video...</p>
-              ) : form.durationError ? (
-                <p className="err-inline">{form.durationError}</p>
-              ) : form.videoDurationSec && form.billedMinutes && form.estimatedChargeIdr ? (
-                <>
-                  <strong>
-                    {formatVideoDuration(form.videoDurationSec)} | {form.billedMinutes} menit billing
-                  </strong>
-                  <span className="small">
-                    Estimasi biaya {formatRupiah(form.estimatedChargeIdr)} untuk job ini.
-                  </span>
-                </>
-              ) : (
-                <span className="small">
-                  Biaya akan dihitung otomatis dari durasi video upload.
-                </span>
-              )}
+          <div className="generate-progress-stack">
+            <div className="generate-progress-head">
+              <span>Kondisi antrean</span>
+              <strong>
+                {capacity?.runningCount ?? 0} / {maxRunningJobs} proses aktif
+              </strong>
             </div>
-
-            <label>
-              Judul <span className="required-mark">*</span>
-              <input
-                value={form.title}
-                onChange={(event) =>
-                  updateForm((current) => ({
-                    ...current,
-                    title: event.target.value
-                  }))
-                }
-                disabled={formDisabled}
-                placeholder="Judul singkat untuk hasil voice over"
-              />
-            </label>
-
-            <label>
-              Brief / Deskripsi <span className="required-mark">*</span>
-              <textarea
-                rows={5}
-                value={form.description}
-                onChange={(event) =>
-                  updateForm((current) => ({
-                    ...current,
-                    description: event.target.value
-                  }))
-                }
-                disabled={formDisabled}
-                placeholder="Tulis arahan utama, angle promosi, atau narasi yang diinginkan"
-              />
-            </label>
-
-            <div className="form-grid-2">
-              <label>
-                Kategori Konten <span className="required-mark">*</span>
-                <select
-                  value={form.contentType}
-                  onChange={(event) =>
-                    updateForm((current) => ({
-                      ...current,
-                      contentType: event.target.value as ContentType
-                    }))
-                  }
-                  disabled={formDisabled}
-                >
-                  {CONTENT_TYPES.map((item) => (
-                    <option key={item} value={item}>
-                      {CONTENT_LABEL[item]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Gender Suara <span className="required-mark">*</span>
-                <select
-                  value={form.voiceGender}
-                  onChange={(event) =>
-                    updateForm((current) => ({
-                      ...current,
-                      voiceGender: event.target.value as JobVoiceGender
-                    }))
-                  }
-                  disabled={formDisabled}
-                >
-                  {(Object.keys(GENDER_LABEL) as JobVoiceGender[]).map((gender) => (
-                    <option key={gender} value={gender}>
-                      {GENDER_LABEL[gender]}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <div className="generate-progress-track">
+              <div className="generate-progress-value" style={{ width: `${utilizationPercent}%` }} />
             </div>
+          </div>
 
-            <div className="form-grid-2">
-              <label>
-                Tone <span className="required-mark">*</span>
-                <select
-                  value={form.tone}
-                  onChange={(event) =>
-                    updateForm((current) => ({
-                      ...current,
-                      tone: event.target.value
-                    }))
-                  }
-                  disabled={formDisabled}
-                >
-                  {TONE_OPTIONS.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                CTA Opsional
-                <input
-                  value={form.ctaText}
-                  placeholder="Contoh: cek detailnya sekarang"
-                  onChange={(event) =>
-                    updateForm((current) => ({
-                      ...current,
-                      ctaText: event.target.value
-                    }))
-                  }
-                  disabled={formDisabled}
-                />
-              </label>
+          <div className="generate-compute-metrics">
+            <div className="generate-compute-metric">
+              <Clock3 size={15} strokeWidth={2} />
+              <span>Perkiraan tunggu</span>
+              <strong>{formatWaitMinutes(estimatedWaitMinutes)}</strong>
             </div>
-
-            <label>
-              Link Referensi Opsional
-              <div className="slot-inline-note">
-                <input
-                  value={form.referenceLink}
-                  placeholder="https://..."
-                  onChange={(event) =>
-                    updateForm((current) => ({
-                      ...current,
-                      referenceLink: event.target.value
-                    }))
-                  }
-                  disabled={formDisabled}
-                />
-              </div>
-            </label>
+            <div className="generate-compute-metric">
+              <Cpu size={15} strokeWidth={2} />
+              <span>Respon</span>
+              <strong>{latencyMs}ms</strong>
+            </div>
           </div>
         </section>
 
-        <div className="sticky-action-bar">
-          <div className="sticky-action-summary">
-            <div className="sticky-action-count">
-              <span className="eyebrow">Workspace Mode</span>
-              <strong>Single Job</strong>
-            </div>
-            <div className="sticky-action-count">
-              <span className="eyebrow">System Calculation</span>
+        <section className="generate-side-card">
+          <span className="generate-section-label">Perkiraan Biaya</span>
+          <div className="generate-stat-list">
+            <div className="generate-stat-row">
+              <span>Biaya job ini</span>
               <strong>{currentUser.isUnlimited ? "Unlimited" : formatRupiah(form.estimatedChargeIdr ?? 0)}</strong>
-              <span className="small">
-                {currentUser.isUnlimited
-                  ? "Tanpa estimasi biaya"
-                  : `${form.billedMinutes ?? 0} menit billing siap submit`}
-              </span>
             </div>
-            <div className="sticky-action-count">
-              <span className="eyebrow">Saldo Setelah Job</span>
+            <div className="generate-stat-row">
+              <span>Sisa saldo</span>
               <strong>
-                {currentUser.isUnlimited ? "Unlimited" : `${estimatedRemainingMinutes ?? 0} menit`}
+                {currentUser.isUnlimited
+                  ? "Saldo Unlimited"
+                  : formatRupiah(projectedBalanceIdr ?? currentUser.walletBalanceIdr)}
+              </strong>
+            </div>
+            <div className="generate-stat-row">
+              <span>Status Saldo</span>
+              <strong>{hasEnoughBalance ? "Siap diproses" : "Perlu isi saldo"}</strong>
+            </div>
+            {!currentUser.isUnlimited ? (
+              <p className="small">
+                Biaya {formatRupiah(currentUser.generatePriceIdr)} per menit. Sisa estimasi setelah
+                job: {estimatedRemainingMinutes ?? 0} menit.
+              </p>
+            ) : (
+              <p className="small">Akun ini bisa dipakai tanpa batas saldo.</p>
+            )}
+          </div>
+        </section>
+
+        <section className="generate-side-card">
+          <span className="generate-section-label">Status Proses</span>
+          <div className="generate-pipeline-item">
+            <div className="generate-pipeline-icon">
+              <Gauge size={18} strokeWidth={2} />
+            </div>
+            <div>
+              <p className="generate-pipeline-title">Antrean</p>
+              <strong>
+                Queue {capacity?.queuedCount ?? 0}/{maxQueuedJobs}
               </strong>
             </div>
           </div>
-
-          <div className="sticky-action-buttons">
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => onViewJobs(blockerJobId)}
-            >
-              <FolderClock size={16} />
-              <span>Lihat Riwayat</span>
-            </button>
-            <button type="submit" className="primary-button" disabled={formDisabled}>
-              <CircleDollarSign size={16} />
-              <span>{loading ? "Membuat job..." : "Generate Job Baru"}</span>
-            </button>
+          <div className="generate-pipeline-item">
+            <div className="generate-pipeline-icon generate-pipeline-icon-magenta">
+              <Wallet size={18} strokeWidth={2} />
+            </div>
+            <div>
+              <p className="generate-pipeline-title">Tagihan</p>
+              <strong>{form.billedMinutes ?? 0} menit</strong>
+            </div>
           </div>
-        </div>
-      </form>
+          <div className="generate-pipeline-item">
+            <div className="generate-pipeline-icon">
+              <Layers3 size={18} strokeWidth={2} />
+            </div>
+            <div>
+              <p className="generate-pipeline-title">Total proses</p>
+              <strong>{(capacity?.runningCount ?? 0) + (capacity?.queuedCount ?? 0)} job aktif</strong>
+            </div>
+          </div>
+        </section>
 
-      {error ? <p className="err-text">{error}</p> : null}
+        <section className="generate-side-card generate-environment-card">
+          <div className="generate-environment-icon">
+            {workspaceStatusTone === "status-success" ? (
+              <CheckCircle2 size={22} strokeWidth={2} />
+            ) : workspaceStatusTone === "status-running" ? (
+              <Clock3 size={22} strokeWidth={2} />
+            ) : workspaceStatusTone === "status-interrupted" ? (
+              <Wallet size={22} strokeWidth={2} />
+            ) : workspaceStatusTone === "status-failed" ? (
+              <ShieldCheck size={22} strokeWidth={2} />
+            ) : (
+              <Sparkles size={22} strokeWidth={2} />
+            )}
+          </div>
+          <div>
+            <h4>{telemetryStatusLabel}</h4>
+            <p>{telemetryStatusDescription}</p>
+          </div>
+        </section>
+      </aside>
     </section>
   );
 }

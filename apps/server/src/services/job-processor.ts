@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
@@ -6,7 +6,7 @@ import type { GenerationCapacity, JobRecord } from "../types.js";
 import { SettingsStore } from "../stores/settings-store.js";
 import { JobsStore } from "../stores/jobs-store.js";
 import { JobEvents } from "./job-events.js";
-import type { AiService } from "./ai-service.js";
+import type { AiService, SpeechService } from "./ai-service.js";
 import { InvalidGeminiStructuredOutputError } from "./ai-service.js";
 import {
   buildCaptionPrompt,
@@ -137,13 +137,18 @@ export class JobProcessor implements IJobProcessor {
   private draining = false;
   private drainRequested = false;
 
+  private readonly speechService: SpeechService;
+
   public constructor(
     private readonly jobsStore: JobsStore,
     private readonly settingsStore: SettingsStore,
     private readonly aiService: AiService,
     private readonly logger: FastifyBaseLogger,
-    private readonly jobEvents: JobEvents
-  ) {}
+    private readonly jobEvents: JobEvents,
+    speechService?: SpeechService
+  ) {
+    this.speechService = speechService ?? aiService;
+  }
 
   public enqueue(jobId: string, ownerKey?: string, options: EnqueueOptions = {}): boolean {
     if (this.queuedJobIds.has(jobId) || this.activeJobIds.has(jobId)) {
@@ -331,11 +336,39 @@ export class JobProcessor implements IJobProcessor {
       }
     }));
 
-    let uploadedVideo;
+    let uploadedVideo: any[] = [];
+    let framesDir = "";
     try {
       await this.setJobProgress(item.jobId, "analyzing");
-      uploadedVideo = await this.aiService.uploadVideo(job.videoPath, job.videoMimeType);
+      this.logger.info({ jobId: item.jobId }, "Mengekstrak frame video.");
+      framesDir = await mkdtemp(path.join(os.tmpdir(), `voice-shorts-frames-${job.jobId}-`));
+      const { extractVideoFrames } = await import("../utils/video.js");
+      const frames = await extractVideoFrames(job.videoPath, framesDir, { fps: 0.5 });
+      
+      // Batasi maksimal 20 frame agar payload base64 tidak terlalu besar dan mencegah timeout
+      const selectedFrames = frames.slice(0, 20);
+      
+      this.logger.info({ jobId: item.jobId }, `Ekstrak frame selesai (${frames.length} frame, diambil ${selectedFrames.length}), menyiapkan base64.`);
+      
+      for (const framePath of selectedFrames) {
+        const fileBuffer = await readFile(framePath);
+        uploadedVideo.push({
+          provider: "litellm",
+          mimeType: "image/jpeg",
+          base64Data: fileBuffer.toString("base64")
+        });
+      }
+      
+      this.logger.info(
+        { jobId: item.jobId, count: uploadedVideo.length },
+        "Konversi frame ke base64 selesai. Menghapus frame lokal."
+      );
+      await rm(framesDir, { recursive: true, force: true });
+      framesDir = "";
     } catch (error) {
+      if (framesDir) {
+        await rm(framesDir, { recursive: true, force: true }).catch(() => {});
+      }
       await this.failJob(item.jobId, this.toErrorMessage(error));
       return;
     }
@@ -371,14 +404,17 @@ export class JobProcessor implements IJobProcessor {
       let rawSocialMetadata = { caption: "", hashtags: [] as string[] };
       try {
         await this.setJobProgress(item.jobId, "analyzing");
+        this.logger.info({ jobId: item.jobId }, "Memulai analisis visual video.");
         const visualBriefPrompt = buildVisualBriefPrompt(promptInput);
         const visualBrief = await this.aiService.generateVisualBrief({
           model: settings.scriptModel,
           prompt: visualBriefPrompt,
           video: uploadedVideo
         });
+        this.logger.info({ jobId: item.jobId }, "Analisis visual video selesai.");
 
         await this.setJobProgress(item.jobId, "scripting");
+        this.logger.info({ jobId: item.jobId }, "Memulai penyusunan script voice over.");
         const scriptPrompt = buildScriptPrompt({
           ...promptInput,
           visualBrief
@@ -387,8 +423,10 @@ export class JobProcessor implements IJobProcessor {
           model: settings.scriptModel,
           prompt: scriptPrompt
         });
+        this.logger.info({ jobId: item.jobId }, "Penyusunan script voice over selesai.");
 
         await this.setJobProgress(item.jobId, "captioning");
+        this.logger.info({ jobId: item.jobId }, "Memulai pembuatan caption.");
         const captionPrompt = buildCaptionPrompt({
           ...promptInput,
           scriptText,
@@ -398,6 +436,7 @@ export class JobProcessor implements IJobProcessor {
           model: settings.scriptModel,
           prompt: captionPrompt
         });
+        this.logger.info({ jobId: item.jobId }, "Pembuatan caption selesai.");
       } catch (error) {
         if (!(error instanceof InvalidGeminiStructuredOutputError)) {
           throw error;
@@ -409,14 +448,17 @@ export class JobProcessor implements IJobProcessor {
         );
 
         await this.setJobProgress(item.jobId, "scripting");
+        this.logger.info({ jobId: item.jobId }, "Memulai fallback script multimodal.");
         const scriptPrompt = buildScriptPrompt(promptInput);
         scriptText = await this.aiService.generateScript({
           model: settings.scriptModel,
           prompt: scriptPrompt,
           video: uploadedVideo
         });
+        this.logger.info({ jobId: item.jobId }, "Fallback script multimodal selesai.");
 
         await this.setJobProgress(item.jobId, "captioning");
+        this.logger.info({ jobId: item.jobId }, "Memulai fallback caption multimodal.");
         const captionPrompt = buildCaptionPrompt({
           ...promptInput,
           scriptText
@@ -426,6 +468,7 @@ export class JobProcessor implements IJobProcessor {
           prompt: captionPrompt,
           video: uploadedVideo
         });
+        this.logger.info({ jobId: item.jobId }, "Fallback caption multimodal selesai.");
       }
 
       const socialMetadata = ensureSocialMetadata(
@@ -436,8 +479,9 @@ export class JobProcessor implements IJobProcessor {
       await writeFile(captionPath, formatSocialMetadataFile(socialMetadata), "utf8");
 
       await this.setJobProgress(item.jobId, "synthesizing");
+      this.logger.info({ jobId: item.jobId }, "Memulai sintesis voice over.");
       const voiceProfile = await this.settingsStore.getVoiceForGender(job.voiceGender);
-      const audio = await this.aiService.generateSpeech({
+      const audio = await this.speechService.generateSpeech({
         model: settings.ttsModel,
         text: scriptText,
         voiceName: voiceProfile.voiceName,
@@ -445,9 +489,12 @@ export class JobProcessor implements IJobProcessor {
         deliveryHint: job.tone
       });
       await writeWav24kMono(audio.data, audio.mimeType, voicePath, voiceProfile.speechRate);
+      this.logger.info({ jobId: item.jobId }, "Sintesis voice over selesai.");
 
       await this.setJobProgress(item.jobId, "rendering");
+      this.logger.info({ jobId: item.jobId }, "Memulai render video final.");
       await combineVideoWithVoiceOver(job.videoPath, voicePath, finalPath, job.videoDurationSec);
+      this.logger.info({ jobId: item.jobId }, "Render video final selesai.");
       await rm(voiceTempDir, { recursive: true, force: true });
       voiceTempDir = "";
       await cleanupSuccessfulUpload(job.jobId, this.logger);

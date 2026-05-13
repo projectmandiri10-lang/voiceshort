@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import ffprobeStatic from "ffprobe-static";
+import ffmpegStatic from "ffmpeg-static";
 
 export function resolveFfprobeExecutable(options?: {
   fromEnv?: string;
@@ -73,6 +74,86 @@ export async function probeVideoDuration(
         return;
       }
       resolve(duration);
+    });
+  });
+}
+
+export function resolveFfmpegExecutable(): string {
+  const fromEnv = process.env.FFMPEG_PATH?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  
+  try {
+    const fromPackage = (ffmpegStatic as unknown as string | null) ?? null;
+    if (fromPackage && existsSync(fromPackage)) {
+      return fromPackage;
+    }
+  } catch (err) {
+    // ignore
+  }
+
+  return "ffmpeg";
+}
+
+export async function extractVideoFrames(
+  videoPath: string,
+  outputDir: string,
+  options?: {
+    fps?: number;
+    ffmpegPath?: string;
+  }
+): Promise<string[]> {
+  const ffmpegPath = options?.ffmpegPath ?? resolveFfmpegExecutable();
+  const fps = options?.fps ?? 1;
+
+  return new Promise<string[]>((resolve, reject) => {
+    // We will extract frames as %04d.jpg
+    const args = [
+      "-y",
+      "-i",
+      videoPath,
+      "-vf",
+      `fps=${fps},scale='min(512,iw)':-1`,
+      "-qscale:v",
+      "10",
+      `${outputDir}/frame-%04d.jpg`
+    ];
+
+    const process = spawn(ffmpegPath, args, { windowsHide: true });
+    let stderr = "";
+
+    process.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+
+    process.once("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        reject(
+          new Error(
+            `ffmpeg tidak ditemukan (${ffmpegPath}). Install ffmpeg di server atau set env FFMPEG_PATH.`
+          )
+        );
+        return;
+      }
+      reject(error);
+    });
+
+    process.once("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`Gagal mengekstrak frame video: ${stderr || code}`));
+        return;
+      }
+      
+      // We read the output directory to get the list of generated files
+      import("node:fs/promises").then((fs) => {
+        fs.readdir(outputDir).then((files) => {
+          const frameFiles = files
+            .filter((f) => f.startsWith("frame-") && f.endsWith(".jpg"))
+            .map((f) => import("node:path").then((path) => path.join(outputDir, f)));
+          Promise.all(frameFiles).then(resolve).catch(reject);
+        }).catch(reject);
+      });
     });
   });
 }

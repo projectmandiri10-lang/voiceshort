@@ -370,7 +370,7 @@ FFPROBE_PATH=/usr/bin/ffprobe
 Catatan:
 
 - `VITE_API_BASE` tidak wajib diisi untuk single-domain production
-- kalau Anda memakai `AI_PROVIDER=hybrid`, isi juga `SNIFOX_*`
+- aplikasi sekarang memakai `AI_PROVIDER=litellm` untuk seluruh proses AI
 - kalau Anda memakai Google login dan ingin backend menyinkronkan config Supabase otomatis, isi juga:
   - `SUPABASE_ACCESS_TOKEN`
   - `SUPABASE_PROJECT_REF`

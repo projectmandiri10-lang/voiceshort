@@ -238,6 +238,49 @@ describe("job processor", () => {
     await expect(access(path.join(UPLOADS_DIR, jobId))).rejects.toThrow();
   });
 
+  it("uses the injected speech service for synthesis when provided", async () => {
+    const jobId = "job-processor-speech-service";
+    const job = buildJob(jobId);
+    await writeJobVideo(job);
+    await jobsStore.create(job);
+
+    const contentService = {
+      uploadVideo: vi.fn(async () => ({
+        provider: "litellm" as const,
+        fileId: "mock-file",
+        mimeType: "video/mp4"
+      })),
+      generateVisualBrief: vi.fn(async () => visualBrief),
+      generateScript: vi.fn(async () => "Script dari content service."),
+      generateCaptionMetadata: vi.fn(async () => ({
+        caption: "Caption dari content service.",
+        hashtags: []
+      }))
+    };
+    const speechService = {
+      generateSpeech: vi.fn(async () => ({
+        data: Buffer.from("audio"),
+        mimeType: "audio/wav"
+      }))
+    };
+
+    const processor = new JobProcessor(
+      jobsStore,
+      settingsStore,
+      contentService as never,
+      logger,
+      new JobEvents(),
+      speechService
+    );
+
+    processor.enqueue(jobId);
+    await processor.whenIdle();
+
+    const updated = await jobsStore.getById(jobId);
+    expect(updated?.status).toBe("success");
+    expect(speechService.generateSpeech).toHaveBeenCalledTimes(1);
+  });
+
   it("runs up to three jobs in parallel for different users", async () => {
     const jobs = [
       buildJob("parallel-a", { ownerUserId: "user-a", ownerEmail: "a@test.dev" }),

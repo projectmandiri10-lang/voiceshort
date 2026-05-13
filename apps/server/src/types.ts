@@ -142,10 +142,11 @@ export interface AdminUserRecord extends AuthSessionUser {
 }
 
 export interface UploadedAiFile {
-  provider: "gemini" | "litellm" | "snifox";
+  provider: "gemini" | "litellm";
   mimeType: string;
   fileUri?: string;
   fileId?: string;
+  base64Data?: string;
 }
 
 export interface VisualBriefHook {
@@ -176,19 +177,19 @@ export interface VisualBrief {
 export interface GenerateScriptInput {
   model: string;
   prompt: string;
-  video?: UploadedAiFile;
+  video?: UploadedAiFile | UploadedAiFile[];
 }
 
 export interface GenerateCaptionMetadataInput {
   model: string;
   prompt: string;
-  video?: UploadedAiFile;
+  video?: UploadedAiFile | UploadedAiFile[];
 }
 
 export interface GenerateVisualBriefInput {
   model: string;
   prompt: string;
-  video: UploadedAiFile;
+  video: UploadedAiFile | UploadedAiFile[];
 }
 
 export interface GenerateSpeechInput {

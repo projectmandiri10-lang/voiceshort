@@ -32,25 +32,33 @@ describe("env config", () => {
     expect(env.aiProvider).toBe("litellm");
   });
 
-  it("allows litellm mode without gemini api key", () => {
+  it("loads litellm mode without direct gemini credentials", () => {
     applyBaseEnv();
     process.env.AI_PROVIDER = "litellm";
-    process.env.GEMINI_API_KEY = "";
     process.env.LITELLM_BASE_URL = "http://127.0.0.1:4000";
     process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
     process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
 
     const env = loadEnv();
     expect(env.aiProvider).toBe("litellm");
-    expect(env.geminiApiKey).toBe("");
     expect(env.litellmFileTargetModel).toBe("gemini/gemini-3-flash-preview");
     expect(env.successOutputRetentionHours).toBe(72);
+  });
+
+  it("normalizes litellm base url from env", () => {
+    applyBaseEnv();
+    process.env.AI_PROVIDER = "litellm";
+    process.env.LITELLM_BASE_URL = "https://litellm.koboi2026.biz.id/v1/";
+    process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
+    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
+
+    const env = loadEnv();
+    expect(env.litellmBaseUrl).toBe("https://litellm.koboi2026.biz.id");
   });
 
   it("throws a clear error when litellm base url is missing", () => {
     applyBaseEnv();
     process.env.AI_PROVIDER = "litellm";
-    process.env.GEMINI_API_KEY = "";
     process.env.LITELLM_BASE_URL = "";
     process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
     process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
@@ -58,75 +66,11 @@ describe("env config", () => {
     expect(() => loadEnv()).toThrow("LITELLM_BASE_URL wajib diisi");
   });
 
-  it("still requires gemini api key in direct gemini mode", () => {
+  it("rejects non-litellm provider modes", () => {
     applyBaseEnv();
     process.env.AI_PROVIDER = "gemini";
-    process.env.GEMINI_API_KEY = "";
 
-    expect(() => loadEnv()).toThrow("GEMINI_API_KEY");
-  });
-
-  it("loads hybrid mode with Snifox for non-TTS and LiteLLM for TTS", () => {
-    applyBaseEnv();
-    process.env.AI_PROVIDER = "hybrid";
-    process.env.SNIFOX_API_BASE = "http://127.0.0.1:8000";
-    process.env.SNIFOX_API_KEY = "snifox-key";
-    process.env.SNIFOX_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
-    process.env.LITELLM_BASE_URL = "http://127.0.0.1:4000";
-    process.env.LITELLM_SECRET_KEY = "litellm-secret";
-    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
-
-    const env = loadEnv();
-    expect(env.aiProvider).toBe("hybrid");
-    expect(env.snifoxApiBase).toBe("http://127.0.0.1:8000");
-    expect(env.snifoxApiKey).toBe("snifox-key");
-    expect(env.snifoxScriptModel).toBe("gemini/gemini-3-flash-preview");
-    expect(env.litellmApiKey).toBe("litellm-secret");
-    expect(env.litellmTtsModel).toBe("gemini/gemini-2.5-pro-preview-tts");
-  });
-
-  it("throws a clear error when hybrid snifox base url is missing", () => {
-    applyBaseEnv();
-    process.env.AI_PROVIDER = "hybrid";
-    process.env.SNIFOX_API_BASE = "";
-    process.env.SNIFOX_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
-    process.env.LITELLM_BASE_URL = "http://127.0.0.1:4000";
-    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
-
-    expect(() => loadEnv()).toThrow("SNIFOX_API_BASE wajib diisi");
-  });
-
-  it("throws a clear error when hybrid snifox script model is missing", () => {
-    applyBaseEnv();
-    process.env.AI_PROVIDER = "hybrid";
-    process.env.SNIFOX_API_BASE = "http://127.0.0.1:8000";
-    process.env.SNIFOX_SCRIPT_MODEL = "";
-    process.env.LITELLM_BASE_URL = "http://127.0.0.1:4000";
-    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
-
-    expect(() => loadEnv()).toThrow("SNIFOX_SCRIPT_MODEL wajib diisi");
-  });
-
-  it("throws a clear error when hybrid litellm base url is missing", () => {
-    applyBaseEnv();
-    process.env.AI_PROVIDER = "hybrid";
-    process.env.SNIFOX_API_BASE = "http://127.0.0.1:8000";
-    process.env.SNIFOX_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
-    process.env.LITELLM_BASE_URL = "";
-    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
-
-    expect(() => loadEnv()).toThrow("LITELLM_BASE_URL wajib diisi");
-  });
-
-  it("throws a clear error when hybrid litellm tts model is missing", () => {
-    applyBaseEnv();
-    process.env.AI_PROVIDER = "hybrid";
-    process.env.SNIFOX_API_BASE = "http://127.0.0.1:8000";
-    process.env.SNIFOX_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
-    process.env.LITELLM_BASE_URL = "http://127.0.0.1:4000";
-    process.env.LITELLM_TTS_MODEL = "";
-
-    expect(() => loadEnv()).toThrow("LITELLM_TTS_MODEL wajib diisi");
+    expect(() => loadEnv()).toThrow("hanya mendukung litellm");
   });
 
   it("loads custom success output retention hours", () => {

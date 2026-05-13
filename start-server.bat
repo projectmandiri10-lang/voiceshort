@@ -24,14 +24,14 @@ if not exist ".env" (
   echo [WARN] File .env belum ada. Menyalin dari .env.example...
   copy /y ".env.example" ".env" >nul
   echo [WARN] File yang perlu diedit: %cd%\.env
-  echo [WARN] Isi GEMINI_API_KEY di .env lalu jalankan lagi.
+  echo [WARN] Pastikan LITELLM_BASE_URL, LITELLM_SCRIPT_MODEL, dan LITELLM_TTS_MODEL terisi lalu jalankan lagi.
   goto :fail
 )
 
-findstr /b /c:"GEMINI_API_KEY=your_api_key_here" ".env" >nul
+findstr /r /c:"^LITELLM_BASE_URL=$" ".env" >nul
 if "%ERRORLEVEL%"=="0" (
   echo [WARN] File yang perlu diedit: %cd%\.env
-  echo [WARN] GEMINI_API_KEY di .env masih contoh. Isi API key asli lalu jalankan lagi.
+  echo [WARN] LITELLM_BASE_URL di .env masih kosong. Isi base URL LiteLLM lalu jalankan lagi.
   goto :fail
 )
 

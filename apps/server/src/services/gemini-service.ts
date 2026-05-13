@@ -139,30 +139,31 @@ export class GeminiService implements AiService {
     this.client = new GoogleGenAI({ apiKey });
   }
 
-  private buildUserParts(prompt: string, video?: UploadedAiFile) {
-    if (!video) {
+  private buildUserParts(prompt: string, video?: UploadedAiFile | UploadedAiFile[]) {
+    const files = Array.isArray(video) ? video : (video ? [video] : []);
+    if (files.length === 0) {
       return [{ text: prompt }];
     }
 
-    if (!video.fileUri) {
-      throw new Error("Referensi file Gemini tidak memiliki fileUri.");
-    }
-
-    return [
-      {
+    const fileParts = files.map(file => {
+      if (!file.fileUri) {
+        throw new Error("Referensi file Gemini tidak memiliki fileUri.");
+      }
+      return {
         fileData: {
-          fileUri: video.fileUri,
-          mimeType: video.mimeType
+          fileUri: file.fileUri,
+          mimeType: file.mimeType
         }
-      },
-      { text: prompt }
-    ];
+      };
+    });
+
+    return [...fileParts, { text: prompt }];
   }
 
   private async generateUserContent(input: {
     model: string;
     prompt: string;
-    video?: UploadedAiFile;
+    video?: UploadedAiFile | UploadedAiFile[];
     config?: Record<string, unknown>;
   }) {
     return await this.client.models.generateContent({

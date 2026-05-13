@@ -3,12 +3,9 @@ import { loadEnv } from "./config.js";
 import { AuthService } from "./services/auth-service.js";
 import { JobEvents } from "./services/job-events.js";
 import { JobProcessor } from "./services/job-processor.js";
-import { GeminiService } from "./services/gemini-service.js";
 import type { AiService, SpeechService } from "./services/ai-service.js";
 import { BillingService } from "./services/billing-service.js";
-import { HybridAiService } from "./services/hybrid-ai-service.js";
 import { LiteLlmService } from "./services/litellm-service.js";
-import { SnifoxService } from "./services/snifox-service.js";
 import { SupabaseAuthConfigService } from "./services/supabase-auth-config-service.js";
 import { createSupabaseClient } from "./services/supabase-client.js";
 import { JobsStore } from "./stores/jobs-store.js";
@@ -21,18 +18,10 @@ import { ensureAppDirs } from "./utils/paths.js";
 async function bootstrap(): Promise<void> {
   await ensureAppDirs();
   const env = loadEnv();
-  const runtimeModelOverrides =
-    env.aiProvider === "litellm"
-      ? {
-          scriptModel: env.litellmScriptModel,
-          ttsModel: env.litellmTtsModel
-        }
-      : env.aiProvider === "hybrid"
-        ? {
-            scriptModel: env.snifoxScriptModel,
-            ttsModel: env.litellmTtsModel
-          }
-      : undefined;
+  const runtimeModelOverrides = {
+    scriptModel: env.litellmScriptModel,
+    ttsModel: env.litellmTtsModel
+  };
   const adminDb = createSupabaseClient({
     supabaseUrl: env.supabaseUrl,
     supabaseKey: env.supabaseServiceRoleKey
@@ -66,60 +55,16 @@ async function bootstrap(): Promise<void> {
     logger.error({ err: error }, "Gagal sinkronisasi Google OAuth ke Supabase.");
   });
 
-  let aiService: AiService;
-  let speechGenerator: SpeechService;
-  let aiRouting: {
-    provider: string;
-    nonTts: string;
-    tts: string;
-  };
-
-  if (env.aiProvider === "litellm") {
-    const litellm = new LiteLlmService({
-      baseUrl: env.litellmBaseUrl,
-      apiKey: env.litellmApiKey,
-      scriptModel: env.litellmScriptModel,
-      ttsModel: env.litellmTtsModel,
-      fileTargetModel: env.litellmFileTargetModel,
-      logger
-    });
-    aiService = litellm;
-    speechGenerator = litellm;
-    aiRouting = {
-      provider: "litellm",
-      nonTts: "litellm",
-      tts: "litellm"
-    };
-  } else if (env.aiProvider === "hybrid") {
-    const snifox = new SnifoxService({
-      baseUrl: env.snifoxApiBase,
-      apiKey: env.snifoxApiKey,
-      scriptModel: env.snifoxScriptModel,
-      logger
-    });
-    const litellmSpeech = new LiteLlmService({
-      baseUrl: env.litellmBaseUrl,
-      apiKey: env.litellmApiKey,
-      ttsModel: env.litellmTtsModel,
-      logger
-    });
-    aiService = new HybridAiService(snifox, litellmSpeech);
-    speechGenerator = litellmSpeech;
-    aiRouting = {
-      provider: "hybrid",
-      nonTts: "snifox",
-      tts: "litellm"
-    };
-  } else {
-    const gemini = new GeminiService(env.geminiApiKey, logger);
-    aiService = gemini;
-    speechGenerator = gemini;
-    aiRouting = {
-      provider: "gemini",
-      nonTts: "gemini",
-      tts: "gemini"
-    };
-  }
+  const litellm = new LiteLlmService({
+    baseUrl: env.litellmBaseUrl,
+    apiKey: env.litellmApiKey,
+    scriptModel: env.litellmScriptModel,
+    ttsModel: env.litellmTtsModel,
+    fileTargetModel: env.litellmFileTargetModel,
+    logger
+  });
+  const aiService: AiService = litellm;
+  const speechGenerator: SpeechService = litellm;
   const billingService = new BillingService({
     db: adminDb,
     logger,
@@ -128,7 +73,14 @@ async function bootstrap(): Promise<void> {
     webqrisWebhookSecret: env.webqrisWebhookSecret,
     generatePriceIdr: env.generatePriceIdr
   });
-  const processor = new JobProcessor(jobsStore, settingsStore, aiService, logger, jobEvents);
+  const processor = new JobProcessor(
+    jobsStore,
+    settingsStore,
+    aiService,
+    logger,
+    jobEvents,
+    speechGenerator
+  );
   const successOutputRetentionSweeper = new SuccessOutputRetentionSweeper(
     jobsStore,
     logger,
@@ -157,11 +109,14 @@ async function bootstrap(): Promise<void> {
 
   logger.info(
     {
-      aiProvider: aiRouting.provider,
-      nonTtsProvider: aiRouting.nonTts,
-      ttsProvider: aiRouting.tts
+      aiProvider: env.aiProvider,
+      litellmBaseUrl: env.litellmBaseUrl,
+      scriptModel: env.litellmScriptModel,
+      ttsModel: env.litellmTtsModel,
+      nonTtsProvider: "litellm",
+      ttsProvider: "litellm"
     },
-    "AI routing aktif."
+    "Routing AI aktif: upload, naskah, caption, dan suara via litellm."
   );
   logger.info(`Server berjalan di http://localhost:${env.port}`);
 }

@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import path from "node:path";
+import { normalizeOpenAiCompatibleBaseUrl } from "./services/openai-compatible.js";
 import { DEFAULT_SUCCESS_OUTPUT_RETENTION_HOURS } from "./services/success-output-retention.js";
 import { ROOT_DIR } from "./utils/paths.js";
 import { DEFAULT_PORT } from "./constants.js";
@@ -7,11 +8,7 @@ import { DEFAULT_PORT } from "./constants.js";
 dotenv.config({ path: path.join(ROOT_DIR, ".env"), override: true });
 
 export interface AppEnv {
-  aiProvider: "gemini" | "litellm" | "hybrid";
-  geminiApiKey: string;
-  snifoxApiBase: string;
-  snifoxApiKey: string;
-  snifoxScriptModel: string;
+  aiProvider: "litellm";
   litellmBaseUrl: string;
   litellmApiKey: string;
   litellmScriptModel: string;
@@ -40,15 +37,11 @@ export interface AppEnv {
 
 export function loadEnv(): AppEnv {
   const aiProviderRaw = process.env.AI_PROVIDER?.trim().toLowerCase() || "litellm";
-  const aiProvider =
-    aiProviderRaw === "litellm" || aiProviderRaw === "gemini" || aiProviderRaw === "hybrid"
-      ? aiProviderRaw
-      : undefined;
-  const geminiApiKey = process.env.GEMINI_API_KEY?.trim() ?? "";
-  const snifoxApiBase = process.env.SNIFOX_API_BASE?.trim() ?? "";
-  const snifoxApiKey = process.env.SNIFOX_API_KEY?.trim() ?? "";
-  const snifoxScriptModel = process.env.SNIFOX_SCRIPT_MODEL?.trim() ?? "";
-  const litellmBaseUrl = process.env.LITELLM_BASE_URL?.trim() ?? "";
+  const aiProvider = aiProviderRaw === "litellm" ? aiProviderRaw : undefined;
+  const litellmBaseUrlRaw = process.env.LITELLM_BASE_URL?.trim() ?? "";
+  const litellmBaseUrl = litellmBaseUrlRaw
+    ? normalizeOpenAiCompatibleBaseUrl(litellmBaseUrlRaw)
+    : "";
   const litellmApiKey =
     process.env.LITELLM_SECRET_KEY?.trim() || process.env.LITELLM_API_KEY?.trim() || "";
   const litellmScriptModel = process.env.LITELLM_SCRIPT_MODEL?.trim() ?? "";
@@ -87,42 +80,19 @@ export function loadEnv(): AppEnv {
     : DEFAULT_SUCCESS_OUTPUT_RETENTION_HOURS;
 
   if (!aiProvider) {
-    throw new Error(`AI_PROVIDER tidak valid: ${aiProviderRaw}`);
-  }
-
-  const invalidGeminiApiKeys = new Set(["", "your_api_key_here", "your_gemini_api_key"]);
-
-  if (aiProvider === "gemini" && invalidGeminiApiKeys.has(geminiApiKey)) {
     throw new Error(
-      "GEMINI_API_KEY tidak ditemukan. Isi file .env berdasarkan .env.example."
+      `AI_PROVIDER tidak valid: ${aiProviderRaw}. Aplikasi ini sekarang hanya mendukung litellm.`
     );
   }
 
-  if (aiProvider === "litellm") {
-    if (!litellmBaseUrl) {
-      throw new Error("LITELLM_BASE_URL wajib diisi saat AI_PROVIDER=litellm.");
-    }
-    if (!litellmScriptModel) {
-      throw new Error("LITELLM_SCRIPT_MODEL wajib diisi saat AI_PROVIDER=litellm.");
-    }
-    if (!litellmTtsModel) {
-      throw new Error("LITELLM_TTS_MODEL wajib diisi saat AI_PROVIDER=litellm.");
-    }
+  if (!litellmBaseUrl) {
+    throw new Error("LITELLM_BASE_URL wajib diisi.");
   }
-
-  if (aiProvider === "hybrid") {
-    if (!snifoxApiBase) {
-      throw new Error("SNIFOX_API_BASE wajib diisi saat AI_PROVIDER=hybrid.");
-    }
-    if (!snifoxScriptModel) {
-      throw new Error("SNIFOX_SCRIPT_MODEL wajib diisi saat AI_PROVIDER=hybrid.");
-    }
-    if (!litellmBaseUrl) {
-      throw new Error("LITELLM_BASE_URL wajib diisi saat AI_PROVIDER=hybrid.");
-    }
-    if (!litellmTtsModel) {
-      throw new Error("LITELLM_TTS_MODEL wajib diisi saat AI_PROVIDER=hybrid.");
-    }
+  if (!litellmScriptModel) {
+    throw new Error("LITELLM_SCRIPT_MODEL wajib diisi.");
+  }
+  if (!litellmTtsModel) {
+    throw new Error("LITELLM_TTS_MODEL wajib diisi.");
   }
 
   if (!Number.isFinite(port) || port <= 0) {
@@ -156,10 +126,6 @@ export function loadEnv(): AppEnv {
 
   return {
     aiProvider,
-    geminiApiKey,
-    snifoxApiBase,
-    snifoxApiKey,
-    snifoxScriptModel,
     litellmBaseUrl,
     litellmApiKey,
     litellmScriptModel,

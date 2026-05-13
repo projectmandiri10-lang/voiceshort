@@ -135,7 +135,7 @@ function buildSuccessProgress() {
 }
 
 function buildJob(
-  overrides: Partial<JobRecord> & {
+  overrides: Omit<Partial<JobRecord>, "output"> & {
     output?: Partial<JobRecord["output"]>;
   } = {}
 ): JobRecord {
@@ -600,6 +600,43 @@ describe("web smoke", () => {
         ).length
       ).toBeGreaterThan(0);
     });
+  });
+
+  it("keeps a single live job subscription while progress updates arrive", async () => {
+    const unsubscribe = vi.fn();
+    let onJob: ((job: JobRecord) => void) | undefined;
+
+    vi.mocked(api.fetchJobs).mockResolvedValue([buildJob()]);
+    vi.mocked(api.subscribeToJobEvents).mockImplementation((_jobId, callbacks) => {
+      onJob = callbacks.onJob;
+      return unsubscribe;
+    });
+
+    render(
+      <JobsPage currentUser={activeUser} selectedJobId="job-1" onSelectJob={vi.fn()} />
+    );
+
+    expect(await screen.findByRole("heading", { name: /Detail Proses/i })).toBeTruthy();
+    await waitFor(() => {
+      expect(api.subscribeToJobEvents).toHaveBeenCalledTimes(1);
+    });
+
+    onJob?.(
+      buildJob({
+        progress: {
+          phase: "rendering",
+          percent: 96,
+          label: "Merender video tahap kedua",
+          updatedAt: "2026-04-01T00:00:05.000Z"
+        },
+        updatedAt: "2026-04-01T00:00:05.000Z"
+      })
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Merender video tahap kedua/i)).toBeTruthy();
+    });
+    expect(api.subscribeToJobEvents).toHaveBeenCalledTimes(1);
   });
 
   it("renders admin navigation for superadmin", async () => {

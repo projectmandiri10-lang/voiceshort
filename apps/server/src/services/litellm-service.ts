@@ -12,13 +12,13 @@ import type {
 } from "../types.js";
 import { withRetry } from "../utils/retry.js";
 import {
-  extractAudioFromResponse,
   extractScriptText,
   extractSocialMetadata,
   extractVisualBrief
 } from "../utils/model-output.js";
-import { buildSpeechSynthesisPrompt } from "./prompt-builder.js";
 import {
+  fetchOpenAiCompatible,
+  getOpenAiCompatibleUploadTimeoutMs,
   buildOpenAiCompatibleUserContent,
   isOpenAiCompatibleTransientError,
   normalizeOpenAiCompatibleBaseUrl,
@@ -33,6 +33,48 @@ interface LiteLlmServiceOptions {
   ttsModel: string;
   fileTargetModel?: string;
   logger: FastifyBaseLogger;
+}
+
+const LEGACY_GEMINI_TTS_MODEL_ALIASES: Record<string, string> = {
+  "gemini-2.5-flash-preview-tts": "vertex_ai/gemini-2.5-flash-tts",
+  "gemini/gemini-2.5-flash-preview-tts": "vertex_ai/gemini-2.5-flash-tts",
+  "gemini-2.5-flash-tts": "vertex_ai/gemini-2.5-flash-tts",
+  "gemini/gemini-2.5-flash-tts": "vertex_ai/gemini-2.5-flash-tts",
+  "gemini-2.5-pro-preview-tts": "vertex_ai/gemini-2.5-pro-tts",
+  "gemini/gemini-2.5-pro-preview-tts": "vertex_ai/gemini-2.5-pro-tts",
+  "gemini-2.5-pro-tts": "vertex_ai/gemini-2.5-pro-tts",
+  "gemini/gemini-2.5-pro-tts": "vertex_ai/gemini-2.5-pro-tts",
+  "gemini-2.5-flash-lite-preview-tts": "vertex_ai/gemini-2.5-flash-lite-preview-tts",
+  "gemini/gemini-2.5-flash-lite-preview-tts":
+    "vertex_ai/gemini-2.5-flash-lite-preview-tts"
+};
+
+function buildLiteLlmTtsInstructions(input: GenerateSpeechInput): string {
+  const paceInstruction =
+    input.speechRate >= 1.1
+      ? "Pace: sedikit cepat, tetap jelas dan tidak terburu-buru."
+      : input.speechRate <= 0.9
+        ? "Pace: sedikit lebih pelan, tetap natural dan tidak datar."
+        : "Pace: natural untuk voice over video pendek.";
+
+  const deliveryInstruction = input.deliveryHint?.trim()
+    ? `Nuansa tambahan: ${input.deliveryHint.trim()}.`
+    : "Nuansa tambahan: natural, jelas, dan enak didengar untuk penonton Indonesia.";
+
+  return [
+    "Narator voice over video berbahasa Indonesia.",
+    "Language: Bahasa Indonesia (id-ID).",
+    "Accent: penutur asli Indonesia, natural, jelas, dan tidak kaku.",
+    "Style: realistis, hangat, dan cocok untuk voice over video pendek.",
+    paceInstruction,
+    deliveryInstruction,
+    "Pronunciation: utamakan pelafalan kata Indonesia secara lokal, bukan aksen Inggris atau suara robotik."
+  ].join("\n");
+}
+
+export function normalizeLiteLlmTtsModel(model: string): string {
+  const cleanModel = model.trim();
+  return LEGACY_GEMINI_TTS_MODEL_ALIASES[cleanModel] ?? cleanModel;
 }
 
 export class LiteLlmService implements AiService {
@@ -82,18 +124,24 @@ export class LiteLlmService implements AiService {
   }
 
   private async requestJson(pathname: string, body: unknown): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}${pathname}`, {
-      method: "POST",
-      headers: this.buildHeaders(true),
-      body: JSON.stringify(body)
-    });
+    const response = await fetchOpenAiCompatible(
+      `${this.baseUrl}${pathname}`,
+      {
+        method: "POST",
+        headers: this.buildHeaders(true),
+        body: JSON.stringify(body)
+      },
+      {
+        providerName: "LiteLLM"
+      }
+    );
     return await this.parseJsonResponse(response);
   }
 
   private async generateUserContent(input: {
     model: string;
     prompt: string;
-    video?: UploadedAiFile;
+    video?: UploadedAiFile | UploadedAiFile[];
   }): Promise<unknown> {
     return await this.requestJson("/v1/chat/completions", {
       model: input.model,
@@ -116,18 +164,25 @@ export class LiteLlmService implements AiService {
         const form = new FormData();
         form.append("purpose", "user_data");
         form.append("custom_llm_provider", "gemini");
-        form.append("target_model_names", JSON.stringify([this.requireFileTargetModel()]));
+        form.append("target_model_names", this.requireFileTargetModel());
         form.append(
           "file",
           new Blob([fileBuffer], { type: mimeType }),
           path.basename(filePath)
         );
 
-        const response = await fetch(`${this.baseUrl}/v1/files`, {
-          method: "POST",
-          headers: this.buildHeaders(false),
-          body: form
-        });
+        const response = await fetchOpenAiCompatible(
+          `${this.baseUrl}/v1/files`,
+          {
+            method: "POST",
+            headers: this.buildHeaders(false),
+            body: form
+          },
+          {
+            providerName: "LiteLLM",
+            timeoutMs: getOpenAiCompatibleUploadTimeoutMs()
+          }
+        );
         const parsed = (await this.parseJsonResponse(response)) as {
           id?: string;
         };
@@ -256,37 +311,55 @@ export class LiteLlmService implements AiService {
     input: GenerateSpeechInput
   ): Promise<{ data: Buffer; mimeType: string }> {
     const execute = async () => {
-      const response = await this.requestJson("/v1/chat/completions", {
-        model: input.model || this.ttsModel,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a realistic Indonesian voice actor for video narration. Follow the script exactly and do not add or remove words."
-          },
-          {
-            role: "user",
-            content: buildSpeechSynthesisPrompt({
-              text: input.text,
-              deliveryHint: input.deliveryHint
-            })
-          }
-        ],
-        modalities: ["audio"],
-        audio: {
-          voice: input.voiceName,
-          format: "pcm16"
+      const resolvedModel = normalizeLiteLlmTtsModel(input.model || this.ttsModel);
+      const response = await fetchOpenAiCompatible(
+        `${this.baseUrl}/v1/audio/speech`,
+        {
+          method: "POST",
+          headers: this.buildHeaders(true),
+          body: JSON.stringify({
+            model: resolvedModel,
+            voice: input.voiceName,
+            input: input.text,
+            instructions: buildLiteLlmTtsInstructions(input),
+            response_format: "wav",
+            speed: input.speechRate
+          })
+        },
+        {
+          providerName: "LiteLLM"
         }
-      });
+      );
 
-      return extractAudioFromResponse(response);
+      if (!response.ok) {
+        await this.parseJsonResponse(response);
+        throw new Error("LiteLLM TTS gagal tanpa detail error.");
+      }
+
+      const audio = Buffer.from(await response.arrayBuffer());
+      const mimeType = response.headers.get("content-type")?.split(";")[0] || "audio/wav";
+      return {
+        data: audio,
+        mimeType
+      };
     };
 
-    return await withRetry(execute, {
-      attempts: 3,
-      baseDelayMs: 700,
-      shouldRetry: isOpenAiCompatibleTransientError,
-      getDelayMs: openAiCompatibleRetryDelayMs
-    });
+    try {
+      return await withRetry(execute, {
+        attempts: 3,
+        baseDelayMs: 700,
+        shouldRetry: isOpenAiCompatibleTransientError,
+        getDelayMs: openAiCompatibleRetryDelayMs
+      });
+    } catch (error) {
+      const message = String((error as { message?: string })?.message || "");
+      const statusCode = (error as { statusCode?: number })?.statusCode;
+      if (statusCode === 400 && /invalid model/i.test(message)) {
+        throw new Error(
+          `${message} Gunakan model TTS LiteLLM yang aktif di /v1/models, misalnya vertex_ai/gemini-2.5-flash-tts.`
+        );
+      }
+      throw error;
+    }
   }
 }

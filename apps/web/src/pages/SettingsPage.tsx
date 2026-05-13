@@ -137,9 +137,9 @@ export function SettingsPage() {
     <section className="card app-page-card">
       <div className="section-heading compact">
         <span className="eyebrow">Pengaturan Layanan</span>
-        <h2>Atur durasi maksimal dan suara default untuk setiap proses.</h2>
+        <h2>Atur batas durasi dan suara default untuk setiap proses generate.</h2>
         <p className="section-note">
-          Batas default sekarang mendukung video sampai 15 menit, sementara billing berjalan per menit.
+          Semua proses AI memakai LiteLLM, termasuk naskah, caption, voice over, dan preview suara.
         </p>
       </div>
 
@@ -222,6 +222,8 @@ export function SettingsPage() {
                       {previewLoading === gender ? "Membuat Preview..." : "Preview Suara"}
                     </button>
                   </div>
+
+                  <p className="small">Preview ini memakai jalur voice LiteLLM yang sama dengan hasil generate.</p>
 
                   {previewPaths[gender] ? (
                     <audio

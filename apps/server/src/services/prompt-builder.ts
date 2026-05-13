@@ -33,9 +33,10 @@ export function estimateWordRange(durationSec: number): {
   max: number;
 } {
   const safeDuration = Math.max(5, durationSec);
-  const target = Math.round(safeDuration * 2.2);
-  const min = Math.max(20, Math.round(target * 0.85));
-  const max = Math.max(min + 8, Math.round(target * 1.15));
+  // Asumsi kecepatan bicara natural bahasa Indonesia: ~1.8 kata per detik.
+  const target = Math.round(safeDuration * 1.8);
+  const min = Math.max(10, Math.round(target * 0.85));
+  const max = Math.max(min + 5, Math.round(target * 1.15));
   return { min, target, max };
 }
 
@@ -183,7 +184,9 @@ export function buildScriptPrompt(input: ScriptPromptInput): string {
     `- Tone yang diminta client: ${input.tone}.`,
     `- Voice talent yang diminta: ${voiceGenderLabel(input.voiceGender)}.`,
     `- ${buildClosingInstruction(input)}`,
-    "- Narasi wajib mengikuti urutan visual dari awal sampai akhir tanpa loncat adegan.",
+    "- Narasi wajib mengikuti urutan visual dari awal sampai akhir secara presisi.",
+    "- Hitung kata secara proporsional sesuai durasi tiap adegan (sekitar 1.5 - 2 kata per detik) agar suara jatuh persis saat aktivitas visual terjadi.",
+    "- Hindari kalimat yang terlalu panjang pada adegan yang berjalan singkat.",
     "- Hook pembuka harus merujuk ke momen visual paling kuat yang benar-benar tampak.",
     "- Sebut teks layar hanya jika benar-benar terlihat jelas. Jika memakai visual brief, ambil hanya dari field onScreenText.",
     "- Jangan menambahkan klaim produk, lokasi, manfaat, hasil penggunaan, identitas orang, atau situasi yang tidak didukung visual.",

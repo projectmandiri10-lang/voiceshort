@@ -60,6 +60,8 @@ export function JobsPage({ currentUser, selectedJobId, onSelectJob }: JobsPagePr
 
   const selectedPercent = selected?.progress.percent ?? 0;
   const isLiveStatus = selected?.status === "queued" || selected?.status === "running";
+  const selectedStatus = selected?.status;
+  const selectedLiveJobId = isLiveStatus ? selected?.jobId : undefined;
   const captionOutputPath = selected ? getCaptionArtifactPath(selected) : undefined;
   const captionDownloaded = selected ? isCaptionDownloadComplete(selected) : false;
   const finalVideoDownloaded = selected ? isFinalVideoDownloadComplete(selected) : false;
@@ -135,12 +137,12 @@ export function JobsPage({ currentUser, selectedJobId, onSelectJob }: JobsPagePr
   }, [selectedPercent]);
 
   useEffect(() => {
-    if (!selected || !isLiveStatus) {
+    if (!selectedLiveJobId || !selectedStatus || !isLiveStatus) {
       return;
     }
 
     let stopPolling: number | undefined;
-    const unsubscribe = subscribeToJobEvents(selected.jobId, {
+    const unsubscribe = subscribeToJobEvents(selectedLiveJobId, {
       onJob: (nextJob) => {
         setJobs((current) => upsertJob(current, nextJob));
       },
@@ -151,7 +153,7 @@ export function JobsPage({ currentUser, selectedJobId, onSelectJob }: JobsPagePr
         }
         stopPolling = window.setInterval(async () => {
           try {
-            const refreshed = await fetchJobDetail(selected.jobId);
+            const refreshed = await fetchJobDetail(selectedLiveJobId);
             setJobs((current) => upsertJob(current, refreshed));
             if (refreshed.status !== "queued" && refreshed.status !== "running" && stopPolling) {
               window.clearInterval(stopPolling);
@@ -169,7 +171,7 @@ export function JobsPage({ currentUser, selectedJobId, onSelectJob }: JobsPagePr
         window.clearInterval(stopPolling);
       }
     };
-  }, [isLiveStatus, selected]);
+  }, [isLiveStatus, selectedLiveJobId, selectedStatus]);
 
   const onRefresh = async () => {
     setActionMessage("");

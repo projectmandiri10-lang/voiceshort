@@ -28,7 +28,7 @@ Aplikasi untuk otomatisasi voice over general berbahasa Indonesia dengan durasi 
 
 - Frontend: React + Vite + TypeScript
 - Backend: Fastify + TypeScript
-- AI: repo ini mendukung mode hybrid, yaitu Snifox OpenAI-compatible untuk non-TTS dan LiteLLM untuk TTS Gemini
+- AI: seluruh proses memakai LiteLLM OpenAI-compatible, termasuk upload video, analisis visual, script, caption, voice over, dan preview suara
 - Media: `ffmpeg-static` + `ffprobe-static`
 - Runtime: Node.js
 
@@ -51,15 +51,14 @@ npm install
 ```bash
 copy .env.example .env
 ```
-3. `.env` yang direkomendasikan sekarang memakai mode hybrid:
+3. `.env` utama memakai LiteLLM untuk seluruh proses:
 ```env
-AI_PROVIDER=hybrid
-SNIFOX_API_BASE=http://127.0.0.1:8000
-SNIFOX_API_KEY=
-SNIFOX_SCRIPT_MODEL=gemini/gemini-3-flash-preview
-LITELLM_BASE_URL=http://127.0.0.1:4000
+AI_PROVIDER=litellm
+LITELLM_BASE_URL=https://litellm.koboi2026.biz.id/v1
 LITELLM_SECRET_KEY=
+LITELLM_SCRIPT_MODEL=gemini/gemini-3-flash-preview
 LITELLM_TTS_MODEL=gemini/gemini-2.5-pro-preview-tts
+LITELLM_FILE_TARGET_MODEL=gemini/gemini-3-flash-preview
 PORT=8788
 WEB_ORIGIN=http://localhost:5174,http://192.168.1.20:5174
 APP_WEB_URL=http://localhost:5174
@@ -94,15 +93,11 @@ Default:
 
 ## Routing AI
 
-- Setup yang direkomendasikan sekarang adalah `AI_PROVIDER=hybrid`.
-- Di mode hybrid:
-  - non-TTS (`upload file`, `visual brief`, `script`, `caption`) diarahkan ke Snifox via `SNIFOX_API_BASE`
-  - TTS diarahkan ke LiteLLM via `LITELLM_BASE_URL`
-- `SNIFOX_API_KEY` dan `LITELLM_SECRET_KEY` boleh kosong jika gateway lokal Anda tidak memakai auth.
+- Default repo ini sekarang adalah `AI_PROVIDER=litellm`.
+- LiteLLM menangani seluruh flow AI: `upload file`, `visual brief`, `script`, `caption`, `voice over`, dan `preview suara`.
+- `LITELLM_SECRET_KEY` boleh kosong jika gateway lokal Anda tidak memakai auth.
 - Alias lama `LITELLM_API_KEY` masih tetap didukung.
-- Mode legacy tetap tersedia:
-  - `AI_PROVIDER=litellm` untuk seluruh flow lewat LiteLLM
-  - `AI_PROVIDER=gemini` untuk seluruh flow lewat Gemini direct API
+- Mode provider lain tidak dipakai lagi oleh aplikasi.
 
 Alternatif launcher Windows:
 
@@ -150,10 +145,9 @@ npm run start
 - Billing default: `Rp2.000/menit` dengan pembulatan ke atas per menit
 - Contoh billing: `61 detik = 2 menit = Rp4.000`
 - V1 memakai single general job, bukan multi-platform batch
-- Default voice diatur per gender pada halaman settings
-- Mode yang direkomendasikan untuk repo ini adalah `AI_PROVIDER=hybrid`
-- Di mode hybrid, model runtime script dipaksa mengikuti `SNIFOX_SCRIPT_MODEL` dan model TTS mengikuti `LITELLM_TTS_MODEL`
-- Di mode legacy `litellm`, model runtime script/TTS mengikuti `LITELLM_SCRIPT_MODEL` dan `LITELLM_TTS_MODEL`
+- Default voice diatur per gender pada halaman settings dan preview suaranya dibuat lewat LiteLLM
+- Mode utama repo ini adalah `AI_PROVIDER=litellm`
+- Model runtime script/TTS mengikuti `LITELLM_SCRIPT_MODEL` dan `LITELLM_TTS_MODEL`
 - Backend akan gagal boot jika `SUPABASE_URL`, `SUPABASE_ANON_KEY`, atau `SUPABASE_SERVICE_ROLE_KEY` belum diisi di `.env`
 - `WEBQRIS_*` dan `GENERATE_PRICE_IDR` hanya dibutuhkan jika fitur billing/generate berbayar diaktifkan
 

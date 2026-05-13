@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
-import { CircleDollarSign, type LucideIcon, LogOut, Menu, Shield, Sparkles, Wallet } from "lucide-react";
+import { type LucideIcon, LogOut, Shield, Sparkles, Wallet } from "lucide-react";
 import type { AuthUser } from "../types";
-import { BrandMark } from "./BrandMark";
 
 export interface DashboardTabDefinition<TView extends string> {
   id: TView;
@@ -23,6 +22,22 @@ function formatRupiah(value: number): string {
   return `Rp${value.toLocaleString("id-ID")}`;
 }
 
+function getInitials(name: string): string {
+  const words = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return "RV";
+  }
+
+  return words
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
 export function DashboardShell<TView extends string>({
   user,
   activeView,
@@ -32,112 +47,116 @@ export function DashboardShell<TView extends string>({
   onLogout,
   children,
 }: DashboardShellProps<TView>) {
+  const activeTab = tabs.find((tab) => tab.id === activeView);
+  const balanceLabel = user.isUnlimited ? "Unlimited" : formatRupiah(user.walletBalanceIdr);
+  const balanceNote = user.isUnlimited
+    ? "Akun tanpa batas"
+    : `${user.generateCreditsRemaining ?? 0} menit tersisa`;
+  const accessLabel = user.role === "superadmin" ? "Admin" : "Pengguna";
+
   return (
     <main className="dashboard-shell">
       <div className="dashboard-orb dashboard-orb-cyan" aria-hidden="true" />
       <div className="dashboard-orb dashboard-orb-magenta" aria-hidden="true" />
 
-      <div className="dashboard-layout">
-        <aside className="dashboard-sidebar">
-          <div className="sidebar-card">
-            <BrandMark compact />
-            <div className="sidebar-user-block">
-              <span className="eyebrow">Workspace Aktif</span>
-              <strong>{user.displayName}</strong>
-              <p className="small break-anywhere">{user.email}</p>
+      <div className="dashboard-concise-layout">
+        <aside className="dashboard-rail">
+          <button
+            type="button"
+            className="dashboard-rail-brand"
+            aria-label="Workspace utama"
+            onClick={() => onNavigate(tabs[0]?.id ?? activeView)}
+          >
+            <div className="brand-mark brand-mark-compact">
+              <div className="brand-mark-inner">
+                <Sparkles size={18} strokeWidth={2.2} />
+              </div>
             </div>
-          </div>
+            <span className="sr-only">Real Voice Over Video</span>
+          </button>
 
-          <nav className="sidebar-nav" aria-label="Dashboard navigation">
+          <nav className="dashboard-rail-nav" aria-label="Dashboard navigation">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
                   type="button"
-                  className={activeView === tab.id ? "sidebar-nav-item active" : "sidebar-nav-item"}
+                  className={
+                    activeView === tab.id
+                      ? "dashboard-rail-button active"
+                      : "dashboard-rail-button"
+                  }
                   onClick={() => onNavigate(tab.id)}
+                  aria-label={tab.label}
+                  title={tab.label}
                 >
                   <Icon size={18} strokeWidth={2} />
-                  <span>{tab.label}</span>
+                  <span className="sr-only">{tab.label}</span>
                 </button>
               );
             })}
           </nav>
 
-          <div className="sidebar-card sidebar-note">
-            <span className="eyebrow">Akses</span>
-            <div className="sidebar-note-row">
-              <Shield size={16} />
-              <span>{user.role === "superadmin" ? "Superadmin" : "Creator access"}</span>
+          <div className="dashboard-rail-footer">
+            <div className="dashboard-rail-status" title={accessLabel}>
+              <Shield size={18} strokeWidth={2} />
             </div>
-            <div className="sidebar-note-row">
-              <Sparkles size={16} />
-              <span>{user.isUnlimited ? "Unlimited generation" : "Billing per menit aktif"}</span>
-            </div>
-            <button type="button" className="danger-button sidebar-logout" onClick={() => void onLogout()}>
-              <LogOut size={16} />
-              <span>Logout</span>
+            <button
+              type="button"
+              className="dashboard-rail-button dashboard-rail-button-danger"
+              onClick={() => void onLogout()}
+              aria-label="Logout"
+              title="Logout"
+            >
+              <LogOut size={18} strokeWidth={2} />
+              <span className="sr-only">Logout</span>
             </button>
           </div>
         </aside>
 
-        <div className="dashboard-main">
-          <header className="dashboard-header">
-            <div>
-              <div className="dashboard-mobile-brand">
-                <Menu size={18} />
-                <span>Real Voice Over Video</span>
+        <div className="dashboard-concise-main">
+          <header className="dashboard-topbar">
+            <div className="dashboard-topbar-copy">
+              <div className="dashboard-breadcrumb" aria-label="Lokasi halaman">
+                <span>Beranda</span>
+                <span className="dashboard-breadcrumb-dot" aria-hidden="true" />
+                <span className="dashboard-breadcrumb-active">{activeTab?.label ?? "Halaman"}</span>
               </div>
-              <span className="eyebrow">Operational Interface</span>
-              <h1>Kelola voice over video sampai 15 menit dengan alur yang lebih cepat dan rapi.</h1>
-              <p className="section-note">
-                Semua fitur lama tetap ada, sekarang dibungkus dalam workspace yang lebih fokus untuk
-                upload, antrean, saldo, dan admin.
-              </p>
+              <h1>{activeTab?.label ?? "Halaman"}</h1>
             </div>
 
-            <div className="dashboard-metrics">
-              <article className="metric-card">
-                <span className="metric-label">Saldo</span>
-                <strong>{user.isUnlimited ? "Unlimited" : formatRupiah(user.walletBalanceIdr)}</strong>
-                <p className="small">
-                  {user.isUnlimited ? "Tanpa batas saldo" : `${user.generateCreditsRemaining ?? 0} menit penuh tersisa`}
-                </p>
-              </article>
-              <article className="metric-card">
-                <span className="metric-label">Biaya</span>
-                <strong>{formatRupiah(user.generatePriceIdr)}</strong>
-                <p className="small">Per menit voice over</p>
-              </article>
-              <article className="metric-card">
-                <span className="metric-label">Status akun</span>
-                <strong>{user.subscriptionStatus === "active" ? "Aktif" : "Nonaktif"}</strong>
-                <p className="small">{user.role === "superadmin" ? "Akses penuh" : "Akses creator"}</p>
-              </article>
+            <div className="dashboard-topbar-meta">
+              <div className="dashboard-balance-pill">
+                <div className="dashboard-balance-copy">
+                  <span>Saldo</span>
+                  <strong>{balanceLabel}</strong>
+                  <p>{balanceNote}</p>
+                </div>
+                <div className="dashboard-balance-icon" aria-hidden="true">
+                  <Wallet size={16} strokeWidth={2} />
+                </div>
+              </div>
+
+              <div className="dashboard-topbar-separator" aria-hidden="true" />
+
+              <div className="dashboard-user-chip">
+                <div className="dashboard-user-copy">
+                  <strong>{user.displayName}</strong>
+                  <span>{accessLabel}</span>
+                </div>
+                <div className="dashboard-avatar" aria-hidden="true">
+                  <div className="dashboard-avatar-inner">{getInitials(user.displayName)}</div>
+                </div>
+              </div>
             </div>
           </header>
 
-          <section className="telemetry-banner">
-            <div className="telemetry-group">
-              <div className="telemetry-chip">
-                <Wallet size={16} />
-                <span>{user.isUnlimited ? "Unlimited balance" : "Deposit billing aktif"}</span>
-              </div>
-              <div className="telemetry-chip">
-                <CircleDollarSign size={16} />
-                <span>{user.isUnlimited ? "Tanpa potong saldo" : `${user.generateCreditsRemaining ?? 0} menit siap dipakai`}</span>
-              </div>
-            </div>
-            <div className="telemetry-chip telemetry-chip-highlight">
-              <Sparkles size={16} />
-              <span>Workspace selaras dengan desain `.kombai/canvas/landing.canvas`</span>
-            </div>
-          </section>
+          {sessionError ? <p className="err-text dashboard-inline-alert">{sessionError}</p> : null}
 
-          {sessionError ? <p className="err-text shell-message">{sessionError}</p> : null}
-
-          <div className="dashboard-content">{children}</div>
+          <div className="dashboard-content-frame">
+            <div className="dashboard-content">{children}</div>
+          </div>
         </div>
       </div>
     </main>
