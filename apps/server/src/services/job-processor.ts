@@ -12,13 +12,19 @@ import {
   buildCaptionPrompt,
   buildScriptPrompt,
   buildScriptRetimingPrompt,
+  buildTimedScriptPrompt,
   buildVisualBriefPrompt
 } from "./prompt-builder.js";
 import { OUTPUTS_DIR, UPLOADS_DIR, outputUrlToAbsolutePath } from "../utils/paths.js";
-import { combineVideoWithVoiceOver, writeWav24kMono } from "../utils/audio.js";
+import {
+  combineVideoWithVoiceOver,
+  composeTimedVoiceOver,
+  writeWav24kMono
+} from "../utils/audio.js";
 import { buildJobProgress } from "../utils/job-progress.js";
 import { ensureSocialMetadata, formatSocialMetadataFile } from "../utils/model-output.js";
 import { probeVideoDuration } from "../utils/video.js";
+import { parseTimedVoiceSegments, timedVoiceSegmentsToScript } from "../utils/timed-script.js";
 import {
   calculateAdjustedSpeechRate,
   countWords,
@@ -220,6 +226,90 @@ export class JobProcessor implements IJobProcessor {
     await new Promise<void>((resolve) => {
       this.idleResolvers.push(resolve);
     });
+  }
+
+  private async synthesizeTimedVoiceOver(input: {
+    jobId: string;
+    promptInput: VoiceAlignmentPromptInput;
+    scriptText: string;
+    visualBrief: VisualBrief;
+    voicePath: string;
+    scriptModel: string;
+    ttsModel: string;
+    voiceName: string;
+    speechRate: number;
+    deliveryHint: string;
+  }): Promise<string | undefined> {
+    const timedScriptPrompt = buildTimedScriptPrompt({
+      ...input.promptInput,
+      visualBrief: input.visualBrief,
+      currentScriptText: input.scriptText
+    });
+    const rawTimedScript = await this.aiService.generateScript({
+      model: input.scriptModel,
+      prompt: timedScriptPrompt
+    });
+    const timedSegments = parseTimedVoiceSegments(
+      rawTimedScript,
+      input.promptInput.videoDurationSec
+    );
+    if (!timedSegments.length) {
+      this.logger.warn(
+        { jobId: input.jobId },
+        "Timed voice over kosong atau tidak valid, memakai sintesis continuous."
+      );
+      return undefined;
+    }
+
+    const providerAppliesSpeechRate = Boolean(this.speechService.appliesSpeechRateNatively);
+    const baseLocalSpeechRate = providerAppliesSpeechRate ? 1 : input.speechRate;
+    const segmentAudioPaths = [];
+    const voiceDir = path.dirname(input.voicePath);
+
+    for (const [index, segment] of timedSegments.entries()) {
+      const segmentPath = path.join(voiceDir, `voice-segment-${String(index + 1).padStart(2, "0")}.wav`);
+      const audio = await this.speechService.generateSpeech({
+        model: input.ttsModel,
+        text: segment.text,
+        voiceName: input.voiceName,
+        speechRate: input.speechRate,
+        deliveryHint: input.deliveryHint
+      });
+      await writeWav24kMono(audio.data, audio.mimeType, segmentPath, baseLocalSpeechRate);
+
+      const segmentDurationSec = await probeVideoDuration(segmentPath);
+      const slotDurationSec = Math.max(0.4, segment.endSec - segment.startSec);
+      const adjustedSpeechRate = calculateAdjustedSpeechRate({
+        currentDurationSec: segmentDurationSec,
+        targetDurationSec: slotDurationSec,
+        currentSpeechRate: baseLocalSpeechRate
+      });
+      if (adjustedSpeechRate !== undefined) {
+        await writeWav24kMono(audio.data, audio.mimeType, segmentPath, adjustedSpeechRate);
+      }
+
+      segmentAudioPaths.push({
+        audioPath: segmentPath,
+        startSec: segment.startSec,
+        endSec: segment.endSec
+      });
+    }
+
+    await composeTimedVoiceOver({
+      segments: segmentAudioPaths,
+      outputPath: input.voicePath,
+      targetDurationSec: input.promptInput.videoDurationSec
+    });
+    this.logger.info(
+      {
+        jobId: input.jobId,
+        segmentCount: timedSegments.length,
+        targetDurationSec: input.promptInput.videoDurationSec
+      },
+      "Voice over bertimestamp berhasil dibuat dengan jeda mute."
+    );
+
+    return timedVoiceSegmentsToScript(timedSegments);
   }
 
   private async synthesizeVoiceAlignedToVideo(input: {
@@ -556,19 +646,46 @@ export class JobProcessor implements IJobProcessor {
       await this.setJobProgress(item.jobId, "synthesizing");
       this.logger.info({ jobId: item.jobId }, "Memulai sintesis voice over.");
       const voiceProfile = await this.settingsStore.getVoiceForGender(job.voiceGender);
-      scriptText = await this.synthesizeVoiceAlignedToVideo({
-        jobId: item.jobId,
-        promptInput,
-        scriptText,
-        visualBrief,
-        uploadedVideo,
-        voicePath,
-        scriptModel: settings.scriptModel,
-        ttsModel: settings.ttsModel,
-        voiceName: voiceProfile.voiceName,
-        speechRate: voiceProfile.speechRate,
-        deliveryHint: job.tone
-      });
+      let timedScriptText: string | undefined;
+      if (visualBrief) {
+        try {
+          timedScriptText = await this.synthesizeTimedVoiceOver({
+            jobId: item.jobId,
+            promptInput,
+            scriptText,
+            visualBrief,
+            voicePath,
+            scriptModel: settings.scriptModel,
+            ttsModel: settings.ttsModel,
+            voiceName: voiceProfile.voiceName,
+            speechRate: voiceProfile.speechRate,
+            deliveryHint: job.tone
+          });
+        } catch (error) {
+          this.logger.warn(
+            { err: error, jobId: item.jobId },
+            "Timed voice over gagal, memakai sintesis continuous."
+          );
+        }
+      }
+
+      if (timedScriptText) {
+        scriptText = timedScriptText;
+      } else {
+        scriptText = await this.synthesizeVoiceAlignedToVideo({
+          jobId: item.jobId,
+          promptInput,
+          scriptText,
+          visualBrief,
+          uploadedVideo,
+          voicePath,
+          scriptModel: settings.scriptModel,
+          ttsModel: settings.ttsModel,
+          voiceName: voiceProfile.voiceName,
+          speechRate: voiceProfile.speechRate,
+          deliveryHint: job.tone
+        });
+      }
       this.logger.info({ jobId: item.jobId }, "Sintesis voice over selesai.");
 
       await this.setJobProgress(item.jobId, "captioning");

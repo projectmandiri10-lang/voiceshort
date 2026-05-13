@@ -174,6 +174,12 @@ export interface VisualBrief {
   uncertainties: string[];
 }
 
+export interface TimedVoiceSegment {
+  startSec: number;
+  endSec: number;
+  text: string;
+}
+
 export interface GenerateScriptInput {
   model: string;
   prompt: string;

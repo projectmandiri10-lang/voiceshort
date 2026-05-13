@@ -23,6 +23,10 @@ export interface ScriptRetimingPromptInput extends ScriptPromptInput {
   actualDurationSec: number;
 }
 
+export interface TimedScriptPromptInput extends ScriptPromptInput {
+  currentScriptText: string;
+}
+
 export interface CaptionPromptInput extends PromptInput {
   scriptText: string;
   visualBrief?: VisualBrief;
@@ -46,6 +50,18 @@ export function estimateWordRange(durationSec: number): {
   return { min, target, max };
 }
 
+function estimateTimedWordRange(durationSec: number): {
+  min: number;
+  target: number;
+  max: number;
+} {
+  const safeDuration = Math.max(5, durationSec);
+  const target = Math.round(safeDuration * 1.1);
+  const min = Math.max(8, Math.round(target * 0.75));
+  const max = Math.max(min + 4, Math.round(target * 1.15));
+  return { min, target, max };
+}
+
 function estimateVisualBeatRange(durationSec: number): {
   min: number;
   max: number;
@@ -62,6 +78,27 @@ function estimateVisualBeatRange(durationSec: number): {
   return {
     min: Math.max(3, Math.min(8, Math.round(3 + progress * 5))),
     max: Math.max(8, Math.min(15, Math.round(8 + progress * 7)))
+  };
+}
+
+function estimateTimedSegmentRange(durationSec: number): {
+  min: number;
+  max: number;
+} {
+  const safeDuration = Math.max(10, durationSec);
+  if (safeDuration <= 30) {
+    return { min: 2, max: 5 };
+  }
+  if (safeDuration <= 60) {
+    return { min: 3, max: 7 };
+  }
+  if (safeDuration >= 900) {
+    return { min: 8, max: 18 };
+  }
+  const progress = (safeDuration - 60) / 840;
+  return {
+    min: Math.max(4, Math.min(8, Math.round(4 + progress * 4))),
+    max: Math.max(8, Math.min(18, Math.round(8 + progress * 10)))
   };
 }
 
@@ -237,6 +274,45 @@ export function buildScriptRetimingPrompt(input: ScriptRetimingPromptInput): str
     input.currentScriptText,
     "",
     "Kembalikan satu naskah final hasil revisi saja tanpa markdown, tanpa penomoran, dan tanpa catatan tambahan."
+  ].join("\n");
+}
+
+export function buildTimedScriptPrompt(input: TimedScriptPromptInput): string {
+  const words = estimateTimedWordRange(input.videoDurationSec);
+  const segments = estimateTimedSegmentRange(input.videoDurationSec);
+  const schemaExample = {
+    segments: [
+      {
+        startSec: 0,
+        endSec: 3.2,
+        text: "kalimat voice over yang dibaca pada rentang waktu ini"
+      }
+    ]
+  };
+
+  return [
+    "Anda adalah editor timing voice over video berbahasa Indonesia.",
+    "Tugas Anda adalah mengubah naskah voice over menjadi beberapa segmen narasi bertimestamp, dengan jeda mute pada bagian video yang tidak membutuhkan suara.",
+    "Aturan penting:",
+    `- Durasi video total ${input.videoDurationSec.toFixed(2)} detik.`,
+    `- Buat sekitar ${segments.min}-${segments.max} segmen voice over. Jangan menutup seluruh durasi video dengan suara.`,
+    `- Total naskah tetap sekitar ${words.target} kata (rentang ${words.min}-${words.max} kata), tetapi sebar hanya di momen visual yang perlu dijelaskan.`,
+    "- Sisakan jeda mute alami di antara segmen, terutama saat visual sudah menjelaskan dirinya sendiri, transisi, close-up produk, demonstrasi yang berulang, atau teks layar sedang terbaca.",
+    "- Setiap segmen wajib memiliki startSec dan endSec yang akurat, tidak overlap, berurutan, dan berada di dalam durasi video.",
+    "- Durasi tiap segmen harus cukup untuk dibaca natural: hindari kalimat panjang pada rentang singkat.",
+    "- Pertahankan hook, urutan visual, CTA, tone, dan fakta yang aman dari naskah referensi.",
+    "- Jangan menambah klaim baru atau detail visual yang tidak didukung visual brief.",
+    "- Kembalikan JSON valid saja tanpa markdown, code fence, atau teks tambahan.",
+    "",
+    "Gunakan struktur JSON berikut:",
+    JSON.stringify(schemaExample, null, 2),
+    "",
+    ...buildContextLines(input),
+    "",
+    ...buildVisualSourceLines(input.visualBrief),
+    "",
+    "Naskah referensi yang boleh dipadatkan atau dipecah:",
+    input.currentScriptText
   ].join("\n");
 }
 

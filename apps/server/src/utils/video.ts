@@ -114,7 +114,7 @@ export async function extractVideoFrames(
       "-i",
       videoPath,
       "-vf",
-      `fps=${fps},scale='min(512,iw)':-1`,
+      `fps=${fps},scale='min(448,iw)':-1`,
       "-qscale:v",
       "10",
       `${outputDir}/frame-%04d.jpg`

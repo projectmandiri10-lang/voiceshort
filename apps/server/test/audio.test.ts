@@ -5,7 +5,8 @@ import {
   FINAL_VIDEO_CRF,
   FINAL_VIDEO_FPS,
   FINAL_VIDEO_MAX_DIMENSION,
-  buildFinalVideoFfmpegArgs
+  buildFinalVideoFfmpegArgs,
+  buildTimedVoiceOverFfmpegArgs
 } from "../src/utils/audio.js";
 
 describe("audio utils", () => {
@@ -48,5 +49,32 @@ describe("audio utils", () => {
     const filterGraph = args[args.indexOf("-filter_complex") + 1];
     expect(filterGraph).not.toContain("atempo=");
     expect(filterGraph).toContain("atrim=0:30.000");
+  });
+
+  it("builds timed voice-over args with delayed narration segments", () => {
+    const args = buildTimedVoiceOverFfmpegArgs({
+      outputPath: "/tmp/voice.wav",
+      targetDurationSec: 12,
+      segments: [
+        {
+          audioPath: "/tmp/segment-1.wav",
+          startSec: 1.2,
+          endSec: 3.4
+        },
+        {
+          audioPath: "/tmp/segment-2.wav",
+          startSec: 7,
+          endSec: 9.5
+        }
+      ]
+    });
+
+    expect(args).toContain("/tmp/segment-1.wav");
+    expect(args).toContain("/tmp/segment-2.wav");
+    const filterGraph = args[args.indexOf("-filter_complex") + 1];
+    expect(filterGraph).toContain("adelay=1200|1200");
+    expect(filterGraph).toContain("adelay=7000|7000");
+    expect(filterGraph).toContain("amix=inputs=3");
+    expect(filterGraph).toContain("atrim=0:12.000");
   });
 });

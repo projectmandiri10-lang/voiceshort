@@ -4,6 +4,7 @@ import {
   buildCaptionPrompt,
   buildScriptPrompt,
   buildScriptRetimingPrompt,
+  buildTimedScriptPrompt,
   buildVisualBriefPrompt
 } from "../src/services/prompt-builder.js";
 import type { VisualBrief } from "../src/types.js";
@@ -135,5 +136,25 @@ describe("prompt builder", () => {
     expect(prompt).toContain("target video 30.00 detik");
     expect(prompt).toContain("Naskah saat ini:");
     expect(prompt).toContain("organizer ini bikin semuanya lebih rapi");
+  });
+
+  it("builds timed script prompt with explicit mute-gap guidance", () => {
+    const prompt = buildTimedScriptPrompt({
+      settings: DEFAULT_SETTINGS,
+      title: "Produk Organizer",
+      description: "Video meja kerja sebelum dan sesudah ditata.",
+      contentType: "affiliate",
+      voiceGender: "female",
+      tone: "enerjik",
+      videoDurationSec: 30,
+      currentScriptText: "Awalnya meja ini berantakan, lalu semuanya jadi lebih rapi.",
+      visualBrief
+    });
+
+    expect(prompt).toContain("segmen narasi bertimestamp");
+    expect(prompt).toContain("jeda mute");
+    expect(prompt).toContain("\"segments\"");
+    expect(prompt).toContain("startSec");
+    expect(prompt).toContain("Naskah referensi");
   });
 });
