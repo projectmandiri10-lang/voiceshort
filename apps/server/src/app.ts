@@ -16,6 +16,7 @@ import mime from "mime-types";
 import { nanoid } from "nanoid";
 import { GEMINI_EXCITED_PRESETS, GEMINI_TTS_VOICES, MAX_UPLOAD_BYTES, findTtsVoiceByName } from "./constants.js";
 import type { AuthService } from "./services/auth-service.js";
+import type { SpeechService } from "./services/ai-service.js";
 import { getDepositPackage, type BillingService } from "./services/billing-service.js";
 import { JobEvents } from "./services/job-events.js";
 import { JobsStore } from "./stores/jobs-store.js";
@@ -64,9 +65,8 @@ interface BuildAppOptions {
   authService: AuthService;
   jobEvents: JobEvents;
   speechGenerator?: {
-    generateSpeech: (
-      input: GenerateSpeechInput
-    ) => Promise<{ data: Buffer; mimeType: string }>;
+    readonly appliesSpeechRateNatively?: boolean;
+    generateSpeech: SpeechService["generateSpeech"];
   };
   probeDuration?: (videoPath: string) => Promise<number>;
   openOutputLocation?: (folderPath: string) => Promise<void>;
@@ -799,7 +799,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       });
       const filename = `${Date.now()}-${voice.voiceName}-${nanoid(5)}.wav`;
       const outputPath = path.join(previewDir, filename);
-      await writePreviewAudio(audio.data, audio.mimeType, outputPath, payload.speechRate);
+      const localSpeechRate = options.speechGenerator.appliesSpeechRateNatively
+        ? 1
+        : payload.speechRate;
+      await writePreviewAudio(audio.data, audio.mimeType, outputPath, localSpeechRate);
 
       return reply.send({
         voiceName: voice.voiceName,

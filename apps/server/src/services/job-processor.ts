@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
-import type { GenerationCapacity, JobRecord } from "../types.js";
+import type { GenerationCapacity, JobRecord, UploadedAiFile, VisualBrief } from "../types.js";
 import { SettingsStore } from "../stores/settings-store.js";
 import { JobsStore } from "../stores/jobs-store.js";
 import { JobEvents } from "./job-events.js";
@@ -11,12 +11,19 @@ import { InvalidGeminiStructuredOutputError } from "./ai-service.js";
 import {
   buildCaptionPrompt,
   buildScriptPrompt,
+  buildScriptRetimingPrompt,
   buildVisualBriefPrompt
 } from "./prompt-builder.js";
 import { OUTPUTS_DIR, UPLOADS_DIR, outputUrlToAbsolutePath } from "../utils/paths.js";
 import { combineVideoWithVoiceOver, writeWav24kMono } from "../utils/audio.js";
 import { buildJobProgress } from "../utils/job-progress.js";
 import { ensureSocialMetadata, formatSocialMetadataFile } from "../utils/model-output.js";
+import { probeVideoDuration } from "../utils/video.js";
+import {
+  calculateAdjustedSpeechRate,
+  countWords,
+  isVoiceDurationAligned
+} from "../utils/voice-timing.js";
 
 interface QueueItem {
   jobId: string;
@@ -27,6 +34,8 @@ interface EnqueueOptions {
   ignoreCapacity?: boolean;
 }
 
+type VoiceAlignmentPromptInput = Parameters<typeof buildVisualBriefPrompt>[0];
+
 export const JOB_PROCESSOR_LIMITS = {
   maxRunningJobs: 3,
   maxQueuedJobs: 20,
@@ -35,6 +44,8 @@ export const JOB_PROCESSOR_LIMITS = {
 
 export const SERVER_OVERLOAD_MESSAGE =
   "Server overload. Antrean generate sedang penuh, coba lagi beberapa saat lagi.";
+
+const MAX_SCRIPT_ALIGNMENT_ATTEMPTS = 2;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -211,6 +222,102 @@ export class JobProcessor implements IJobProcessor {
     });
   }
 
+  private async synthesizeVoiceAlignedToVideo(input: {
+    jobId: string;
+    promptInput: VoiceAlignmentPromptInput;
+    scriptText: string;
+    visualBrief?: VisualBrief;
+    uploadedVideo: UploadedAiFile[];
+    voicePath: string;
+    scriptModel: string;
+    ttsModel: string;
+    voiceName: string;
+    speechRate: number;
+    deliveryHint: string;
+  }): Promise<string> {
+    const providerAppliesSpeechRate = Boolean(this.speechService.appliesSpeechRateNatively);
+    const baseLocalSpeechRate = providerAppliesSpeechRate ? 1 : input.speechRate;
+    let currentScriptText = input.scriptText.trim();
+
+    for (let attempt = 1; attempt <= MAX_SCRIPT_ALIGNMENT_ATTEMPTS; attempt += 1) {
+      const audio = await this.speechService.generateSpeech({
+        model: input.ttsModel,
+        text: currentScriptText,
+        voiceName: input.voiceName,
+        speechRate: input.speechRate,
+        deliveryHint: input.deliveryHint
+      });
+      await writeWav24kMono(audio.data, audio.mimeType, input.voicePath, baseLocalSpeechRate);
+      let voiceDurationSec = await probeVideoDuration(input.voicePath);
+
+      this.logger.info(
+        {
+          jobId: input.jobId,
+          attempt,
+          voiceDurationSec,
+          targetDurationSec: input.promptInput.videoDurationSec,
+          wordCount: countWords(currentScriptText)
+        },
+        "Voice over selesai disintesis, mengecek kesesuaian durasi."
+      );
+
+      if (isVoiceDurationAligned(voiceDurationSec, input.promptInput.videoDurationSec)) {
+        return currentScriptText;
+      }
+
+      const adjustedSpeechRate = calculateAdjustedSpeechRate({
+        currentDurationSec: voiceDurationSec,
+        targetDurationSec: input.promptInput.videoDurationSec,
+        currentSpeechRate: baseLocalSpeechRate
+      });
+
+      if (adjustedSpeechRate !== undefined) {
+        await writeWav24kMono(audio.data, audio.mimeType, input.voicePath, adjustedSpeechRate);
+        voiceDurationSec = await probeVideoDuration(input.voicePath);
+        this.logger.info(
+          {
+            jobId: input.jobId,
+            attempt,
+            adjustedSpeechRate,
+            voiceDurationSec,
+            targetDurationSec: input.promptInput.videoDurationSec
+          },
+          "Menerapkan koreksi tempo lokal kecil untuk merapikan durasi voice over."
+        );
+        if (isVoiceDurationAligned(voiceDurationSec, input.promptInput.videoDurationSec)) {
+          return currentScriptText;
+        }
+      }
+
+      if (attempt >= MAX_SCRIPT_ALIGNMENT_ATTEMPTS) {
+        return currentScriptText;
+      }
+
+      const retimingPrompt = buildScriptRetimingPrompt({
+        ...input.promptInput,
+        visualBrief: input.visualBrief,
+        currentScriptText,
+        actualDurationSec: voiceDurationSec
+      });
+      this.logger.info(
+        {
+          jobId: input.jobId,
+          attempt,
+          actualDurationSec: voiceDurationSec,
+          targetDurationSec: input.promptInput.videoDurationSec
+        },
+        "Durasi voice over masih meleset, menyusun revisi script yang lebih presisi."
+      );
+      currentScriptText = await this.aiService.generateScript({
+        model: input.scriptModel,
+        prompt: retimingPrompt,
+        video: input.visualBrief ? undefined : input.uploadedVideo
+      });
+    }
+
+    return currentScriptText;
+  }
+
   private resolveIdle(): void {
     if (this.draining || this.activeJobIds.size > 0 || this.queue.length > 0) {
       return;
@@ -336,28 +443,28 @@ export class JobProcessor implements IJobProcessor {
       }
     }));
 
-    let uploadedVideo: any[] = [];
+    let uploadedVideo: UploadedAiFile[] = [];
     let framesDir = "";
     try {
       await this.setJobProgress(item.jobId, "analyzing");
       this.logger.info({ jobId: item.jobId }, "Mengekstrak frame video.");
       framesDir = await mkdtemp(path.join(os.tmpdir(), `voice-shorts-frames-${job.jobId}-`));
       const { extractVideoFrames } = await import("../utils/video.js");
-      const frames = await extractVideoFrames(job.videoPath, framesDir, { fps: 0.5 });
+      const frames = await extractVideoFrames(job.videoPath, framesDir, { fps: 0.33 });
       
-      // Batasi maksimal 20 frame agar payload base64 tidak terlalu besar dan mencegah timeout
-      const selectedFrames = frames.slice(0, 20);
+      this.logger.info({ jobId: item.jobId }, `Ekstrak frame selesai (${frames.length} frame), menyiapkan base64 secara paralel.`);
       
-      this.logger.info({ jobId: item.jobId }, `Ekstrak frame selesai (${frames.length} frame, diambil ${selectedFrames.length}), menyiapkan base64.`);
-      
-      for (const framePath of selectedFrames) {
-        const fileBuffer = await readFile(framePath);
-        uploadedVideo.push({
-          provider: "litellm",
-          mimeType: "image/jpeg",
-          base64Data: fileBuffer.toString("base64")
-        });
-      }
+      // Memproses semua frame secara paralel untuk kecepatan maksimal
+      uploadedVideo = await Promise.all(
+        frames.map(async (framePath) => {
+          const fileBuffer = await readFile(framePath);
+          return {
+            provider: "litellm",
+            mimeType: "image/jpeg",
+            base64Data: fileBuffer.toString("base64")
+          };
+        })
+      );
       
       this.logger.info(
         { jobId: item.jobId, count: uploadedVideo.length },
@@ -396,17 +503,18 @@ export class JobProcessor implements IJobProcessor {
         voiceGender: job.voiceGender,
         tone: job.tone,
         videoDurationSec: job.videoDurationSec,
+        frameCount: uploadedVideo.length,
         ctaText: job.ctaText,
         referenceLink: job.referenceLink
       };
 
       let scriptText = "";
-      let rawSocialMetadata = { caption: "", hashtags: [] as string[] };
+      let visualBrief: VisualBrief | undefined;
       try {
         await this.setJobProgress(item.jobId, "analyzing");
         this.logger.info({ jobId: item.jobId }, "Memulai analisis visual video.");
         const visualBriefPrompt = buildVisualBriefPrompt(promptInput);
-        const visualBrief = await this.aiService.generateVisualBrief({
+        visualBrief = await this.aiService.generateVisualBrief({
           model: settings.scriptModel,
           prompt: visualBriefPrompt,
           video: uploadedVideo
@@ -424,19 +532,6 @@ export class JobProcessor implements IJobProcessor {
           prompt: scriptPrompt
         });
         this.logger.info({ jobId: item.jobId }, "Penyusunan script voice over selesai.");
-
-        await this.setJobProgress(item.jobId, "captioning");
-        this.logger.info({ jobId: item.jobId }, "Memulai pembuatan caption.");
-        const captionPrompt = buildCaptionPrompt({
-          ...promptInput,
-          scriptText,
-          visualBrief
-        });
-        rawSocialMetadata = await this.aiService.generateCaptionMetadata({
-          model: settings.scriptModel,
-          prompt: captionPrompt
-        });
-        this.logger.info({ jobId: item.jobId }, "Pembuatan caption selesai.");
       } catch (error) {
         if (!(error instanceof InvalidGeminiStructuredOutputError)) {
           throw error;
@@ -456,40 +551,45 @@ export class JobProcessor implements IJobProcessor {
           video: uploadedVideo
         });
         this.logger.info({ jobId: item.jobId }, "Fallback script multimodal selesai.");
-
-        await this.setJobProgress(item.jobId, "captioning");
-        this.logger.info({ jobId: item.jobId }, "Memulai fallback caption multimodal.");
-        const captionPrompt = buildCaptionPrompt({
-          ...promptInput,
-          scriptText
-        });
-        rawSocialMetadata = await this.aiService.generateCaptionMetadata({
-          model: settings.scriptModel,
-          prompt: captionPrompt,
-          video: uploadedVideo
-        });
-        this.logger.info({ jobId: item.jobId }, "Fallback caption multimodal selesai.");
       }
 
+      await this.setJobProgress(item.jobId, "synthesizing");
+      this.logger.info({ jobId: item.jobId }, "Memulai sintesis voice over.");
+      const voiceProfile = await this.settingsStore.getVoiceForGender(job.voiceGender);
+      scriptText = await this.synthesizeVoiceAlignedToVideo({
+        jobId: item.jobId,
+        promptInput,
+        scriptText,
+        visualBrief,
+        uploadedVideo,
+        voicePath,
+        scriptModel: settings.scriptModel,
+        ttsModel: settings.ttsModel,
+        voiceName: voiceProfile.voiceName,
+        speechRate: voiceProfile.speechRate,
+        deliveryHint: job.tone
+      });
+      this.logger.info({ jobId: item.jobId }, "Sintesis voice over selesai.");
+
+      await this.setJobProgress(item.jobId, "captioning");
+      this.logger.info({ jobId: item.jobId }, "Memulai pembuatan caption dari script final.");
+      const captionPrompt = buildCaptionPrompt({
+        ...promptInput,
+        scriptText,
+        visualBrief
+      });
+      const rawSocialMetadata = await this.aiService.generateCaptionMetadata({
+        model: settings.scriptModel,
+        prompt: captionPrompt,
+        video: visualBrief ? undefined : uploadedVideo
+      });
       const socialMetadata = ensureSocialMetadata(
         rawSocialMetadata,
         scriptText,
         buildFallbackHashtags(job.contentType)
       );
       await writeFile(captionPath, formatSocialMetadataFile(socialMetadata), "utf8");
-
-      await this.setJobProgress(item.jobId, "synthesizing");
-      this.logger.info({ jobId: item.jobId }, "Memulai sintesis voice over.");
-      const voiceProfile = await this.settingsStore.getVoiceForGender(job.voiceGender);
-      const audio = await this.speechService.generateSpeech({
-        model: settings.ttsModel,
-        text: scriptText,
-        voiceName: voiceProfile.voiceName,
-        speechRate: voiceProfile.speechRate,
-        deliveryHint: job.tone
-      });
-      await writeWav24kMono(audio.data, audio.mimeType, voicePath, voiceProfile.speechRate);
-      this.logger.info({ jobId: item.jobId }, "Sintesis voice over selesai.");
+      this.logger.info({ jobId: item.jobId }, "Pembuatan caption selesai.");
 
       await this.setJobProgress(item.jobId, "rendering");
       this.logger.info({ jobId: item.jobId }, "Memulai render video final.");

@@ -9,12 +9,18 @@ export interface PromptInput {
   voiceGender: JobVoiceGender;
   tone: string;
   videoDurationSec: number;
+  frameCount?: number;
   ctaText?: string;
   referenceLink?: string;
 }
 
 export interface ScriptPromptInput extends PromptInput {
   visualBrief?: VisualBrief;
+}
+
+export interface ScriptRetimingPromptInput extends ScriptPromptInput {
+  currentScriptText: string;
+  actualDurationSec: number;
 }
 
 export interface CaptionPromptInput extends PromptInput {
@@ -33,10 +39,10 @@ export function estimateWordRange(durationSec: number): {
   max: number;
 } {
   const safeDuration = Math.max(5, durationSec);
-  // Asumsi kecepatan bicara natural bahasa Indonesia: ~1.8 kata per detik.
-  const target = Math.round(safeDuration * 1.8);
-  const min = Math.max(10, Math.round(target * 0.85));
-  const max = Math.max(min + 5, Math.round(target * 1.15));
+  // Menurunkan ke 1.5 kata per detik untuk memberi ruang jeda napas agar lebih realistis dan tidak balapan dengan durasi.
+  const target = Math.round(safeDuration * 1.5);
+  const min = Math.max(10, Math.round(target * 0.8));
+  const max = Math.max(min + 5, Math.round(target * 1.1));
   return { min, target, max };
 }
 
@@ -146,6 +152,7 @@ export function buildVisualBriefPrompt(input: PromptInput): string {
   return [
     "Anda adalah analis visual video berbahasa Indonesia.",
     "Tugas Anda adalah membuat visual brief terstruktur yang akan dipakai untuk menulis voice over dan caption.",
+    input.frameCount ? `- Anda dikirimkan total ${input.frameCount} frame gambar yang diambil secara merata dari video berdurasi ${input.videoDurationSec} detik. Jadi, jarak antar frame adalah sekitar ${(input.videoDurationSec / input.frameCount).toFixed(1)} detik. Gunakan informasi ini untuk menentukan timestamp (startSec/endSec) dengan presisi tinggi.` : "",
     "Metadata job di bawah hanya konteks tujuan konten. Jika metadata bertentangan dengan video, prioritaskan bukti visual/audio dari video.",
     "Aturan penting:",
     "- Analisis hanya berdasarkan bukti visual/audio yang benar-benar ada di video.",
@@ -198,6 +205,38 @@ export function buildScriptPrompt(input: ScriptPromptInput): string {
     ...buildVisualSourceLines(input.visualBrief),
     "",
     "Bangun satu naskah final saja tanpa markdown, tanpa penomoran, dan tanpa penjelasan tambahan."
+  ].join("\n");
+}
+
+export function buildScriptRetimingPrompt(input: ScriptRetimingPromptInput): string {
+  const words = estimateWordRange(input.videoDurationSec);
+  const direction =
+    input.actualDurationSec > input.videoDurationSec
+      ? "pendekkan naskah agar lebih ringkas"
+      : "panjangkan naskah sedikit agar napas narasi lebih penuh";
+  const durationGapSec = Math.abs(input.actualDurationSec - input.videoDurationSec).toFixed(2);
+
+  return [
+    "Anda adalah editor naskah voice over video berbahasa Indonesia.",
+    "Tugas Anda adalah merevisi naskah yang sudah ada agar durasi audio pas dengan durasi video tanpa menurunkan kualitas narasi.",
+    "Aturan penting:",
+    `- Durasi audio saat ini sekitar ${input.actualDurationSec.toFixed(2)} detik, sedangkan target video ${input.videoDurationSec.toFixed(2)} detik.`,
+    `- Selisih durasi sekitar ${durationGapSec} detik, jadi ${direction}.`,
+    `- Target hasil revisi sekitar ${words.target} kata (rentang ${words.min}-${words.max} kata).`,
+    "- Pertahankan urutan visual, inti hook, tone, CTA, dan fakta yang sudah akurat.",
+    "- Jangan menambah klaim baru, detail visual baru, atau asumsi yang tidak didukung konteks.",
+    "- Gunakan Bahasa Indonesia yang natural, mudah diucapkan, dan tetap enak didengar.",
+    "- Jika perlu memadatkan, prioritaskan menghapus pengulangan, filler, dan frasa yang terlalu panjang.",
+    "- Jika perlu memanjangkan, tambahkan transisi atau penjelasan singkat yang masih sepenuhnya selaras dengan visual.",
+    "",
+    ...buildContextLines(input),
+    "",
+    ...buildVisualSourceLines(input.visualBrief),
+    "",
+    "Naskah saat ini:",
+    input.currentScriptText,
+    "",
+    "Kembalikan satu naskah final hasil revisi saja tanpa markdown, tanpa penomoran, dan tanpa catatan tambahan."
   ].join("\n");
 }
 

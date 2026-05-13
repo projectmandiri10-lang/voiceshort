@@ -78,6 +78,7 @@ export function normalizeLiteLlmTtsModel(model: string): string {
 }
 
 export class LiteLlmService implements AiService {
+  public readonly appliesSpeechRateNatively = true;
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly scriptModel: string;

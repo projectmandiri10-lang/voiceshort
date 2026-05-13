@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS } from "../src/constants.js";
 import {
   buildCaptionPrompt,
   buildScriptPrompt,
+  buildScriptRetimingPrompt,
   buildVisualBriefPrompt
 } from "../src/services/prompt-builder.js";
 import type { VisualBrief } from "../src/types.js";
@@ -113,5 +114,26 @@ describe("prompt builder", () => {
     expect(prompt).toContain("Jangan membuat angle caption yang bertentangan");
     expect(prompt).not.toContain("video short");
     expect(prompt).not.toContain("Arahan hashtag user");
+  });
+
+  it("builds script retiming prompt that preserves context while fixing duration", () => {
+    const prompt = buildScriptRetimingPrompt({
+      settings: DEFAULT_SETTINGS,
+      title: "Produk Organizer",
+      description: "Video meja kerja sebelum dan sesudah ditata.",
+      contentType: "affiliate",
+      voiceGender: "female",
+      tone: "enerjik",
+      videoDurationSec: 30,
+      actualDurationSec: 35.4,
+      currentScriptText: "Awalnya meja ini berantakan banget, lalu organizer ini bikin semuanya lebih rapi.",
+      visualBrief
+    });
+
+    expect(prompt).toContain("merevisi naskah");
+    expect(prompt).toContain("35.40 detik");
+    expect(prompt).toContain("target video 30.00 detik");
+    expect(prompt).toContain("Naskah saat ini:");
+    expect(prompt).toContain("organizer ini bikin semuanya lebih rapi");
   });
 });

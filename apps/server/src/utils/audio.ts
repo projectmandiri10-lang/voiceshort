@@ -135,10 +135,13 @@ export function buildFinalVideoFfmpegArgs(input: {
   const safeTargetDurationSec = Math.max(1, input.targetDurationSec);
   const durationDiff = Math.abs(input.voiceDurationSec - safeTargetDurationSec);
   const tempoFactor = input.voiceDurationSec / safeTargetDurationSec;
-  const tempoFilter =
-    durationDiff > 0.12 ? `${buildAtempoFilter(tempoFactor)},` : "";
   const targetDurationText = safeTargetDurationSec.toFixed(3);
   const videoFilter = buildVideoCompressionFilter();
+  const tempoFilter =
+    durationDiff > 0.12 && tempoFactor >= 0.92 && tempoFactor <= 1.08
+      ? `${buildAtempoFilter(tempoFactor)},`
+      : "";
+  // Koreksi tempo sangat kecil membantu membuat audio jatuh pas di durasi video tanpa mengubah karakter suara secara terasa.
   const audioFilter = `${tempoFilter}atrim=0:${targetDurationText},apad=pad_dur=${targetDurationText}`;
   const filterGraph = `[0:v:0]${videoFilter}[vout];[1:a]${audioFilter}[aout]`;
 

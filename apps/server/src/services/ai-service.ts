@@ -22,6 +22,7 @@ export interface ContentAiService {
 }
 
 export interface SpeechService {
+  readonly appliesSpeechRateNatively?: boolean;
   generateSpeech(input: GenerateSpeechInput): Promise<GeneratedAudio>;
 }
 
