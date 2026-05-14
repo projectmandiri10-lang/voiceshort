@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -28,6 +28,7 @@ export const FINAL_VIDEO_CRF = 26;
 export const FINAL_AUDIO_BITRATE = "64k";
 export const FINAL_AUDIO_SAMPLE_RATE = 24000;
 export const FINAL_VOICE_LOUDNORM = "loudnorm=I=-14:TP=-1.0:LRA=11";
+const EXACT_DURATION_FIT_THRESHOLD_SEC = 0.08;
 
 function createWavHeader(
   dataLength: number,
@@ -139,7 +140,7 @@ export function buildFinalVideoFfmpegArgs(input: {
   const targetDurationText = safeTargetDurationSec.toFixed(3);
   const videoFilter = buildVideoCompressionFilter();
   const tempoFilter =
-    durationDiff > 0.12 && tempoFactor >= 0.92 && tempoFactor <= 1.08
+    durationDiff > EXACT_DURATION_FIT_THRESHOLD_SEC && tempoFactor >= 0.85 && tempoFactor <= 1.18
       ? `${buildAtempoFilter(tempoFactor)},`
       : "";
   // Koreksi tempo sangat kecil membantu membuat audio jatuh pas di durasi video tanpa mengubah karakter suara secara terasa.
@@ -215,6 +216,44 @@ export async function writeWav24kMono(
   } finally {
     await rm(workingDir, { recursive: true, force: true });
   }
+}
+
+export async function fitVoiceOverToDuration(
+  voiceWavPath: string,
+  targetDurationSec: number
+): Promise<number> {
+  const safeTargetDurationSec = Math.max(1, targetDurationSec);
+  const currentDurationSec = await probeVideoDuration(voiceWavPath);
+  if (Math.abs(currentDurationSec - safeTargetDurationSec) <= EXACT_DURATION_FIT_THRESHOLD_SEC) {
+    return currentDurationSec;
+  }
+
+  const tempoFactor = Math.max(0.01, currentDurationSec) / safeTargetDurationSec;
+  const targetDurationText = safeTargetDurationSec.toFixed(3);
+  const tempOutputPath = path.join(path.dirname(voiceWavPath), `voice-fit-${randomUUID()}.wav`);
+
+  try {
+    await runFfmpeg([
+      "-y",
+      "-i",
+      voiceWavPath,
+      "-filter:a",
+      `${buildAtempoFilter(tempoFactor)},${FINAL_VOICE_LOUDNORM},atrim=0:${targetDurationText},apad=pad_dur=${targetDurationText}`,
+      "-ac",
+      "1",
+      "-ar",
+      String(FINAL_AUDIO_SAMPLE_RATE),
+      "-sample_fmt",
+      "s16",
+      tempOutputPath
+    ]);
+    await rm(voiceWavPath, { force: true });
+    await rename(tempOutputPath, voiceWavPath);
+  } finally {
+    await rm(tempOutputPath, { force: true }).catch(() => undefined);
+  }
+
+  return await probeVideoDuration(voiceWavPath);
 }
 
 export async function combineVideoWithVoiceOver(

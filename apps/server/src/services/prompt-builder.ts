@@ -33,16 +33,20 @@ export interface SpeechSynthesisPromptInput {
   deliveryHint?: string;
 }
 
+const TARGET_NARRATION_WORDS_PER_SECOND = 2.2;
+const MIN_NARRATION_WORDS_PER_SECOND = 2.0;
+const MAX_NARRATION_WORDS_PER_SECOND = 2.35;
+
 export function estimateWordRange(durationSec: number): {
   min: number;
   target: number;
   max: number;
 } {
   const safeDuration = Math.max(5, durationSec);
-  // Menurunkan ke 1.5 kata per detik untuk memberi ruang jeda napas agar lebih realistis dan tidak balapan dengan durasi.
-  const target = Math.round(safeDuration * 1.5);
-  const min = Math.max(10, Math.round(target * 0.8));
-  const max = Math.max(min + 5, Math.round(target * 1.1));
+  // Kalibrasi berdasarkan pace TTS aktual agar naskah awal tidak terlalu pendek untuk target video.
+  const target = Math.round(safeDuration * TARGET_NARRATION_WORDS_PER_SECOND);
+  const min = Math.max(10, Math.round(safeDuration * MIN_NARRATION_WORDS_PER_SECOND));
+  const max = Math.max(min + 5, Math.round(safeDuration * MAX_NARRATION_WORDS_PER_SECOND));
   return { min, target, max };
 }
 
@@ -221,7 +225,7 @@ export function buildScriptPrompt(input: ScriptPromptInput): string {
     `- Voice talent yang diminta: ${voiceGenderLabel(input.voiceGender)}.`,
     `- ${buildClosingInstruction(input)}`,
     "- Narasi wajib mengikuti urutan visual dari awal sampai akhir secara presisi.",
-    "- Hitung kata secara proporsional sesuai durasi tiap adegan (sekitar 1.5 - 2 kata per detik) agar suara jatuh persis saat aktivitas visual terjadi.",
+    "- Hitung kata secara proporsional sesuai durasi tiap adegan (sekitar 2.0 - 2.3 kata per detik) agar suara jatuh persis saat aktivitas visual terjadi.",
     "- Hindari kalimat yang terlalu panjang pada adegan yang berjalan singkat.",
     "- Hook pembuka harus merujuk ke momen visual paling kuat yang benar-benar tampak.",
     "- Sebut teks layar hanya jika benar-benar terlihat jelas. Jika memakai visual brief, ambil hanya dari field onScreenText.",
@@ -261,6 +265,7 @@ export function buildScriptRetimingPrompt(input: ScriptRetimingPromptInput): str
     observedTarget
       ? `- Berdasarkan pace pembacaan naskah saat ini, target kata yang lebih presisi kira-kira ${observedTarget} kata.`
       : `- Target hasil revisi sekitar ${words.target} kata (rentang ${words.min}-${words.max} kata).`,
+    "- Prioritaskan hasil akhir yang mendekati durasi target seketat mungkin; jangan biarkan naskah terlalu pendek hingga menyisakan jeda panjang di akhir video.",
     "- Pertahankan urutan visual, inti hook, tone, CTA, dan fakta yang sudah akurat.",
     "- Jangan menambah klaim baru, detail visual baru, atau asumsi yang tidak didukung konteks.",
     "- Gunakan Bahasa Indonesia yang natural, mudah diucapkan, dan tetap enak didengar.",

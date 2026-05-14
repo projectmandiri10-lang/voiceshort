@@ -15,7 +15,11 @@ import {
   buildVisualBriefPrompt
 } from "./prompt-builder.js";
 import { OUTPUTS_DIR, UPLOADS_DIR, outputUrlToAbsolutePath } from "../utils/paths.js";
-import { combineVideoWithVoiceOver, writeWav24kMono } from "../utils/audio.js";
+import {
+  combineVideoWithVoiceOver,
+  fitVoiceOverToDuration,
+  writeWav24kMono
+} from "../utils/audio.js";
 import { buildJobProgress } from "../utils/job-progress.js";
 import { ensureSocialMetadata, formatSocialMetadataFile } from "../utils/model-output.js";
 import { extractVideoFrames, probeVideoDuration } from "../utils/video.js";
@@ -239,6 +243,7 @@ export class JobProcessor implements IJobProcessor {
     const providerAppliesSpeechRate = Boolean(this.speechService.appliesSpeechRateNatively);
     const baseLocalSpeechRate = providerAppliesSpeechRate ? 1 : input.speechRate;
     let currentScriptText = input.scriptText.trim();
+    let lastMeasuredDurationSec: number | undefined;
 
     for (let attempt = 1; attempt <= MAX_SCRIPT_ALIGNMENT_ATTEMPTS; attempt += 1) {
       const audio = await this.speechService.generateSpeech({
@@ -263,6 +268,7 @@ export class JobProcessor implements IJobProcessor {
         );
         return currentScriptText;
       }
+      lastMeasuredDurationSec = voiceDurationSec;
 
       this.logger.info(
         {
@@ -313,10 +319,11 @@ export class JobProcessor implements IJobProcessor {
         if (isVoiceDurationAligned(voiceDurationSec, input.promptInput.videoDurationSec)) {
           return currentScriptText;
         }
+        lastMeasuredDurationSec = voiceDurationSec;
       }
 
       if (attempt >= MAX_SCRIPT_ALIGNMENT_ATTEMPTS) {
-        return currentScriptText;
+        break;
       }
 
       const retimingPrompt = buildScriptRetimingPrompt({
@@ -339,6 +346,22 @@ export class JobProcessor implements IJobProcessor {
         prompt: retimingPrompt,
         video: input.visualBrief ? undefined : input.uploadedVideo
       });
+    }
+
+    if (lastMeasuredDurationSec !== undefined) {
+      const correctedDurationSec = await fitVoiceOverToDuration(
+        input.voicePath,
+        input.promptInput.videoDurationSec
+      );
+      this.logger.warn(
+        {
+          jobId: input.jobId,
+          originalDurationSec: lastMeasuredDurationSec,
+          correctedDurationSec,
+          targetDurationSec: input.promptInput.videoDurationSec
+        },
+        "Voice over belum cukup presisi setelah retiming script, menerapkan exact-fit audio sebagai langkah final."
+      );
     }
 
     return currentScriptText;

@@ -20,6 +20,7 @@ vi.mock("../src/utils/audio.js", async () => {
       await fs.mkdir(path.dirname(outputPath), { recursive: true });
       await fs.writeFile(outputPath, "fake-mp4", "utf8");
     }),
+    fitVoiceOverToDuration: vi.fn(async () => 18),
     writeWav24kMono: vi.fn(async (_data: Buffer, _mimeType: string, outputPath: string) => {
       await fs.mkdir(path.dirname(outputPath), { recursive: true });
       await fs.writeFile(outputPath, "fake-wav", "utf8");
