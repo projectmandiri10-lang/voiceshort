@@ -1,5 +1,5 @@
 {
-  "scriptModel": "gemini-3-flash-preview",
+  "scriptModel": "gemini-2.5-flash-lite",
   "ttsModel": "gemini-2.5-flash-preview-tts",
   "language": "id-ID",
   "maxVideoSeconds": 60,

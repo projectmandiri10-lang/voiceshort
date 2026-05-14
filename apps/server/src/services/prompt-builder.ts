@@ -46,6 +46,31 @@ export function estimateWordRange(durationSec: number): {
   return { min, target, max };
 }
 
+function countWordsLoose(text: string): number {
+  return text
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+}
+
+function estimateTargetWordsFromObservedPace(input: {
+  currentScriptText: string;
+  actualDurationSec: number;
+  targetDurationSec: number;
+}): number | undefined {
+  const words = countWordsLoose(input.currentScriptText);
+  if (!words) {
+    return undefined;
+  }
+  const safeActual = Math.max(1, input.actualDurationSec);
+  const safeTarget = Math.max(1, input.targetDurationSec);
+  const wps = words / safeActual;
+  if (!Number.isFinite(wps) || wps <= 0) {
+    return undefined;
+  }
+  return Math.max(10, Math.round(wps * safeTarget));
+}
+
 function estimateVisualBeatRange(durationSec: number): {
   min: number;
   max: number;
@@ -214,6 +239,12 @@ export function buildScriptPrompt(input: ScriptPromptInput): string {
 
 export function buildScriptRetimingPrompt(input: ScriptRetimingPromptInput): string {
   const words = estimateWordRange(input.videoDurationSec);
+  const currentWordCount = countWordsLoose(input.currentScriptText);
+  const observedTarget = estimateTargetWordsFromObservedPace({
+    currentScriptText: input.currentScriptText,
+    actualDurationSec: input.actualDurationSec,
+    targetDurationSec: input.videoDurationSec
+  });
   const direction =
     input.actualDurationSec > input.videoDurationSec
       ? "pendekkan naskah agar lebih ringkas"
@@ -226,7 +257,10 @@ export function buildScriptRetimingPrompt(input: ScriptRetimingPromptInput): str
     "Aturan penting:",
     `- Durasi audio saat ini sekitar ${input.actualDurationSec.toFixed(2)} detik, sedangkan target video ${input.videoDurationSec.toFixed(2)} detik.`,
     `- Selisih durasi sekitar ${durationGapSec} detik, jadi ${direction}.`,
-    `- Target hasil revisi sekitar ${words.target} kata (rentang ${words.min}-${words.max} kata).`,
+    `- Naskah saat ini sekitar ${currentWordCount} kata.`,
+    observedTarget
+      ? `- Berdasarkan pace pembacaan naskah saat ini, target kata yang lebih presisi kira-kira ${observedTarget} kata.`
+      : `- Target hasil revisi sekitar ${words.target} kata (rentang ${words.min}-${words.max} kata).`,
     "- Pertahankan urutan visual, inti hook, tone, CTA, dan fakta yang sudah akurat.",
     "- Jangan menambah klaim baru, detail visual baru, atau asumsi yang tidak didukung konteks.",
     "- Gunakan Bahasa Indonesia yang natural, mudah diucapkan, dan tetap enak didengar.",

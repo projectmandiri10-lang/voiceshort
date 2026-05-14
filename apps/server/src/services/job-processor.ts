@@ -45,7 +45,7 @@ export const JOB_PROCESSOR_LIMITS = {
 export const SERVER_OVERLOAD_MESSAGE =
   "Server overload. Antrean generate sedang penuh, coba lagi beberapa saat lagi.";
 
-const MAX_SCRIPT_ALIGNMENT_ATTEMPTS = 2;
+const MAX_SCRIPT_ALIGNMENT_ATTEMPTS = 3;
 const VISUAL_ANALYSIS_MAX_FRAMES = 60;
 
 function nowIso(): string {
@@ -481,9 +481,11 @@ export class JobProcessor implements IJobProcessor {
 
       framesTempDir = await mkdtemp(path.join(os.tmpdir(), `voice-shorts-frames-${job.jobId}-`));
       const safeDurationSec = Math.max(1, job.videoDurationSec);
+      // Ambil lebih rapat (hingga 2 fps) supaya video dengan cut cepat tetap kebaca,
+      // tapi tetap dibatasi agar aman untuk concurrency.
       const desiredFrameCount = Math.min(
         VISUAL_ANALYSIS_MAX_FRAMES,
-        Math.max(12, Math.round(safeDurationSec))
+        Math.max(24, Math.round(safeDurationSec * 2))
       );
       const fps = Math.max(0.1, desiredFrameCount / safeDurationSec);
       const framePaths = await extractVideoFrames(job.videoPath, framesTempDir, { fps });

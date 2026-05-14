@@ -1,8 +1,10 @@
 const MIN_SPEECH_RATE = 0.7;
 const MAX_SPEECH_RATE = 1.3;
-const DURATION_TOLERANCE_SEC = 0.35;
-const DURATION_TOLERANCE_RATIO = 0.03;
-const MAX_LOCAL_RATE_DELTA_RATIO = 0.08;
+// Untuk video pendek (<= 60 detik), toleransi perlu ketat supaya tidak ada sisa "sunyi" (pad) atau potongan voice (trim).
+const DURATION_TOLERANCE_SEC = 0.2;
+const DURATION_TOLERANCE_RATIO = 0.011;
+// Izinkan koreksi tempo lokal yang sedikit lebih besar agar durasi lebih presisi tanpa perlu rewrite script terlalu sering.
+const MAX_LOCAL_RATE_DELTA_RATIO = 0.12;
 
 export function isVoiceDurationAligned(
   actualDurationSec: number,

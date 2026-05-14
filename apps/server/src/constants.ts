@@ -13,7 +13,7 @@ export const GENDER_ORDER: JobVoiceGender[] = ["male", "female"];
 export const ABSOLUTE_MAX_VIDEO_SECONDS = 60;
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  scriptModel: "gemini-3-flash-preview",
+  scriptModel: "gemini-2.5-flash-lite",
   ttsModel: "gemini-2.5-flash-preview-tts",
   language: "id-ID",
   maxVideoSeconds: ABSOLUTE_MAX_VIDEO_SECONDS,
