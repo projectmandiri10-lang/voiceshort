@@ -10,12 +10,13 @@ export const MAX_HISTORY = 20;
 export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 export const DEFAULT_PORT = 8788;
 export const GENDER_ORDER: JobVoiceGender[] = ["male", "female"];
+export const ABSOLUTE_MAX_VIDEO_SECONDS = 60;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   scriptModel: "gemini-3-flash-preview",
   ttsModel: "gemini-2.5-flash-preview-tts",
   language: "id-ID",
-  maxVideoSeconds: 900,
+  maxVideoSeconds: ABSOLUTE_MAX_VIDEO_SECONDS,
   safetyMode: "safe_marketing",
   concurrency: 1,
   genderVoices: [

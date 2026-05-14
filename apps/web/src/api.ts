@@ -430,7 +430,7 @@ export async function register(input: {
 
   return {
     user,
-    message: "Akun berhasil dibuat. Selamat datang di Real Voice Over Video."
+    message: "Akun berhasil dibuat. Selamat datang di VoiceOver Shorts 60."
   };
 }
 

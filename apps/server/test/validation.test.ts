@@ -13,11 +13,11 @@ describe("validation", () => {
     expect(parsed.genderVoices[1]?.gender).toBe("female");
   });
 
-  it("rejects settings above hard max 900 seconds", () => {
+  it("rejects settings above hard max 60 seconds", () => {
     expect(() =>
       parseSettings({
         ...DEFAULT_SETTINGS,
-        maxVideoSeconds: 901
+        maxVideoSeconds: 61
       })
     ).toThrow();
   });

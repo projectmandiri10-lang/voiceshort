@@ -12,19 +12,13 @@ import {
   buildCaptionPrompt,
   buildScriptPrompt,
   buildScriptRetimingPrompt,
-  buildTimedScriptPrompt,
   buildVisualBriefPrompt
 } from "./prompt-builder.js";
 import { OUTPUTS_DIR, UPLOADS_DIR, outputUrlToAbsolutePath } from "../utils/paths.js";
-import {
-  combineVideoWithVoiceOver,
-  composeTimedVoiceOver,
-  writeWav24kMono
-} from "../utils/audio.js";
+import { combineVideoWithVoiceOver, writeWav24kMono } from "../utils/audio.js";
 import { buildJobProgress } from "../utils/job-progress.js";
 import { ensureSocialMetadata, formatSocialMetadataFile } from "../utils/model-output.js";
-import { probeVideoDuration } from "../utils/video.js";
-import { parseTimedVoiceSegments, timedVoiceSegmentsToScript } from "../utils/timed-script.js";
+import { extractVideoFrames, probeVideoDuration } from "../utils/video.js";
 import {
   calculateAdjustedSpeechRate,
   countWords,
@@ -52,6 +46,7 @@ export const SERVER_OVERLOAD_MESSAGE =
   "Server overload. Antrean generate sedang penuh, coba lagi beberapa saat lagi.";
 
 const MAX_SCRIPT_ALIGNMENT_ATTEMPTS = 2;
+const VISUAL_ANALYSIS_MAX_FRAMES = 60;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -228,96 +223,12 @@ export class JobProcessor implements IJobProcessor {
     });
   }
 
-  private async synthesizeTimedVoiceOver(input: {
-    jobId: string;
-    promptInput: VoiceAlignmentPromptInput;
-    scriptText: string;
-    visualBrief: VisualBrief;
-    voicePath: string;
-    scriptModel: string;
-    ttsModel: string;
-    voiceName: string;
-    speechRate: number;
-    deliveryHint: string;
-  }): Promise<string | undefined> {
-    const timedScriptPrompt = buildTimedScriptPrompt({
-      ...input.promptInput,
-      visualBrief: input.visualBrief,
-      currentScriptText: input.scriptText
-    });
-    const rawTimedScript = await this.aiService.generateScript({
-      model: input.scriptModel,
-      prompt: timedScriptPrompt
-    });
-    const timedSegments = parseTimedVoiceSegments(
-      rawTimedScript,
-      input.promptInput.videoDurationSec
-    );
-    if (!timedSegments.length) {
-      this.logger.warn(
-        { jobId: input.jobId },
-        "Timed voice over kosong atau tidak valid, memakai sintesis continuous."
-      );
-      return undefined;
-    }
-
-    const providerAppliesSpeechRate = Boolean(this.speechService.appliesSpeechRateNatively);
-    const baseLocalSpeechRate = providerAppliesSpeechRate ? 1 : input.speechRate;
-    const segmentAudioPaths = [];
-    const voiceDir = path.dirname(input.voicePath);
-
-    for (const [index, segment] of timedSegments.entries()) {
-      const segmentPath = path.join(voiceDir, `voice-segment-${String(index + 1).padStart(2, "0")}.wav`);
-      const audio = await this.speechService.generateSpeech({
-        model: input.ttsModel,
-        text: segment.text,
-        voiceName: input.voiceName,
-        speechRate: input.speechRate,
-        deliveryHint: input.deliveryHint
-      });
-      await writeWav24kMono(audio.data, audio.mimeType, segmentPath, baseLocalSpeechRate);
-
-      const segmentDurationSec = await probeVideoDuration(segmentPath);
-      const slotDurationSec = Math.max(0.4, segment.endSec - segment.startSec);
-      const adjustedSpeechRate = calculateAdjustedSpeechRate({
-        currentDurationSec: segmentDurationSec,
-        targetDurationSec: slotDurationSec,
-        currentSpeechRate: baseLocalSpeechRate
-      });
-      if (adjustedSpeechRate !== undefined) {
-        await writeWav24kMono(audio.data, audio.mimeType, segmentPath, adjustedSpeechRate);
-      }
-
-      segmentAudioPaths.push({
-        audioPath: segmentPath,
-        startSec: segment.startSec,
-        endSec: segment.endSec
-      });
-    }
-
-    await composeTimedVoiceOver({
-      segments: segmentAudioPaths,
-      outputPath: input.voicePath,
-      targetDurationSec: input.promptInput.videoDurationSec
-    });
-    this.logger.info(
-      {
-        jobId: input.jobId,
-        segmentCount: timedSegments.length,
-        targetDurationSec: input.promptInput.videoDurationSec
-      },
-      "Voice over bertimestamp berhasil dibuat dengan jeda mute."
-    );
-
-    return timedVoiceSegmentsToScript(timedSegments);
-  }
-
   private async synthesizeVoiceAlignedToVideo(input: {
     jobId: string;
     promptInput: VoiceAlignmentPromptInput;
     scriptText: string;
     visualBrief?: VisualBrief;
-    uploadedVideo: UploadedAiFile[];
+    uploadedVideo?: UploadedAiFile | UploadedAiFile[];
     voicePath: string;
     scriptModel: string;
     ttsModel: string;
@@ -338,7 +249,20 @@ export class JobProcessor implements IJobProcessor {
         deliveryHint: input.deliveryHint
       });
       await writeWav24kMono(audio.data, audio.mimeType, input.voicePath, baseLocalSpeechRate);
-      let voiceDurationSec = await probeVideoDuration(input.voicePath);
+      let voiceDurationSec: number | undefined;
+      try {
+        voiceDurationSec = await probeVideoDuration(input.voicePath);
+      } catch (error) {
+        this.logger.warn(
+          {
+            err: error,
+            jobId: input.jobId,
+            attempt
+          },
+          "Gagal membaca durasi audio voice over. Melanjutkan job tanpa koreksi durasi."
+        );
+        return currentScriptText;
+      }
 
       this.logger.info(
         {
@@ -363,7 +287,19 @@ export class JobProcessor implements IJobProcessor {
 
       if (adjustedSpeechRate !== undefined) {
         await writeWav24kMono(audio.data, audio.mimeType, input.voicePath, adjustedSpeechRate);
-        voiceDurationSec = await probeVideoDuration(input.voicePath);
+        try {
+          voiceDurationSec = await probeVideoDuration(input.voicePath);
+        } catch (error) {
+          this.logger.warn(
+            {
+              err: error,
+              jobId: input.jobId,
+              attempt
+            },
+            "Gagal membaca durasi audio setelah koreksi tempo. Melanjutkan job tanpa koreksi lanjutan."
+          );
+          return currentScriptText;
+        }
         this.logger.info(
           {
             jobId: input.jobId,
@@ -533,41 +469,67 @@ export class JobProcessor implements IJobProcessor {
       }
     }));
 
-    let uploadedVideo: UploadedAiFile[] = [];
-    let framesDir = "";
+    let visualSource: UploadedAiFile | UploadedAiFile[] | undefined;
+    let visualFrameCount: number | undefined;
+    let framesTempDir = "";
     try {
       await this.setJobProgress(item.jobId, "analyzing");
-      this.logger.info({ jobId: item.jobId }, "Mengekstrak frame video.");
-      framesDir = await mkdtemp(path.join(os.tmpdir(), `voice-shorts-frames-${job.jobId}-`));
-      const { extractVideoFrames } = await import("../utils/video.js");
-      const frames = await extractVideoFrames(job.videoPath, framesDir, { fps: 0.33 });
-      
-      this.logger.info({ jobId: item.jobId }, `Ekstrak frame selesai (${frames.length} frame), menyiapkan base64 secara paralel.`);
-      
-      // Memproses semua frame secara paralel untuk kecepatan maksimal
-      uploadedVideo = await Promise.all(
-        frames.map(async (framePath) => {
-          const fileBuffer = await readFile(framePath);
+      this.logger.info(
+        { jobId: item.jobId },
+        "Mengekstrak frame video (ffmpeg) untuk analisis visual AI (batch)."
+      );
+
+      framesTempDir = await mkdtemp(path.join(os.tmpdir(), `voice-shorts-frames-${job.jobId}-`));
+      const safeDurationSec = Math.max(1, job.videoDurationSec);
+      const desiredFrameCount = Math.min(
+        VISUAL_ANALYSIS_MAX_FRAMES,
+        Math.max(12, Math.round(safeDurationSec))
+      );
+      const fps = Math.max(0.1, desiredFrameCount / safeDurationSec);
+      const framePaths = await extractVideoFrames(job.videoPath, framesTempDir, { fps });
+      const limitedFramePaths = framePaths.slice(0, VISUAL_ANALYSIS_MAX_FRAMES);
+
+      const frames = await Promise.all(
+        limitedFramePaths.map(async (framePath) => {
+          const data = await readFile(framePath);
           return {
+            // Provider is only metadata for our app; the downstream services care about fileUri/fileId/base64Data.
             provider: "litellm",
             mimeType: "image/jpeg",
-            base64Data: fileBuffer.toString("base64")
-          };
+            base64Data: data.toString("base64")
+          } satisfies UploadedAiFile;
         })
       );
-      
-      this.logger.info(
-        { jobId: item.jobId, count: uploadedVideo.length },
-        "Konversi frame ke base64 selesai. Menghapus frame lokal."
-      );
-      await rm(framesDir, { recursive: true, force: true });
-      framesDir = "";
-    } catch (error) {
-      if (framesDir) {
-        await rm(framesDir, { recursive: true, force: true }).catch(() => {});
+
+      if (!frames.length) {
+        throw new Error("Frame video kosong, tidak bisa melakukan analisis visual.");
       }
-      await this.failJob(item.jobId, this.toErrorMessage(error));
-      return;
+
+      visualSource = frames;
+      visualFrameCount = frames.length;
+      this.logger.info(
+        { jobId: item.jobId, frames: frames.length, fps: Number(fps.toFixed(3)) },
+        "Ekstraksi frame selesai."
+      );
+    } catch (error) {
+      this.logger.warn(
+        { err: error, jobId: item.jobId },
+        "Gagal ekstrak frame untuk analisis visual. Fallback ke upload video."
+      );
+
+      try {
+        await this.setJobProgress(item.jobId, "analyzing");
+        this.logger.info({ jobId: item.jobId }, "Mengunggah video untuk analisis AI (fallback).");
+        visualSource = await this.aiService.uploadVideo(job.videoPath, job.videoMimeType);
+        visualFrameCount = undefined;
+        this.logger.info({ jobId: item.jobId }, "Upload video fallback selesai.");
+      } catch (uploadError) {
+        if (framesTempDir) {
+          await rm(framesTempDir, { recursive: true, force: true });
+        }
+        await this.failJob(item.jobId, this.toErrorMessage(uploadError));
+        return;
+      }
     }
 
     const outputDir = path.join(OUTPUTS_DIR, job.jobId);
@@ -593,7 +555,7 @@ export class JobProcessor implements IJobProcessor {
         voiceGender: job.voiceGender,
         tone: job.tone,
         videoDurationSec: job.videoDurationSec,
-        frameCount: uploadedVideo.length,
+        frameCount: visualFrameCount,
         ctaText: job.ctaText,
         referenceLink: job.referenceLink
       };
@@ -607,7 +569,7 @@ export class JobProcessor implements IJobProcessor {
         visualBrief = await this.aiService.generateVisualBrief({
           model: settings.scriptModel,
           prompt: visualBriefPrompt,
-          video: uploadedVideo
+          video: visualSource
         });
         this.logger.info({ jobId: item.jobId }, "Analisis visual video selesai.");
 
@@ -638,7 +600,7 @@ export class JobProcessor implements IJobProcessor {
         scriptText = await this.aiService.generateScript({
           model: settings.scriptModel,
           prompt: scriptPrompt,
-          video: uploadedVideo
+          video: visualSource
         });
         this.logger.info({ jobId: item.jobId }, "Fallback script multimodal selesai.");
       }
@@ -646,46 +608,19 @@ export class JobProcessor implements IJobProcessor {
       await this.setJobProgress(item.jobId, "synthesizing");
       this.logger.info({ jobId: item.jobId }, "Memulai sintesis voice over.");
       const voiceProfile = await this.settingsStore.getVoiceForGender(job.voiceGender);
-      let timedScriptText: string | undefined;
-      if (visualBrief) {
-        try {
-          timedScriptText = await this.synthesizeTimedVoiceOver({
-            jobId: item.jobId,
-            promptInput,
-            scriptText,
-            visualBrief,
-            voicePath,
-            scriptModel: settings.scriptModel,
-            ttsModel: settings.ttsModel,
-            voiceName: voiceProfile.voiceName,
-            speechRate: voiceProfile.speechRate,
-            deliveryHint: job.tone
-          });
-        } catch (error) {
-          this.logger.warn(
-            { err: error, jobId: item.jobId },
-            "Timed voice over gagal, memakai sintesis continuous."
-          );
-        }
-      }
-
-      if (timedScriptText) {
-        scriptText = timedScriptText;
-      } else {
-        scriptText = await this.synthesizeVoiceAlignedToVideo({
-          jobId: item.jobId,
-          promptInput,
-          scriptText,
-          visualBrief,
-          uploadedVideo,
-          voicePath,
-          scriptModel: settings.scriptModel,
-          ttsModel: settings.ttsModel,
-          voiceName: voiceProfile.voiceName,
-          speechRate: voiceProfile.speechRate,
-          deliveryHint: job.tone
-        });
-      }
+      scriptText = await this.synthesizeVoiceAlignedToVideo({
+        jobId: item.jobId,
+        promptInput,
+        scriptText,
+        visualBrief,
+        uploadedVideo: visualSource,
+        voicePath,
+        scriptModel: settings.scriptModel,
+        ttsModel: settings.ttsModel,
+        voiceName: voiceProfile.voiceName,
+        speechRate: voiceProfile.speechRate,
+        deliveryHint: job.tone
+      });
       this.logger.info({ jobId: item.jobId }, "Sintesis voice over selesai.");
 
       await this.setJobProgress(item.jobId, "captioning");
@@ -698,7 +633,7 @@ export class JobProcessor implements IJobProcessor {
       const rawSocialMetadata = await this.aiService.generateCaptionMetadata({
         model: settings.scriptModel,
         prompt: captionPrompt,
-        video: visualBrief ? undefined : uploadedVideo
+        video: visualBrief ? undefined : visualSource
       });
       const socialMetadata = ensureSocialMetadata(
         rawSocialMetadata,
@@ -715,6 +650,10 @@ export class JobProcessor implements IJobProcessor {
       await rm(voiceTempDir, { recursive: true, force: true });
       voiceTempDir = "";
       await cleanupSuccessfulUpload(job.jobId, this.logger);
+      if (framesTempDir) {
+        await rm(framesTempDir, { recursive: true, force: true });
+        framesTempDir = "";
+      }
 
       const artifactUrls = [
         toOutputUrl(job.jobId, captionFilename),
@@ -742,6 +681,9 @@ export class JobProcessor implements IJobProcessor {
       );
       if (voiceTempDir) {
         await rm(voiceTempDir, { recursive: true, force: true });
+      }
+      if (framesTempDir) {
+        await rm(framesTempDir, { recursive: true, force: true });
       }
       await this.failJob(item.jobId, this.toErrorMessage(error));
       this.logger.error({ err: error, jobId: item.jobId }, "General job processing gagal.");

@@ -27,12 +27,7 @@ export const FINAL_VIDEO_FPS = 30;
 export const FINAL_VIDEO_CRF = 26;
 export const FINAL_AUDIO_BITRATE = "64k";
 export const FINAL_AUDIO_SAMPLE_RATE = 24000;
-
-export interface TimedAudioSegment {
-  audioPath: string;
-  startSec: number;
-  endSec: number;
-}
+export const FINAL_VOICE_LOUDNORM = "loudnorm=I=-14:TP=-1.0:LRA=11";
 
 function createWavHeader(
   dataLength: number,
@@ -148,7 +143,7 @@ export function buildFinalVideoFfmpegArgs(input: {
       ? `${buildAtempoFilter(tempoFactor)},`
       : "";
   // Koreksi tempo sangat kecil membantu membuat audio jatuh pas di durasi video tanpa mengubah karakter suara secara terasa.
-  const audioFilter = `${tempoFilter}atrim=0:${targetDurationText},apad=pad_dur=${targetDurationText}`;
+  const audioFilter = `${tempoFilter}${FINAL_VOICE_LOUDNORM},atrim=0:${targetDurationText},apad=pad_dur=${targetDurationText}`;
   const filterGraph = `[0:v:0]${videoFilter}[vout];[1:a]${audioFilter}[aout]`;
 
   return [
@@ -189,78 +184,6 @@ export function buildFinalVideoFfmpegArgs(input: {
   ];
 }
 
-export function buildTimedVoiceOverFfmpegArgs(input: {
-  segments: TimedAudioSegment[];
-  outputPath: string;
-  targetDurationSec: number;
-}): string[] {
-  const safeTargetDurationSec = Math.max(1, input.targetDurationSec);
-  const targetDurationText = safeTargetDurationSec.toFixed(3);
-
-  if (!input.segments.length) {
-    return [
-      "-y",
-      "-f",
-      "lavfi",
-      "-i",
-      `anullsrc=r=${FINAL_AUDIO_SAMPLE_RATE}:cl=mono:d=${targetDurationText}`,
-      "-ac",
-      "1",
-      "-ar",
-      String(FINAL_AUDIO_SAMPLE_RATE),
-      "-sample_fmt",
-      "s16",
-      input.outputPath
-    ];
-  }
-
-  const args = [
-    "-y",
-    "-f",
-    "lavfi",
-    "-i",
-    `anullsrc=r=${FINAL_AUDIO_SAMPLE_RATE}:cl=mono:d=${targetDurationText}`
-  ];
-
-  for (const segment of input.segments) {
-    args.push("-i", segment.audioPath);
-  }
-
-  const segmentFilters = input.segments.map((segment, index) => {
-    const startSec = Math.max(0, Math.min(safeTargetDurationSec, segment.startSec));
-    const endSec = Math.max(startSec + 0.1, Math.min(safeTargetDurationSec, segment.endSec));
-    const durationText = (endSec - startSec).toFixed(3);
-    const delayMs = Math.max(0, Math.round(startSec * 1000));
-    return [
-      `[${index + 1}:a]`,
-      `atrim=0:${durationText},asetpts=PTS-STARTPTS,`,
-      `apad=pad_dur=${durationText},atrim=0:${durationText},`,
-      `adelay=${delayMs}|${delayMs}`,
-      `[s${index}]`
-    ].join("");
-  });
-  const mixInputs = ["[0:a]", ...input.segments.map((_segment, index) => `[s${index}]`)].join("");
-  const filterGraph = [
-    ...segmentFilters,
-    `${mixInputs}amix=inputs=${input.segments.length + 1}:duration=first:dropout_transition=0,atrim=0:${targetDurationText},asetpts=PTS-STARTPTS[aout]`
-  ].join(";");
-
-  return [
-    ...args,
-    "-filter_complex",
-    filterGraph,
-    "-map",
-    "[aout]",
-    "-ac",
-    "1",
-    "-ar",
-    String(FINAL_AUDIO_SAMPLE_RATE),
-    "-sample_fmt",
-    "s16",
-    input.outputPath
-  ];
-}
-
 export async function writeWav24kMono(
   audioData: Buffer,
   mimeType: string,
@@ -292,14 +215,6 @@ export async function writeWav24kMono(
   } finally {
     await rm(workingDir, { recursive: true, force: true });
   }
-}
-
-export async function composeTimedVoiceOver(input: {
-  segments: TimedAudioSegment[];
-  outputPath: string;
-  targetDurationSec: number;
-}): Promise<void> {
-  await runFfmpeg(buildTimedVoiceOverFfmpegArgs(input));
 }
 
 export async function combineVideoWithVoiceOver(

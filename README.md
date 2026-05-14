@@ -1,6 +1,6 @@
 # General AI Voice Over App
 
-Aplikasi untuk otomatisasi voice over general berbahasa Indonesia dengan durasi video sampai 15 menit.
+Aplikasi untuk otomatisasi voice over general berbahasa Indonesia dengan durasi video sampai 60 detik.
 
 ## Fungsi Utama
 
@@ -141,9 +141,9 @@ npm run start
 ## Catatan Operasional
 
 - Bahasa utama: `id-ID`
-- Batas durasi hard cap: `15 menit` (`900 detik`)
+- Batas durasi hard cap: `60 detik`
 - Billing default: `Rp2.000/menit` dengan pembulatan ke atas per menit
-- Contoh billing: `61 detik = 2 menit = Rp4.000`
+- Contoh billing: `60 detik = 1 menit = Rp2.000`
 - V1 memakai single general job, bukan multi-platform batch
 - Default voice diatur per gender pada halaman settings dan preview suaranya dibuat lewat LiteLLM
 - Mode utama repo ini adalah `AI_PROVIDER=litellm`

@@ -109,8 +109,8 @@ export function SettingsPage() {
         speechRate: selected.speechRate,
         text:
           gender === "male"
-            ? "Halo, ini contoh voice over pria untuk video general sampai 15 menit yang natural dan jelas."
-            : "Halo, ini contoh voice over wanita untuk video general sampai 15 menit yang ringan dan menarik.",
+            ? "Halo, ini contoh voice over pria untuk video short sampai 60 detik yang natural dan jelas."
+            : "Halo, ini contoh voice over wanita untuk video short sampai 60 detik yang ringan dan menarik.",
       });
       setPreviewPaths((current) => ({
         ...current,
@@ -147,7 +147,7 @@ export function SettingsPage() {
         <div className="meta-grid">
           <div className="meta-card">
             <span className="small">Batas Durasi Video</span>
-            <strong>{settings.maxVideoSeconds >= 60 ? `${Math.round(settings.maxVideoSeconds / 60)} menit` : `${settings.maxVideoSeconds} detik`}</strong>
+            <strong>{`${settings.maxVideoSeconds} detik`}</strong>
           </div>
           <div className="meta-card">
             <span className="small">Mode Bahasa</span>
@@ -161,7 +161,7 @@ export function SettingsPage() {
             <input
               type="number"
               min={10}
-              max={900}
+              max={60}
               value={settings.maxVideoSeconds}
               onChange={(event) => setSettings({ ...settings, maxVideoSeconds: Number(event.target.value) })}
             />

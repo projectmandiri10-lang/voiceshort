@@ -783,7 +783,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       const settings = await options.settingsStore.get();
       const sampleText =
         payload.text ||
-        "Ini contoh voice over general untuk video sampai 15 menit dengan delivery natural dan jelas.";
+        "Ini contoh voice over general untuk video sampai 60 detik dengan delivery natural dan jelas.";
       const audio = await options.speechGenerator.generateSpeech({
         model: settings.ttsModel,
         text: sampleText,

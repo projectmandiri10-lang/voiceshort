@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CONTENT_TYPES } from "./content-config.js";
-import { GENDER_ORDER, isKnownTtsVoiceName } from "./constants.js";
+import { ABSOLUTE_MAX_VIDEO_SECONDS, GENDER_ORDER, isKnownTtsVoiceName } from "./constants.js";
 import type { AppSettings, AssignedPackageCode, ContentType, JobVoiceGender, UserRole } from "./types.js";
 
 const contentTypeSchema = z.enum(CONTENT_TYPES);
@@ -28,7 +28,7 @@ export const settingsSchema = z.object({
   scriptModel: z.string().trim().min(1),
   ttsModel: z.string().trim().min(1),
   language: z.literal("id-ID"),
-  maxVideoSeconds: z.number().int().min(10).max(900),
+  maxVideoSeconds: z.number().int().min(10).max(ABSOLUTE_MAX_VIDEO_SECONDS),
   safetyMode: z.literal("safe_marketing"),
   concurrency: z.literal(1),
   genderVoices: z

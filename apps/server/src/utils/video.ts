@@ -150,6 +150,7 @@ export async function extractVideoFrames(
         fs.readdir(outputDir).then((files) => {
           const frameFiles = files
             .filter((f) => f.startsWith("frame-") && f.endsWith(".jpg"))
+            .sort((a, b) => a.localeCompare(b))
             .map((f) => import("node:path").then((path) => path.join(outputDir, f)));
           Promise.all(frameFiles).then(resolve).catch(reject);
         }).catch(reject);

@@ -177,7 +177,7 @@ export default function App() {
       <main className="app-shell-loading">
         <section className="card">
           <span className="eyebrow">Booting Workspace</span>
-          <h1>Real Voice Over Video</h1>
+          <h1>VoiceOver Shorts 60</h1>
           <p className="section-note">Memuat akun Anda...</p>
         </section>
       </main>
@@ -196,7 +196,7 @@ export default function App() {
           <h1>Akun Anda sedang dinonaktifkan</h1>
           <p>
             {user.disabledReason ||
-              "Hubungi admin Real Voice Over Video jika Anda merasa akun ini perlu diaktifkan kembali."}
+              "Hubungi admin VoiceOver Shorts 60 jika Anda merasa akun ini perlu diaktifkan kembali."}
           </p>
           <button type="button" className="danger-button" onClick={() => void onLogout()}>
             Logout

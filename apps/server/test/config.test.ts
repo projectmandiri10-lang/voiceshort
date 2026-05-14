@@ -11,6 +11,8 @@ function applyBaseEnv() {
   process.env.SUPABASE_ANON_KEY = "anon-key";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
   process.env.GENERATE_PRICE_IDR = "2000";
+  // Pastikan test tidak "ketularan" nilai dari file .env repo.
+  process.env.LITELLM_FILE_TARGET_MODEL = "";
 }
 
 describe("env config", () => {

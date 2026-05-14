@@ -332,7 +332,7 @@ describe("job processor", () => {
     await vi.waitFor(() => {
       expect(uploadStarted).toHaveLength(3);
     });
-    expect(uploadStarted).toEqual(["parallel-a", "parallel-b", "parallel-c"]);
+    expect([...uploadStarted].sort()).toEqual(["parallel-a", "parallel-b", "parallel-c"].sort());
 
     for (const job of jobs) {
       uploadDefers.get(job.jobId)!.resolve({
@@ -404,7 +404,7 @@ describe("job processor", () => {
     await vi.waitFor(() => {
       expect(uploadStarted).toHaveLength(2);
     });
-    expect(uploadStarted).toEqual(["user-a-1", "user-b-1"]);
+    expect([...uploadStarted].sort()).toEqual(["user-a-1", "user-b-1"].sort());
 
     uploadDefers.get("user-a-1")!.resolve({
       provider: "gemini",

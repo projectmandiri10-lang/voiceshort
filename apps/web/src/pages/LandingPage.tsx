@@ -152,9 +152,9 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
       <section className="hero-grid">
         <div className="landing-copy">
           <span className="eyebrow">AI-Powered Production</span>
-          <h1>Bikin voice over video sampai 15 menit lebih cepat dan lebih rapi.</h1>
+          <h1>Bikin voice over video sampai 60 detik lebih cepat dan lebih rapi.</h1>
           <p className="landing-copy-lead">
-            Unggah video, tulis arahan singkat, lalu Real Voice Over Video membantu menyiapkan
+            Unggah video, tulis arahan singkat, lalu VoiceOver Shorts 60 membantu menyiapkan
             narasi untuk konten Anda. Cocok untuk creator, jualan online, dan video promosi harian
             dengan billing transparan per menit.
           </p>
@@ -164,7 +164,7 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
             <strong>Rp.2000/menit</strong>
             <p className="small">
               Biaya mengikuti durasi video upload dan dibulatkan ke atas per menit. Contoh:
-              61 detik dihitung 2 menit.
+              60 detik dihitung 1 menit.
             </p>
           </div>
 
@@ -181,7 +181,7 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
 
           <div className="hero-stat-grid">
             <article className="hero-stat-card surface-card">
-              <strong>15 menit</strong>
+              <strong>60 detik</strong>
               <span className="small">Batas durasi default tiap upload</span>
             </article>
             <article className="hero-stat-card surface-card">
@@ -300,7 +300,7 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
           <h2>Teknologi yang terasa rapi, bukan ribet.</h2>
           <p className="section-note">
             Visual baru mengikuti canvas, sementara perilaku produk tetap berakar pada workflow
-            Real Voice Over Video yang sudah berjalan sekarang.
+            VoiceOver Shorts 60 yang sudah berjalan sekarang.
           </p>
         </div>
 

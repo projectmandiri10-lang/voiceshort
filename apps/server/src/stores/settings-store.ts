@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { DEFAULT_SETTINGS, findGenderVoiceSetting } from "../constants.js";
+import { ABSOLUTE_MAX_VIDEO_SECONDS, DEFAULT_SETTINGS, findGenderVoiceSetting } from "../constants.js";
 import { SETTINGS_FILE } from "../utils/paths.js";
 import { JsonFile } from "../utils/json-file.js";
 import type { AppSettings, JobVoiceGender } from "../types.js";
@@ -30,6 +30,25 @@ export class SettingsStore {
     };
   }
 
+  private applyHardCaps(raw: unknown): unknown {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return raw;
+    }
+    const record = raw as Record<string, unknown>;
+    const maxVideoSecondsRaw = record.maxVideoSeconds;
+    const numeric =
+      typeof maxVideoSecondsRaw === "number"
+        ? maxVideoSecondsRaw
+        : Number(String(maxVideoSecondsRaw ?? ""));
+    const clamped = Number.isFinite(numeric)
+      ? Math.max(10, Math.min(ABSOLUTE_MAX_VIDEO_SECONDS, Math.trunc(numeric)))
+      : ABSOLUTE_MAX_VIDEO_SECONDS;
+    return {
+      ...record,
+      maxVideoSeconds: clamped
+    };
+  }
+
   public async get(client?: SupabaseClient): Promise<AppSettings> {
     const db = client ?? this.adminClient;
     if (db) {
@@ -42,13 +61,15 @@ export class SettingsStore {
         throw error;
       }
       return this.applyRuntimeModelOverrides(
-        parseSettings(data ? appSettingsRowToSettings(data as AppSettingsRow) : DEFAULT_SETTINGS)
+        parseSettings(
+          this.applyHardCaps(data ? appSettingsRowToSettings(data as AppSettingsRow) : DEFAULT_SETTINGS)
+        )
       );
     }
 
     const settings = await this.file.get();
     try {
-      return this.applyRuntimeModelOverrides(parseSettings(settings));
+      return this.applyRuntimeModelOverrides(parseSettings(this.applyHardCaps(settings)));
     } catch (error) {
       throw new Error(
         `Settings file tidak valid (${SETTINGS_FILE}): ${

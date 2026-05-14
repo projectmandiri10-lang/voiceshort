@@ -340,8 +340,8 @@ describe("api integration", () => {
     expect(user?.walletBalanceIdr).toBe(18_000);
   });
 
-  it("charges 2 billed minutes for videos above 60 seconds", async () => {
-    probeDuration = async () => 61;
+  it("charges 1 billed minute for videos at 60 seconds", async () => {
+    probeDuration = async () => 60;
     const form = buildCreateForm();
 
     const response = await app.inject({
@@ -356,7 +356,7 @@ describe("api integration", () => {
 
     expect(response.statusCode).toBe(202);
     const user = await usersStore.getByEmail("creator@test.dev");
-    expect(user?.walletBalanceIdr).toBe(16_000);
+    expect(user?.walletBalanceIdr).toBe(18_000);
     expect(user?.videoQuotaUsed).toBe(1);
   });
 
@@ -379,8 +379,8 @@ describe("api integration", () => {
     });
   });
 
-  it("rejects create job above 15 minutes", async () => {
-    probeDuration = async () => 901;
+  it("rejects create job above 60 seconds", async () => {
+    probeDuration = async () => 61;
     const form = buildCreateForm();
 
     const response = await app.inject({
@@ -395,7 +395,7 @@ describe("api integration", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({
-      message: "Durasi video 901.00s melebihi batas 900s."
+      message: "Durasi video 61.00s melebihi batas 60s."
     });
   });
 
@@ -584,7 +584,7 @@ describe("api integration", () => {
   });
 
   it("refunds the reserved variable charge when enqueue fails after reserve", async () => {
-    probeDuration = async () => 61;
+    probeDuration = async () => 60;
     forceEnqueueFailure = true;
     const form = buildCreateForm();
 

@@ -145,9 +145,17 @@ export class GeminiService implements AiService {
       return [{ text: prompt }];
     }
 
-    const fileParts = files.map(file => {
+    const fileParts = files.map((file) => {
+      if (file.base64Data) {
+        return {
+          inlineData: {
+            data: file.base64Data,
+            mimeType: file.mimeType
+          }
+        };
+      }
       if (!file.fileUri) {
-        throw new Error("Referensi file Gemini tidak memiliki fileUri.");
+        throw new Error("Referensi file Gemini tidak memiliki fileUri atau base64Data.");
       }
       return {
         fileData: {

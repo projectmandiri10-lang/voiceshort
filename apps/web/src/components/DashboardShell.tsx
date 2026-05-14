@@ -72,7 +72,7 @@ export function DashboardShell<TView extends string>({
                 <Sparkles size={18} strokeWidth={2.2} />
               </div>
             </div>
-            <span className="sr-only">Real Voice Over Video</span>
+            <span className="sr-only">VoiceOver Shorts 60</span>
           </button>
 
           <nav className="dashboard-rail-nav" aria-label="Dashboard navigation">
