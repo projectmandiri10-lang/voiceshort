@@ -20,7 +20,7 @@ const TAB_META: Record<
     icon: DashboardTabDefinition<DashboardView>["icon"];
   }
 > = {
-  generate: { label: "Buat Audio", icon: Sparkles },
+  generate: { label: "Generate", icon: Sparkles },
   deposit: { label: "Isi Saldo", icon: WalletCards },
   jobs: { label: "Riwayat", icon: FolderClock },
   settings: { label: "Pengaturan", icon: Settings2 },
@@ -220,6 +220,7 @@ export default function App() {
           currentUser={user}
           onRefreshSession={onRefreshSession}
           onViewJobs={(jobId) => onNavigate("jobs", { jobId })}
+          resumeSessionId={route.jobId}
         />
       ) : null}
       {activeView === "deposit" ? <DepositPage onRefreshSession={onRefreshSession} /> : null}
@@ -228,6 +229,7 @@ export default function App() {
           currentUser={user}
           selectedJobId={route.jobId}
           onSelectJob={(jobId) => onNavigate("jobs", { jobId })}
+          onResumeSession={(jobId) => onNavigate("generate", { jobId })}
         />
       ) : null}
       {activeView === "settings" && user.role === "superadmin" ? <SettingsPage /> : null}

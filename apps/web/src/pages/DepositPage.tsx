@@ -130,8 +130,8 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
         <span className="eyebrow">Isi Saldo</span>
         <h2>Isi saldo lewat QRIS dengan pembayaran otomatis.</h2>
         <p className="section-note">
-          Biaya pembuatan voice over saat ini {formatRupiah(wallet?.generatePriceIdr ?? 2000)} per menit.
-          Pembulatan per menit berlaku, jadi 61 detik dihitung 2 menit.
+          Biaya pembuatan voice over saat ini {formatRupiah(wallet?.generatePriceIdr ?? 2000)} per
+          generate. Satu generate mencakup satu alur AI + render lokal.
         </p>
       </div>
 
@@ -147,7 +147,7 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
           <p className="small">
             {wallet?.isUnlimited
               ? "Akun whitelist dapat memproses video tanpa batas saldo."
-              : `Estimasi sisa generate: ${wallet?.generateCreditsRemaining ?? 0} menit penuh.`}
+              : `Estimasi sisa generate: ${wallet?.generateCreditsRemaining ?? 0} kali.`}
           </p>
         </div>
         <span className="status status-success">Saldo aktif</span>
@@ -160,7 +160,10 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
               <div className="row-head">
                 <div>
                   <strong>Pilih paket saldo</strong>
-                  <p className="small">Semua paket langsung menambah kredit ke akun yang sedang aktif untuk billing per menit.</p>
+                  <p className="small">
+                    Semua paket langsung menambah kredit ke akun yang sedang aktif untuk billing flat
+                    per generate.
+                  </p>
                 </div>
                 <WalletMinimal size={18} />
               </div>
@@ -178,9 +181,9 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
                 >
                   <span className="small">{item.label}</span>
                   <strong>{formatRupiah(item.payAmountIdr)}</strong>
-                  <span className="small">
-                    Saldo {formatRupiah(item.creditAmountIdr)}
-                    {item.bonusAmountIdr ? `, bonus ${formatRupiah(item.bonusAmountIdr)}` : ""}
+                <span className="small">
+                  Saldo {formatRupiah(item.creditAmountIdr)}
+                  {item.bonusAmountIdr ? `, bonus ${formatRupiah(item.bonusAmountIdr)}` : ""}
                   </span>
                 </button>
               ))}
@@ -209,7 +212,10 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
               <div>
                 <span className="eyebrow">Checkout QRIS</span>
                 <h3>{selectedPackage?.label ?? "Paket saldo"}</h3>
-                <p className="small">Kredit saldo {formatRupiah(selectedPackage?.creditAmountIdr)} untuk estimasi {selectedPackage?.generateCredits ?? 0} menit.</p>
+                <p className="small">
+                  Kredit saldo {formatRupiah(selectedPackage?.creditAmountIdr)} untuk estimasi{" "}
+                  {selectedPackage?.generateCredits ?? 0} generate.
+                </p>
               </div>
               <button type="button" className="primary-button" onClick={onCreateTopup} disabled={creatingOrder}>
                 <QrCode size={16} />

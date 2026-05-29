@@ -19,12 +19,12 @@ const FEATURES = [
   },
   {
     title: "Cepat dan Praktis",
-    description: "Cukup unggah video, isi arahan singkat, lalu sistem memprosesnya tanpa langkah yang ribet.",
+    description: "Video tetap di browser Anda, Worker menyusun script dan audio, lalu final MP4 dirender lokal.",
     icon: Activity,
   },
   {
     title: "Pantau Hasilnya",
-    description: "Lihat perkembangan proses dan unduh hasil begitu voice over selesai dibuat.",
+    description: "Lihat riwayat session AI dan lanjutkan render dari browser yang sama kapan saja.",
     icon: Video,
   },
 ];
@@ -33,14 +33,14 @@ const PACKAGES = [
   {
     name: "Mulai",
     price: "Rp20.000",
-    quota: "10 menit",
+    quota: "10 generate",
     note: "Pas untuk mencoba alur kerja dan mulai produksi konten secara ringan.",
     badge: "Starter",
   },
   {
     name: "Harian",
     price: "Rp90.000",
-    quota: "50 menit",
+    quota: "50 generate",
     note: "Cocok untuk produksi rutin dengan bonus saldo dibanding beli satuan.",
     badge: "Lebih irit",
     popular: true,
@@ -48,7 +48,7 @@ const PACKAGES = [
   {
     name: "Produksi",
     price: "Rp170.000",
-    quota: "100 menit",
+    quota: "100 generate",
     note: "Pilihan terbaik untuk volume tinggi dan kebutuhan tim kecil.",
     badge: "Tim kecil",
   },
@@ -156,15 +156,15 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
           <p className="landing-copy-lead">
             Unggah video, tulis arahan singkat, lalu VoiceOver Shorts 60 membantu menyiapkan
             narasi untuk konten Anda. Cocok untuk creator, jualan online, dan video promosi harian
-            dengan billing transparan per menit.
+            dengan billing transparan per generate.
           </p>
 
           <div className="hero-price-banner surface-card">
             <span className="eyebrow">Harga Transparan</span>
-            <strong>Rp.2000/menit</strong>
+            <strong>Rp.2000/generate</strong>
             <p className="small">
-              Biaya mengikuti durasi video upload dan dibulatkan ke atas per menit. Contoh:
-              60 detik dihitung 1 menit.
+              Satu generate mencakup analisis frame, script, caption, audio TTS, dan render lokal
+              final.mp4 untuk satu video pendek sampai 60 detik.
             </p>
           </div>
 
@@ -185,8 +185,8 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
               <span className="small">Batas durasi default tiap upload</span>
             </article>
             <article className="hero-stat-card surface-card">
-              <strong>1 sampai 10</strong>
-              <span className="small">Slot batch dalam satu sesi</span>
+              <strong>Client-only</strong>
+              <span className="small">Final MP4 dirender langsung di browser</span>
             </article>
             <article className="hero-stat-card surface-card">
               <strong>Login cepat</strong>
@@ -299,8 +299,8 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
           <span className="eyebrow">Capabilities</span>
           <h2>Teknologi yang terasa rapi, bukan ribet.</h2>
           <p className="section-note">
-            Visual baru mengikuti canvas, sementara perilaku produk tetap berakar pada workflow
-            VoiceOver Shorts 60 yang sudah berjalan sekarang.
+            Frame diekstrak via canvas, Worker Cloudflare mengolah AI, dan artifact final tetap
+            bersifat client-first.
           </p>
         </div>
 
@@ -340,10 +340,10 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
       <section className="landing-section" id="pricing">
         <div className="section-heading">
           <span className="eyebrow">Paket Saldo</span>
-          <h2>Pilih saldo sesuai total menit video yang ingin Anda proses.</h2>
+          <h2>Pilih saldo sesuai total generate yang ingin Anda proses.</h2>
           <p className="section-note">
-            Setiap 1 menit voice over memotong saldo Rp2.000. Pembulatan per menit berlaku, jadi
-            61 detik dihitung 2 menit. Semakin besar paketnya, semakin hemat.
+            Setiap generate voice over memotong saldo Rp2.000. Satu generate mencakup satu video
+            pendek sampai 60 detik. Semakin besar paketnya, semakin hemat.
           </p>
         </div>
 
@@ -370,8 +370,8 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
           <article className="legal-card">
             <h3>Privasi</h3>
             <p className="section-note">
-              Kami menyimpan data akun, riwayat proses, dan file hasil untuk membantu layanan
-              berjalan dengan baik. Data Anda tidak dijual ke pihak lain.
+              Kami menyimpan data akun dan metadata session. Video asli dan final MP4 tetap
+              client-first di browser Anda kecuali Anda sendiri yang mengekspornya.
             </p>
           </article>
           <article className="legal-card">

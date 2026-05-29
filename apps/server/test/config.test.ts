@@ -11,8 +11,9 @@ function applyBaseEnv() {
   process.env.SUPABASE_ANON_KEY = "anon-key";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
   process.env.GENERATE_PRICE_IDR = "2000";
-  // Pastikan test tidak "ketularan" nilai dari file .env repo.
-  process.env.LITELLM_FILE_TARGET_MODEL = "";
+  process.env.GEMINI_API_KEY = "test-gemini-key";
+  process.env.GEMINI_SCRIPT_MODEL = "gemini-2.5-flash-lite";
+  process.env.GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
 }
 
 describe("env config", () => {
@@ -23,64 +24,48 @@ describe("env config", () => {
     Object.assign(process.env, ORIGINAL_ENV);
   });
 
-  it("defaults to litellm mode when AI_PROVIDER is omitted", () => {
+  it("defaults to gemini mode with the new env contract", () => {
     applyBaseEnv();
-    delete process.env.AI_PROVIDER;
-    process.env.LITELLM_BASE_URL = "http://127.0.0.1:4000";
-    process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
-    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
 
     const env = loadEnv();
-    expect(env.aiProvider).toBe("litellm");
+    expect(env.aiProvider).toBe("gemini");
+    expect(env.geminiApiKey).toBe("test-gemini-key");
   });
 
-  it("loads litellm mode without direct gemini credentials", () => {
+  it("loads gemini model envs", () => {
     applyBaseEnv();
-    process.env.AI_PROVIDER = "litellm";
-    process.env.LITELLM_BASE_URL = "http://127.0.0.1:4000";
-    process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
-    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
+    process.env.GEMINI_SCRIPT_MODEL = "gemini-3.5-flash";
+    process.env.GEMINI_TTS_MODEL = "gemini-2.5-pro-preview-tts";
 
     const env = loadEnv();
-    expect(env.aiProvider).toBe("litellm");
-    expect(env.litellmFileTargetModel).toBe("gemini/gemini-3-flash-preview");
+    expect(env.geminiScriptModel).toBe("gemini-3.5-flash");
+    expect(env.geminiTtsModel).toBe("gemini-2.5-pro-preview-tts");
     expect(env.successOutputRetentionHours).toBe(72);
   });
 
-  it("normalizes litellm base url from env", () => {
+  it("throws a clear error when gemini api key is missing", () => {
     applyBaseEnv();
-    process.env.AI_PROVIDER = "litellm";
-    process.env.LITELLM_BASE_URL = "https://litellm.koboi2026.biz.id/v1/";
-    process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
-    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
+    process.env.GEMINI_API_KEY = "";
 
-    const env = loadEnv();
-    expect(env.litellmBaseUrl).toBe("https://litellm.koboi2026.biz.id");
+    expect(() => loadEnv()).toThrow("GEMINI_API_KEY wajib diisi");
   });
 
-  it("throws a clear error when litellm base url is missing", () => {
+  it("throws a clear error when gemini script model is missing", () => {
     applyBaseEnv();
-    process.env.AI_PROVIDER = "litellm";
-    process.env.LITELLM_BASE_URL = "";
-    process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
-    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
+    process.env.GEMINI_SCRIPT_MODEL = "";
 
-    expect(() => loadEnv()).toThrow("LITELLM_BASE_URL wajib diisi");
+    expect(() => loadEnv()).toThrow("GEMINI_SCRIPT_MODEL wajib diisi");
   });
 
-  it("rejects non-litellm provider modes", () => {
+  it("throws a clear error when gemini tts model is missing", () => {
     applyBaseEnv();
-    process.env.AI_PROVIDER = "gemini";
+    process.env.GEMINI_TTS_MODEL = "";
 
-    expect(() => loadEnv()).toThrow("hanya mendukung litellm");
+    expect(() => loadEnv()).toThrow("GEMINI_TTS_MODEL wajib diisi");
   });
 
   it("loads custom success output retention hours", () => {
     applyBaseEnv();
-    process.env.AI_PROVIDER = "litellm";
-    process.env.LITELLM_BASE_URL = "http://127.0.0.1:4000";
-    process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
-    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
     process.env.SUCCESS_OUTPUT_RETENTION_HOURS = "96";
 
     const env = loadEnv();
@@ -89,10 +74,6 @@ describe("env config", () => {
 
   it("throws a clear error when success output retention hours is invalid", () => {
     applyBaseEnv();
-    process.env.AI_PROVIDER = "litellm";
-    process.env.LITELLM_BASE_URL = "http://127.0.0.1:4000";
-    process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
-    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
     process.env.SUCCESS_OUTPUT_RETENTION_HOURS = "0";
 
     expect(() => loadEnv()).toThrow("SUCCESS_OUTPUT_RETENTION_HOURS tidak valid");

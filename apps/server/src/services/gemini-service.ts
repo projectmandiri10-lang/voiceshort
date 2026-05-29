@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai/node";
+import { GoogleGenAI } from "@google/genai";
 import type { FastifyBaseLogger } from "fastify";
 import type { AiService } from "./ai-service.js";
 import { InvalidGeminiStructuredOutputError } from "./ai-service.js";
@@ -127,6 +127,31 @@ function retryDelayMs(error: unknown, _attempt: number, fallbackDelayMs: number)
     return fallbackDelayMs;
   }
   return Math.min(Math.max(fromApi, fallbackDelayMs), MAX_RETRY_DELAY_MS);
+}
+
+function buildGeminiTtsPrompt(input: GenerateSpeechInput): string {
+  const paceInstruction =
+    input.speechRate >= 1.1
+      ? "Pace: sedikit cepat, tetap jelas dan tidak terburu-buru."
+      : input.speechRate <= 0.9
+        ? "Pace: sedikit lebih pelan, tetap natural dan tidak datar."
+        : "Pace: natural untuk voice over video pendek.";
+  const deliveryInstruction = input.deliveryHint?.trim()
+    ? `Nuansa tambahan: ${input.deliveryHint.trim()}.`
+    : "Nuansa tambahan: natural, jelas, dan enak didengar untuk penonton Indonesia.";
+
+  return [
+    "Narator voice over video berbahasa Indonesia.",
+    "Language: Bahasa Indonesia (id-ID).",
+    "Accent: penutur asli Indonesia, natural, jelas, dan tidak kaku.",
+    "Style: realistis, hangat, dan cocok untuk voice over video pendek.",
+    paceInstruction,
+    deliveryInstruction,
+    "Pronunciation: utamakan pelafalan kata Indonesia secara lokal, bukan aksen Inggris atau suara robotik.",
+    'Bacakan teks berikut persis apa adanya tanpa menambah kalimat lain:',
+    "",
+    input.text
+  ].join("\n");
 }
 
 export class GeminiService implements AiService {
@@ -326,7 +351,7 @@ export class GeminiService implements AiService {
     const execute = async () => {
       const response = await this.generateUserContent({
         model: input.model,
-        prompt: input.text,
+        prompt: buildGeminiTtsPrompt(input),
         config: {
           responseModalities: ["AUDIO"],
           speechConfig: {

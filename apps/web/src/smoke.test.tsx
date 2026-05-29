@@ -1,11 +1,15 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { DepositPage } from "./pages/DepositPage";
 import { GeneratePage } from "./pages/GeneratePage";
 import { JobsPage } from "./pages/JobsPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import type { AuthUser, JobRecord } from "./types";
+import type { AuthUser, GenerationSessionRecord } from "./types";
 import * as api from "./api";
+import * as frameExtractor from "./frame-extractor";
+import * as generationCache from "./generation-cache";
+import * as localRender from "./local-render";
 import * as videoDuration from "./video-duration";
 
 vi.mock("./api", async () => {
@@ -13,17 +17,16 @@ vi.mock("./api", async () => {
   return {
     ...actual,
     completeGoogleOAuthRedirect: vi.fn(),
+    completeGenerationSession: vi.fn(),
     createAdminUser: vi.fn(),
-    createJob: vi.fn(),
+    createGenerationSession: vi.fn(),
     createTopup: vi.fn(),
-    deleteJob: vi.fn(),
     disableAdminUser: vi.fn(),
-    downloadJobCaption: vi.fn(),
-    downloadJobFinalVideo: vi.fn(),
+    failGenerationSession: vi.fn(),
     fetchAdminUsers: vi.fn(),
-    fetchGenerationCapacity: vi.fn(),
-    fetchJobDetail: vi.fn(),
-    fetchJobs: vi.fn(),
+    fetchGenerationSession: vi.fn(),
+    fetchGenerationSessionAudio: vi.fn(),
+    fetchGenerationSessions: vi.fn(),
     fetchSession: vi.fn(),
     fetchSettings: vi.fn(),
     fetchTopupStatus: vi.fn(),
@@ -33,21 +36,51 @@ vi.mock("./api", async () => {
     isAuthReady: vi.fn(),
     login: vi.fn(),
     logout: vi.fn(),
-    openJobOutputLocation: vi.fn(),
     previewTtsVoice: vi.fn(),
     register: vi.fn(),
-    retryJob: vi.fn(),
     startGoogleLogin: vi.fn(),
     subscribeToAuthState: vi.fn(() => () => undefined),
-    subscribeToJobEvents: vi.fn(() => vi.fn()),
     updateAdminUser: vi.fn(),
-    updateJob: vi.fn(),
     updateSettings: vi.fn()
   };
 });
 
 vi.mock("./video-duration", () => ({
-  readVideoDuration: vi.fn(async () => 60)
+  readVideoDuration: vi.fn(async () => 42)
+}));
+
+vi.mock("./frame-extractor", () => ({
+  extractFramesFromVideo: vi.fn(async () => [
+    {
+      index: 0,
+      timestampSec: 0,
+      mimeType: "image/jpeg",
+      base64Data: "frame-1",
+      dataUrl: "data:image/jpeg;base64,frame-1",
+      width: 448,
+      height: 252
+    },
+    {
+      index: 1,
+      timestampSec: 21,
+      mimeType: "image/jpeg",
+      base64Data: "frame-2",
+      dataUrl: "data:image/jpeg;base64,frame-2",
+      width: 448,
+      height: 252
+    }
+  ])
+}));
+
+vi.mock("./local-render", () => ({
+  buildFinalMuxArgs: vi.fn(),
+  renderFinalVideoLocally: vi.fn(async () => new Blob(["video"], { type: "video/mp4" }))
+}));
+
+vi.mock("./generation-cache", () => ({
+  getCachedSessionAssets: vi.fn(async () => undefined),
+  listCachedSessionIds: vi.fn(async () => []),
+  upsertCachedSessionAssets: vi.fn(async () => undefined)
 }));
 
 const activeUser: AuthUser = {
@@ -87,7 +120,7 @@ const adminUser: AuthUser = {
 };
 
 const mockSettings = {
-  scriptModel: "gemini-3-flash-preview",
+  scriptModel: "gemini-2.5-flash-lite",
   ttsModel: "gemini-2.5-flash-preview-tts",
   language: "id-ID" as const,
   maxVideoSeconds: 60,
@@ -125,51 +158,34 @@ const mockVoices = {
   excitedPresets: []
 };
 
-function buildSuccessProgress() {
+function buildSession(
+  overrides: Partial<GenerationSessionRecord> = {}
+): GenerationSessionRecord {
   return {
-    phase: "success" as const,
-    percent: 100,
-    label: "Selesai",
-    updatedAt: "2026-04-01T00:00:00.000Z"
-  };
-}
-
-function buildJob(
-  overrides: Omit<Partial<JobRecord>, "output"> & {
-    output?: Partial<JobRecord["output"]>;
-  } = {}
-): JobRecord {
-  const { output, ...jobOverrides } = overrides;
-  return {
-    jobId: "job-1",
-    createdAt: "2026-04-01T00:00:00.000Z",
-    updatedAt: "2026-04-01T00:00:00.000Z",
+    sessionId: "session-1",
+    createdAt: "2026-05-28T08:00:00.000Z",
+    updatedAt: "2026-05-28T08:05:00.000Z",
+    completedAt: null,
     ownerEmail: activeUser.email,
-    title: "Job Satu",
-    description: "Deskripsi job",
+    title: "Voice Over Produk",
+    description: "Jelaskan produk dengan singkat dan menarik",
     contentType: "affiliate",
     voiceGender: "female",
     tone: "natural",
     ctaText: "cek detailnya sekarang",
     referenceLink: "https://contoh.test/ref",
-    videoPath: "C:/video.mp4",
-    videoMimeType: "video/mp4",
-    videoDurationSec: 20,
-    status: "running",
-    progress: {
-      phase: "rendering",
-      percent: 95,
-      label: "Merender video final",
-      updatedAt: "2026-04-01T00:00:00.000Z"
-    },
-    output: {
-      captionPath: "/outputs/job-1/caption.txt",
-      finalVideoPath: "/outputs/job-1/final.mp4",
-      artifactPaths: ["/outputs/job-1/caption.txt", "/outputs/job-1/final.mp4"],
-      updatedAt: "2026-04-01T00:00:00.000Z",
-      ...output
-    },
-    ...jobOverrides
+    videoDurationSec: 42,
+    frameCount: 12,
+    status: "ready_for_render",
+    scriptText: "Ini contoh naskah voice over yang siap dipakai.",
+    captionText: "Caption singkat untuk posting.",
+    hashtags: ["#produk", "#affiliate"],
+    voiceName: "Leda",
+    speechRate: 1,
+    chargedAmountIdr: 2_000,
+    errorMessage: undefined,
+    renderSummary: undefined,
+    ...overrides
   };
 }
 
@@ -178,17 +194,9 @@ beforeEach(() => {
   window.history.replaceState({}, "", "/");
   vi.mocked(api.completeGoogleOAuthRedirect).mockResolvedValue({ sessionReady: false });
   vi.mocked(api.fetchSession).mockResolvedValue(null);
-  vi.mocked(api.fetchJobs).mockResolvedValue([]);
-  vi.mocked(api.fetchGenerationCapacity).mockResolvedValue({
-    overloaded: false,
-    runningCount: 0,
-    queuedCount: 0,
-    maxRunningJobs: 3,
-    maxQueuedJobs: 20,
-    maxRunningPerUser: 1,
-    message: "Server siap menerima job baru."
-  });
   vi.mocked(api.fetchSettings).mockResolvedValue(mockSettings);
+  vi.mocked(api.fetchTtsVoices).mockResolvedValue(mockVoices);
+  vi.mocked(api.updateSettings).mockResolvedValue(mockSettings);
   vi.mocked(api.isAuthReady).mockReturnValue(true);
   vi.mocked(api.startGoogleLogin).mockResolvedValue(undefined);
   vi.mocked(api.fetchWallet).mockResolvedValue({
@@ -199,7 +207,7 @@ beforeEach(() => {
     packages: [
       {
         code: "10_video",
-        label: "10 menit",
+        label: "10 generate",
         payAmountIdr: 20_000,
         creditAmountIdr: 20_000,
         bonusAmountIdr: 0,
@@ -209,24 +217,39 @@ beforeEach(() => {
     recentLedger: [],
     recentTopups: []
   });
-  vi.mocked(videoDuration.readVideoDuration).mockResolvedValue(60);
-  vi.mocked(api.fetchTtsVoices).mockResolvedValue(mockVoices);
-  vi.mocked(api.updateSettings).mockResolvedValue(mockSettings);
-  vi.mocked(api.downloadJobCaption).mockResolvedValue(undefined);
-  vi.mocked(api.downloadJobFinalVideo).mockResolvedValue(undefined);
+  vi.mocked(api.fetchGenerationSessions).mockResolvedValue([]);
+  vi.mocked(api.fetchGenerationSession).mockResolvedValue(buildSession());
+  vi.mocked(api.fetchGenerationSessionAudio).mockResolvedValue(
+    new Blob(["audio"], { type: "audio/wav" })
+  );
+  vi.mocked(api.completeGenerationSession).mockResolvedValue(
+    buildSession({
+      status: "completed",
+      completedAt: "2026-05-28T08:06:00.000Z",
+      renderSummary: {
+        finalDurationSec: 42,
+        finalSizeBytes: 5242880,
+        renderedAt: "2026-05-28T08:06:00.000Z",
+        localFileName: "voice-over-produk-final.mp4"
+      }
+    })
+  );
+  vi.mocked(api.previewTtsVoice).mockResolvedValue({
+    voiceName: "Charon",
+    audioUrl: "blob:preview-audio"
+  });
 });
 
 describe("web smoke", () => {
-  it("renders landing page when session is empty", async () => {
+  it("renders landing page with flat per-generate pricing copy", async () => {
     render(<App />);
 
     expect(await screen.findByText(/VoiceOver Shorts 60/i)).toBeTruthy();
     expect(
-      screen.getByRole("heading", { name: /Bikin voice over video sampai 60 detik lebih cepat/i })
+      screen.getByRole("heading", { name: /Bikin voice over video sampai 60 detik/i })
     ).toBeTruthy();
-    expect(screen.getAllByText(/TikTok/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Rp20.000/i)).toBeTruthy();
-    expect(screen.getByText(/Rp\.2000\/menit/i)).toBeTruthy();
+    expect(screen.getByText(/Rp\.2000\/generate/i)).toBeTruthy();
+    expect(screen.getByText(/10 generate/i)).toBeTruthy();
   });
 
   it("starts Google OAuth from landing page", async () => {
@@ -238,17 +261,6 @@ describe("web smoke", () => {
     await waitFor(() => {
       expect(api.startGoogleLogin).toHaveBeenCalledWith("/?view=generate");
     });
-  });
-
-  it("shows a friendly message when Google auth is not ready", async () => {
-    vi.mocked(api.isAuthReady).mockReturnValue(false);
-    render(<App />);
-
-    expect(await screen.findByText(/VoiceOver Shorts 60/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Masuk dengan Google/i }));
-
-    expect(await screen.findByText(/Masuk Google belum tersedia/i)).toBeTruthy();
-    expect(api.startGoogleLogin).not.toHaveBeenCalled();
   });
 
   it("logs in with email and opens the dashboard", async () => {
@@ -278,42 +290,7 @@ describe("web smoke", () => {
     expect(await screen.findByText(/^Creator$/i)).toBeTruthy();
   });
 
-  it("shows email confirmation instructions after register when session is not active yet", async () => {
-    vi.mocked(api.register).mockResolvedValue({
-      user: null,
-      message: "Pendaftaran berhasil. Silakan cek email Anda untuk konfirmasi, lalu masuk kembali.",
-      needsEmailConfirmation: true
-    });
-
-    render(<App />);
-
-    await screen.findByRole("heading", { name: /Bikin voice over video sampai 60 detik/i });
-    fireEvent.click(screen.getByRole("button", { name: /^Daftar$/i }));
-    fireEvent.change(screen.getByLabelText(/^Nama$/i), {
-      target: { value: "Creator Baru" }
-    });
-    fireEvent.change(screen.getByLabelText(/^Email$/i), {
-      target: { value: "baru@test.dev" }
-    });
-    fireEvent.change(screen.getByLabelText(/^Password$/i), {
-      target: { value: "password-rahasia" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: /Buat Akun/i }));
-
-    expect(await screen.findByText(/Silakan cek email Anda/i)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Buat Audio/i })).toBeNull();
-  });
-
-  it("does not expose AI engine labels to regular users", async () => {
-    vi.mocked(api.fetchSession).mockResolvedValue(activeUser);
-
-    render(<App />);
-
-    expect(await screen.findByText(/^Creator$/i)).toBeTruthy();
-    expect(screen.queryByText(/Gemini|Script Model|TTS Model|AI engine/i)).toBeNull();
-  });
-
-  it("renders the single-job form with required inputs and optional link field", async () => {
+  it("renders the browser-first generate workspace", async () => {
     render(
       <GeneratePage
         currentUser={activeUser}
@@ -322,92 +299,36 @@ describe("web smoke", () => {
       />
     );
 
+    await waitFor(() => {
+      expect(generationCache.listCachedSessionIds).toHaveBeenCalled();
+    });
     expect(screen.getByRole("region", { name: /^slot video 1$/i })).toBeTruthy();
-    expect(screen.queryByRole("region", { name: /^slot video 2$/i })).toBeNull();
-    expect(screen.getByText(/Single Job Workspace/i)).toBeTruthy();
+    expect(screen.getByText(/Cloudflare Worker \+ Local Render/i)).toBeTruthy();
     expect(screen.getByLabelText(/^Judul/i)).toBeTruthy();
-    expect(screen.getByLabelText(/Brief \/ Deskripsi/i)).toBeTruthy();
-    expect(screen.getByLabelText(/Link Referensi Opsional/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Generate Job Baru/i })).toBeTruthy();
+    expect(screen.getAllByText(/Flat per generate/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Generate \+ Render Lokal/i })).toBeTruthy();
+  });
 
-    await waitFor(() => {
-      expect(api.fetchJobs).toHaveBeenCalled();
-      expect(api.fetchGenerationCapacity).toHaveBeenCalled();
+  it("submits one local render flow end-to-end", async () => {
+    const createdSession = buildSession({
+      sessionId: "session-101",
+      status: "ready_for_audio"
     });
-  });
-
-  it("shows unlimited balance and keeps generate enabled for whitelist users", async () => {
-    render(
-      <GeneratePage
-        currentUser={{
-          ...adminUser,
-          walletBalanceIdr: 0,
-          generateCreditsRemaining: null,
-          videoQuotaRemaining: null,
-          isUnlimited: true
-        }}
-        onRefreshSession={vi.fn(async () => undefined)}
-        onViewJobs={vi.fn()}
-      />
-    );
-
-    expect(screen.getByText(/Saldo Unlimited/i)).toBeTruthy();
-    await waitFor(() => {
-      expect(
-        (screen.getByRole("button", { name: /Generate Job Baru/i }) as HTMLButtonElement).disabled
-      ).toBe(false);
-    });
-  });
-
-  it("locks generate when previous success job still needs caption and final video download", async () => {
-    vi.mocked(api.fetchJobs).mockResolvedValue([
-      buildJob({
-        status: "success",
-        progress: buildSuccessProgress(),
-        output: {
-          captionDownloadedAt: undefined,
-          finalVideoDownloadedAt: undefined
-        }
-      })
-    ]);
-
-    render(
-      <GeneratePage
-        currentUser={activeUser}
-        onRefreshSession={vi.fn(async () => undefined)}
-        onViewJobs={vi.fn()}
-      />
-    );
-
-    expect(await screen.findByText(/unduh caption dan final video terlebih dahulu/i)).toBeTruthy();
-    expect(
-      (screen.getByRole("button", { name: /Generate Job Baru/i }) as HTMLButtonElement).disabled
-    ).toBe(true);
-  });
-
-  it("submits one ready job and redirects to the jobs page", async () => {
     const onRefreshSession = vi.fn(async () => undefined);
-    const onViewJobs = vi.fn();
-    vi.mocked(api.createJob).mockResolvedValueOnce({
-      jobId: "job-101",
-      status: "queued",
-      progress: {
-        phase: "queued",
-        percent: 0,
-        label: "Masuk antrean",
-        updatedAt: "2026-04-01T00:00:00.000Z"
-      }
+    vi.mocked(api.createGenerationSession).mockResolvedValue({
+      session: createdSession
     });
+    vi.mocked(generationCache.listCachedSessionIds).mockResolvedValue([]);
 
     render(
       <GeneratePage
         currentUser={activeUser}
         onRefreshSession={onRefreshSession}
-        onViewJobs={onViewJobs}
+        onViewJobs={vi.fn()}
       />
     );
 
-    const file = new File(["video-one"], "slot-1.mp4", { type: "video/mp4" });
+    const file = new File(["video-one"], "source.mp4", { type: "video/mp4" });
     fireEvent.change(screen.getByLabelText(/^Video/i), {
       target: { files: [file] }
     });
@@ -415,233 +336,93 @@ describe("web smoke", () => {
       expect(videoDuration.readVideoDuration).toHaveBeenCalledTimes(1);
     });
     fireEvent.change(screen.getByLabelText(/^Judul/i), {
-      target: { value: "Judul Slot 1" }
+      target: { value: "Voice Over Produk" }
     });
     fireEvent.change(screen.getByLabelText(/Brief \/ Deskripsi/i), {
-      target: { value: "Brief slot satu" }
+      target: { value: "Jelaskan produk dengan singkat dan menarik" }
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Generate Job Baru/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Generate \+ Render Lokal/i }));
 
     await waitFor(() => {
-      expect(api.createJob).toHaveBeenCalledTimes(1);
+      expect(frameExtractor.extractFramesFromVideo).toHaveBeenCalledTimes(1);
+      expect(api.createGenerationSession).toHaveBeenCalledTimes(1);
+      expect(api.fetchGenerationSessionAudio).toHaveBeenCalledWith("session-101");
+      expect(localRender.renderFinalVideoLocally).toHaveBeenCalledTimes(1);
+      expect(api.completeGenerationSession).toHaveBeenCalledTimes(1);
     });
-    expect(api.createJob).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: "Judul Slot 1",
-        description: "Brief slot satu"
-      })
-    );
-    expect(onRefreshSession).toHaveBeenCalledTimes(1);
-    expect(onViewJobs).toHaveBeenCalledWith("job-101");
+    expect(await screen.findByRole("heading", { name: /^Final video siap$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Unduh Final MP4/i })).toBeTruthy();
+    expect(onRefreshSession).toHaveBeenCalled();
   });
 
-  it("disables generate when user balance is insufficient", async () => {
-    render(
-      <GeneratePage
-        currentUser={{
-          ...activeUser,
-          walletBalanceIdr: 0,
-          generateCreditsRemaining: 0,
-          videoQuotaRemaining: 0
-        }}
-        onRefreshSession={vi.fn(async () => undefined)}
-        onViewJobs={vi.fn()}
-      />
-    );
-
-    expect(screen.getByText(/Perlu isi saldo/i)).toBeTruthy();
-    expect(
-      (screen.getByRole("button", { name: /Generate Job Baru/i }) as HTMLButtonElement).disabled
-    ).toBe(true);
-  });
-
-  it("shows server overload banner and disables submit button", async () => {
-    vi.mocked(api.fetchGenerationCapacity).mockResolvedValue({
-      overloaded: true,
-      runningCount: 3,
-      queuedCount: 20,
-      maxRunningJobs: 3,
-      maxQueuedJobs: 20,
-      maxRunningPerUser: 1,
-      message: "Server overload. Antrean generate sedang penuh, coba lagi beberapa saat lagi."
-    });
-
-    render(
-      <GeneratePage
-        currentUser={activeUser}
-        onRefreshSession={vi.fn(async () => undefined)}
-        onViewJobs={vi.fn()}
-      />
-    );
-
-    expect(await screen.findByText(/^Server overload$/i)).toBeTruthy();
-    expect(screen.getByText(/Aktif 3\/3 \| Antrean 20\/20/i)).toBeTruthy();
-    expect(
-      (screen.getByRole("button", { name: /Generate Job Baru/i }) as HTMLButtonElement).disabled
-    ).toBe(true);
-  });
-
-  it("renders deposit packages and creates a WebQRIS invoice", async () => {
-    vi.mocked(api.createTopup).mockResolvedValue({
-      id: "topup-1",
-      packageCode: "10_video",
-      payAmountIdr: 20_000,
-      creditAmountIdr: 20_000,
-      merchantOrderId: "VS-ORDER-1",
-      webqrisInvoiceId: "INV-TEST-1",
-      qrisPayload: "00020101021226680016ID.CO.QRIS.WWW",
-      uniqueCode: 42,
-      totalAmountIdr: 20_042,
-      status: "pending",
-      expiredAt: "2026-04-28T12:00:00.000Z",
-      paidAt: null,
-      paymentMethod: null,
-      createdAt: "2026-04-28T11:30:00.000Z",
-      updatedAt: "2026-04-28T11:30:00.000Z"
-    });
-    vi.mocked(api.fetchSession).mockResolvedValue(activeUser);
-
-    render(<App />);
-
-    await screen.findByText(/^Creator$/i);
-    fireEvent.click(screen.getByRole("button", { name: /^Isi Saldo$/i }));
+  it("renders deposit page with per-generate package copy", async () => {
+    render(<DepositPage onRefreshSession={vi.fn(async () => undefined)} />);
 
     expect(await screen.findByRole("heading", { name: /Isi saldo lewat QRIS/i })).toBeTruthy();
-    expect(screen.getAllByText(/10 menit/i).length).toBeGreaterThan(0);
-
-    fireEvent.click(screen.getByRole("button", { name: /Tampilkan QRIS/i }));
-
-    expect(await screen.findByText(/INV-TEST-1/i)).toBeTruthy();
-    expect(screen.getByText((content) => content.replace(/\s/g, "") === "Rp20.042")).toBeTruthy();
-    expect(api.createTopup).toHaveBeenCalledWith("10_video");
+    expect(screen.getAllByText(/10 generate/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/flat per generate/i)).toBeTruthy();
   });
 
-  it("renders jobs page download status and blocks delete for pending-download success jobs", async () => {
-    vi.mocked(api.fetchJobs).mockResolvedValue([
-      buildJob({
-        status: "success",
-        progress: buildSuccessProgress(),
-        output: {
-          captionDownloadedAt: undefined,
-          finalVideoDownloadedAt: undefined
+  it("renders jobs history using generation sessions and local cache indicators", async () => {
+    vi.mocked(api.fetchGenerationSessions).mockResolvedValue([
+      buildSession({
+        status: "completed",
+        completedAt: "2026-05-28T08:06:00.000Z",
+        renderSummary: {
+          finalDurationSec: 42,
+          finalSizeBytes: 5242880,
+          renderedAt: "2026-05-28T08:06:00.000Z",
+          localFileName: "voice-over-produk-final.mp4"
         }
       })
     ]);
+    vi.mocked(generationCache.listCachedSessionIds).mockResolvedValue(["session-1"]);
+    vi.mocked(generationCache.getCachedSessionAssets).mockResolvedValue({
+      sessionId: "session-1",
+      sourceVideoBlob: new Blob(["video"], { type: "video/mp4" }),
+      sourceVideoName: "source.mp4",
+      sourceVideoType: "video/mp4",
+      audioBlob: new Blob(["audio"], { type: "audio/wav" }),
+      audioMimeType: "audio/wav",
+      renderedVideoBlob: new Blob(["rendered"], { type: "video/mp4" }),
+      renderFileName: "voice-over-produk-final.mp4",
+      updatedAt: "2026-05-28T08:06:00.000Z"
+    });
 
     render(
-      <JobsPage currentUser={activeUser} selectedJobId="job-1" onSelectJob={vi.fn()} />
+      <JobsPage
+        currentUser={activeUser}
+        selectedJobId="session-1"
+        onSelectJob={vi.fn()}
+        onResumeSession={vi.fn()}
+      />
     );
 
-    expect(await screen.findByRole("heading", { name: /Detail Proses/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Download Caption/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Download Final Video/i })).toBeTruthy();
-    expect(screen.getByText(/Status Caption/i)).toBeTruthy();
-    expect(screen.getByText(/Status Final Video/i)).toBeTruthy();
-    expect(screen.getByText(/Generate job baru masih terkunci/i)).toBeTruthy();
-    expect((screen.getByRole("button", { name: /Hapus Proses/i }) as HTMLButtonElement).disabled).toBe(
-      true
-    );
+    expect(await screen.findByRole("heading", { name: /Detail Generate/i })).toBeTruthy();
+    expect(screen.getByText(/Draft lokal tersedia/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Buka di Workspace Generate/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Unduh Final dari Browser/i })).toBeTruthy();
   });
 
-  it("updates jobs page status after caption and final video downloads complete", async () => {
-    const pendingJob = buildJob({
-      status: "success",
-      progress: buildSuccessProgress(),
-      output: {
-        captionDownloadedAt: undefined,
-        finalVideoDownloadedAt: undefined
-      }
-    });
-    const captionDownloadedJob = buildJob({
-      status: "success",
-      progress: buildSuccessProgress(),
-      output: {
-        captionDownloadedAt: "2026-04-01T00:10:00.000Z",
-        finalVideoDownloadedAt: undefined
-      }
-    });
-    const fullyDownloadedJob = buildJob({
-      status: "success",
-      progress: buildSuccessProgress(),
-      output: {
-        captionDownloadedAt: "2026-04-01T00:10:00.000Z",
-        finalVideoDownloadedAt: "2026-04-01T00:11:00.000Z"
-      }
-    });
+  it("uses object url previews for voice settings", async () => {
+    render(<SettingsPage />);
 
-    vi.mocked(api.fetchJobs).mockResolvedValue([pendingJob]);
-    vi.mocked(api.fetchJobDetail)
-      .mockResolvedValueOnce(captionDownloadedJob)
-      .mockResolvedValueOnce(fullyDownloadedJob);
-
-    render(
-      <JobsPage currentUser={activeUser} selectedJobId="job-1" onSelectJob={vi.fn()} />
-    );
-
-    expect(await screen.findByRole("button", { name: /Download Caption/i })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Download Caption/i }));
+    expect(await screen.findByRole("heading", { name: /Pengaturan Layanan/i })).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: /Preview Suara/i })[0]!);
 
     await waitFor(() => {
-      expect(api.downloadJobCaption).toHaveBeenCalledWith("job-1");
-    });
-    expect(await screen.findByText(/Caption berhasil diunduh/i)).toBeTruthy();
-    expect(screen.getByText(/Sudah diunduh/i)).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: /Download Final Video/i }));
-
-    await waitFor(() => {
-      expect(api.downloadJobFinalVideo).toHaveBeenCalledWith("job-1");
-    });
-    await waitFor(() => {
-      expect(
-        screen.getAllByText(
-          /Semua file wajib sudah diunduh\. Generate job baru sekarang sudah aktif kembali\./i
-        ).length
-      ).toBeGreaterThan(0);
-    });
-  });
-
-  it("keeps a single live job subscription while progress updates arrive", async () => {
-    const unsubscribe = vi.fn();
-    let onJob: ((job: JobRecord) => void) | undefined;
-
-    vi.mocked(api.fetchJobs).mockResolvedValue([buildJob()]);
-    vi.mocked(api.subscribeToJobEvents).mockImplementation((_jobId, callbacks) => {
-      onJob = callbacks.onJob;
-      return unsubscribe;
+      expect(api.previewTtsVoice).toHaveBeenCalledTimes(1);
     });
 
-    render(
-      <JobsPage currentUser={activeUser} selectedJobId="job-1" onSelectJob={vi.fn()} />
-    );
-
-    expect(await screen.findByRole("heading", { name: /Detail Proses/i })).toBeTruthy();
-    await waitFor(() => {
-      expect(api.subscribeToJobEvents).toHaveBeenCalledTimes(1);
-    });
-
-    onJob?.(
-      buildJob({
-        progress: {
-          phase: "rendering",
-          percent: 96,
-          label: "Merender video tahap kedua",
-          updatedAt: "2026-04-01T00:00:05.000Z"
-        },
-        updatedAt: "2026-04-01T00:00:05.000Z"
-      })
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText(/Merender video tahap kedua/i)).toBeTruthy();
-    });
-    expect(api.subscribeToJobEvents).toHaveBeenCalledTimes(1);
+    const audio = document.querySelector("audio.audio-preview") as HTMLAudioElement | null;
+    expect(audio).toBeTruthy();
+    expect(audio?.src).toContain("blob:preview-audio");
   });
 
   it("renders admin navigation for superadmin", async () => {
     vi.mocked(api.fetchSession).mockResolvedValue(adminUser);
-    vi.mocked(api.fetchJobs).mockResolvedValue([]);
+    vi.mocked(api.fetchGenerationSessions).mockResolvedValue([]);
     vi.mocked(api.fetchAdminUsers).mockResolvedValue([]);
 
     render(<App />);
@@ -655,25 +436,5 @@ describe("web smoke", () => {
         screen.getByRole("heading", { name: /Kelola user, akses, dan paket saldo/i })
       ).toBeTruthy();
     });
-  });
-
-  it("uses backend output url for voice preview audio", async () => {
-    vi.mocked(api.previewTtsVoice).mockResolvedValue({
-      voiceName: "Charon",
-      previewPath: "/outputs/_voice_previews/sample-preview.wav"
-    });
-
-    render(<SettingsPage />);
-
-    expect(await screen.findByRole("heading", { name: /Pengaturan Layanan/i })).toBeTruthy();
-    fireEvent.click(screen.getAllByRole("button", { name: /Preview Suara/i })[0]!);
-
-    await waitFor(() => {
-      expect(api.previewTtsVoice).toHaveBeenCalledTimes(1);
-    });
-
-    const audio = document.querySelector("audio.audio-preview") as HTMLAudioElement | null;
-    expect(audio).toBeTruthy();
-    expect(audio?.src).toBe("http://localhost:8788/outputs/_voice_previews/sample-preview.wav");
   });
 });

@@ -5,11 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:worker": "npx wrangler dev --port 8787",
     "build": "tsc --noEmit && vite build",
+    "deploy:cloudflare": "npm run build && npx wrangler deploy",
     "preview": "vite preview",
     "test": "vitest run"
   },
   "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@supabase/supabase-js": "^2.104.1",
     "@tailwindcss/vite": "^4.2.4",
     "lucide-react": "^1.14.0",
@@ -26,6 +30,7 @@
     "jsdom": "^27.0.1",
     "typescript": "^5.9.3",
     "vite": "^7.2.4",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wrangler": "^4.18.0"
   }
 }

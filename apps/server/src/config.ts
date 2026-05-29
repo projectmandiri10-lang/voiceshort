@@ -1,6 +1,5 @@
 import dotenv from "dotenv";
 import path from "node:path";
-import { normalizeOpenAiCompatibleBaseUrl } from "./services/openai-compatible.js";
 import { DEFAULT_SUCCESS_OUTPUT_RETENTION_HOURS } from "./services/success-output-retention.js";
 import { ROOT_DIR } from "./utils/paths.js";
 import { DEFAULT_PORT } from "./constants.js";
@@ -8,12 +7,10 @@ import { DEFAULT_PORT } from "./constants.js";
 dotenv.config({ path: path.join(ROOT_DIR, ".env"), override: true });
 
 export interface AppEnv {
-  aiProvider: "litellm";
-  litellmBaseUrl: string;
-  litellmApiKey: string;
-  litellmScriptModel: string;
-  litellmTtsModel: string;
-  litellmFileTargetModel: string;
+  aiProvider: "gemini";
+  geminiApiKey: string;
+  geminiScriptModel: string;
+  geminiTtsModel: string;
   port: number;
   webOrigins: string[];
   superadminEmail: string;
@@ -36,18 +33,10 @@ export interface AppEnv {
 }
 
 export function loadEnv(): AppEnv {
-  const aiProviderRaw = process.env.AI_PROVIDER?.trim().toLowerCase() || "litellm";
-  const aiProvider = aiProviderRaw === "litellm" ? aiProviderRaw : undefined;
-  const litellmBaseUrlRaw = process.env.LITELLM_BASE_URL?.trim() ?? "";
-  const litellmBaseUrl = litellmBaseUrlRaw
-    ? normalizeOpenAiCompatibleBaseUrl(litellmBaseUrlRaw)
-    : "";
-  const litellmApiKey =
-    process.env.LITELLM_SECRET_KEY?.trim() || process.env.LITELLM_API_KEY?.trim() || "";
-  const litellmScriptModel = process.env.LITELLM_SCRIPT_MODEL?.trim() ?? "";
-  const litellmTtsModel = process.env.LITELLM_TTS_MODEL?.trim() ?? "";
-  const litellmFileTargetModel =
-    process.env.LITELLM_FILE_TARGET_MODEL?.trim() || litellmScriptModel;
+  const aiProvider = "gemini" as const;
+  const geminiApiKey = process.env.GEMINI_API_KEY?.trim() ?? "";
+  const geminiScriptModel = process.env.GEMINI_SCRIPT_MODEL?.trim() ?? "";
+  const geminiTtsModel = process.env.GEMINI_TTS_MODEL?.trim() ?? "";
   const portRaw = process.env.PORT?.trim();
   const port = portRaw ? Number(portRaw) : DEFAULT_PORT;
   const webOrigins = (process.env.WEB_ORIGIN?.trim() || "http://localhost:5174")
@@ -79,20 +68,14 @@ export function loadEnv(): AppEnv {
     ? Number(successOutputRetentionHoursRaw)
     : DEFAULT_SUCCESS_OUTPUT_RETENTION_HOURS;
 
-  if (!aiProvider) {
-    throw new Error(
-      `AI_PROVIDER tidak valid: ${aiProviderRaw}. Aplikasi ini sekarang hanya mendukung litellm.`
-    );
+  if (!geminiApiKey) {
+    throw new Error("GEMINI_API_KEY wajib diisi.");
   }
-
-  if (!litellmBaseUrl) {
-    throw new Error("LITELLM_BASE_URL wajib diisi.");
+  if (!geminiScriptModel) {
+    throw new Error("GEMINI_SCRIPT_MODEL wajib diisi.");
   }
-  if (!litellmScriptModel) {
-    throw new Error("LITELLM_SCRIPT_MODEL wajib diisi.");
-  }
-  if (!litellmTtsModel) {
-    throw new Error("LITELLM_TTS_MODEL wajib diisi.");
+  if (!geminiTtsModel) {
+    throw new Error("GEMINI_TTS_MODEL wajib diisi.");
   }
 
   if (!Number.isFinite(port) || port <= 0) {
@@ -126,11 +109,9 @@ export function loadEnv(): AppEnv {
 
   return {
     aiProvider,
-    litellmBaseUrl,
-    litellmApiKey,
-    litellmScriptModel,
-    litellmTtsModel,
-    litellmFileTargetModel,
+    geminiApiKey,
+    geminiScriptModel,
+    geminiTtsModel,
     port,
     webOrigins,
     superadminEmail,

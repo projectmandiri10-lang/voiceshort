@@ -142,7 +142,7 @@ export interface AdminUserRecord extends AuthSessionUser {
 }
 
 export interface UploadedAiFile {
-  provider: "gemini" | "litellm";
+  provider: "gemini";
   mimeType: string;
   fileUri?: string;
   fileId?: string;

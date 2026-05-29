@@ -1,36 +1,40 @@
-import { AlertTriangle, CheckCircle2, Clock3, LoaderCircle, XCircle } from "lucide-react";
-import type { JobStatus } from "../types";
+import { CheckCircle2, Clock3, LoaderCircle, XCircle } from "lucide-react";
+import type { GenerationSessionStatus } from "../types";
 
-const palette: Record<JobStatus, string> = {
-  queued: "status-badge status-queued",
-  running: "status-badge status-running",
-  success: "status-badge status-success",
+const palette: Record<GenerationSessionStatus, string> = {
+  creating: "status-badge status-queued",
+  ready_for_audio: "status-badge status-running",
+  ready_for_render: "status-badge status-running",
+  completed: "status-badge status-success",
   failed: "status-badge status-failed",
-  interrupted: "status-badge status-interrupted",
 };
 
-const label: Record<JobStatus, string> = {
-  queued: "Antri",
-  running: "Berjalan",
-  success: "Selesai",
+const label: Record<GenerationSessionStatus, string> = {
+  creating: "Membuat",
+  ready_for_audio: "Siap Audio",
+  ready_for_render: "Siap Render",
+  completed: "Selesai",
   failed: "Gagal",
-  interrupted: "Terhenti",
 };
 
 const icon = {
-  queued: Clock3,
-  running: LoaderCircle,
-  success: CheckCircle2,
+  creating: Clock3,
+  ready_for_audio: LoaderCircle,
+  ready_for_render: LoaderCircle,
+  completed: CheckCircle2,
   failed: XCircle,
-  interrupted: AlertTriangle,
-} satisfies Record<JobStatus, typeof Clock3>;
+} satisfies Record<GenerationSessionStatus, typeof Clock3>;
 
-export function StatusBadge({ status }: { status: JobStatus }) {
+export function StatusBadge({ status }: { status: GenerationSessionStatus }) {
   const Icon = icon[status] || Clock3;
 
   return (
     <span className={palette[status] || "status-badge status-queued"}>
-      <Icon size={14} strokeWidth={2.2} className={status === "running" ? "animate-spin" : undefined} />
+      <Icon
+        size={14}
+        strokeWidth={2.2}
+        className={status === "ready_for_audio" || status === "ready_for_render" ? "animate-spin" : undefined}
+      />
       {label[status] || status}
     </span>
   );

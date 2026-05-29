@@ -1,158 +1,156 @@
-# General AI Voice Over App
+# VoiceOver Shorts 60
 
-Aplikasi untuk otomatisasi voice over general berbahasa Indonesia dengan durasi video sampai 60 detik.
+Aplikasi untuk membuat voice over Bahasa Indonesia untuk video pendek sampai `60 detik` dengan arsitektur **Cloudflare Worker penuh**.
 
-## Fungsi Utama
+## Arsitektur Aktif
 
-- Input: `video + judul + brief/deskripsi + kategori konten + gender suara + tone`
-- Opsi tambahan: `CTA` dan `reference link`
-- Output per job:
-  - `caption.txt`
-  - `final.mp4`
+- `apps/web` adalah aplikasi utama:
+  - frontend React + Vite
+  - Cloudflare Worker untuk route `/api/*`
+  - static assets Vite dilayani dari origin yang sama
+- Browser melakukan:
+  - baca durasi video lokal
+  - ekstraksi frame via `video + canvas`
+  - render `final.mp4` lokal via `ffmpeg.wasm`
+- Worker melakukan:
+  - auth/session via Supabase token
+  - generate visual brief, script, caption, hashtag, dan TTS via Gemini REST
+  - billing flat per generate
+  - simpan metadata history ke Supabase `generation_sessions`
+- Video asli dan `final.mp4` tidak disimpan permanen di server.
 
-## Kategori Konten
+`apps/server` masih ada sebagai jalur legacy/arsip dan bukan target deploy utama lagi.
 
-- affiliate
-- video-marketing
-- komedi
-- informasi
-- hiburan
-- gaul
-- cerita
-- review-produk
-- edukasi
-- motivasi
-- promosi-event
+## Struktur Repo
 
-## Stack
+- `apps/web`: frontend + Worker API aktif
+- `apps/server`: backend Node lama, hanya untuk fallback/arsip
+- `supabase/migrations`: migration schema aplikasi
+- `tutorial-cloudflare-workers-frontend.md`: panduan deploy Cloudflare Worker penuh
+- `tutorial.md`: fallback jika nanti ingin backend Node di Cloud Run
+- `tutorial-oracle-cloud-oci.md`: catatan legacy OCI
 
-- Frontend: React + Vite + TypeScript
-- Backend: Fastify + TypeScript
-- AI: seluruh proses memakai LiteLLM OpenAI-compatible, termasuk upload video, analisis visual, script, caption, voice over, dan preview suara
-- Media: `ffmpeg-static` + `ffprobe-static`
-- Runtime: Node.js
+## Env yang Dipakai
 
-## Struktur
+Untuk Worker / `wrangler`:
 
-- `apps/server`: API + processor job general
-- `apps/web`: UI
-- `data/settings.json`: konfigurasi model, batas durasi, dan default voice pria/wanita
-- `data/jobs.json`: metadata job
-- `outputs/<jobId>`: artifact hasil job
-- `uploads/<jobId>`: source upload video
+```env
+GEMINI_API_KEY=your_gemini_api_key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+SUPABASE_ANON_KEY=your_publishable_or_anon_key
+GENERATE_PRICE_IDR=2000
+```
 
-## Setup
+Untuk build frontend:
+
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your_publishable_or_anon_key
+VITE_API_BASE=http://localhost:8787
+```
+
+Catatan:
+
+- `VITE_API_BASE` hanya berguna untuk local dev saat Vite dan Worker berjalan di port berbeda.
+- Di production single-origin, frontend otomatis memakai origin Worker yang sama.
+- `WEBQRIS_*` hanya dibutuhkan jika billing QRIS diaktifkan.
+
+## Setup Lokal
 
 1. Install dependency:
+
 ```bash
 npm install
 ```
-2. Buat `.env` dari contoh:
+
+2. Buat `.env`:
+
 ```bash
 copy .env.example .env
 ```
-3. `.env` utama memakai LiteLLM untuk seluruh proses:
-```env
-AI_PROVIDER=litellm
-LITELLM_BASE_URL=https://litellm.koboi2026.biz.id/v1
-LITELLM_SECRET_KEY=
-LITELLM_SCRIPT_MODEL=gemini/gemini-3-flash-preview
-LITELLM_TTS_MODEL=gemini/gemini-2.5-pro-preview-tts
-LITELLM_FILE_TARGET_MODEL=gemini/gemini-3-flash-preview
-PORT=8788
-WEB_ORIGIN=http://localhost:5174,http://192.168.1.20:5174
-APP_WEB_URL=http://localhost:5174
-APP_API_URL=http://localhost:8788
-APP_PROD_WEB_URL=https://replace-me.example.com
-ADDITIONAL_REDIRECT_URLS=http://127.0.0.1:5174,http://192.168.1.20:5174,https://replace-me.example.com
-```
-4. Isi juga env auth/storage yang memang dipakai backend saat startup:
-- `SUPERADMIN_EMAIL`
-- `SUPABASE_ACCESS_TOKEN`
-- `SUPABASE_PROJECT_REF`
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID`
-- `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET`
-- `SUPERADMIN_PASSWORD`
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
-5. Env billing seperti `WEBQRIS_*` dan `GENERATE_PRICE_IDR` bersifat opsional, tidak wajib untuk `.env` lokal default. Default billing sekarang `Rp2.000/menit`.
 
-## Menjalankan (dev)
+3. Isi minimal:
+
+```env
+GEMINI_API_KEY=your_gemini_api_key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+SUPABASE_ANON_KEY=your_publishable_or_anon_key
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your_publishable_or_anon_key
+VITE_API_BASE=http://localhost:8787
+```
+
+4. Jalankan UI Vite:
 
 ```bash
-npm run dev
+npm run dev -w apps/web
 ```
 
-Default:
-
-- Backend API: `http://localhost:8788`
-- Frontend UI: `http://localhost:5174`
-
-## Routing AI
-
-- Default repo ini sekarang adalah `AI_PROVIDER=litellm`.
-- LiteLLM menangani seluruh flow AI: `upload file`, `visual brief`, `script`, `caption`, `voice over`, dan `preview suara`.
-- `LITELLM_SECRET_KEY` boleh kosong jika gateway lokal Anda tidak memakai auth.
-- Alias lama `LITELLM_API_KEY` masih tetap didukung.
-- Mode provider lain tidak dipakai lagi oleh aplikasi.
-
-Alternatif launcher Windows:
-
-- `start-dev.bat`
-- `start-server.bat`
-- `start-frontend.bat`
-
-## Menjalankan dari Laptop + Android (LAN)
-
-1. Cari IP laptop di jaringan yang sama.
-2. `.env` lokal repo ini memang sudah memakai format multi-origin seperti:
-```env
-WEB_ORIGIN=http://localhost:5174,http://192.168.1.20:5174
-```
-3. Sesuaikan IP LAN jika alamat laptop Anda berbeda.
-4. Jalankan `npm run dev`.
-5. Buka dari browser HP ke `http://<ip-laptop>:5174`.
-
-## Menjalankan (build + start)
+5. Jalankan Worker API di terminal kedua:
 
 ```bash
-npm run build
-npm run start
+npm run dev:worker -w apps/web
 ```
+
+Default lokal:
+
+- frontend: `http://localhost:5174`
+- Worker API: `http://localhost:8787`
+
+## Build dan Deploy
+
+Build frontend:
+
+```bash
+npm run build -w apps/web
+```
+
+Deploy Worker:
+
+```bash
+cd apps/web
+npx wrangler deploy
+```
+
+Panduan langkah demi langkah ada di `tutorial-cloudflare-workers-frontend.md`.
 
 ## API Ringkas
 
 - `GET /api/health`
-- `GET /api/settings`
-- `PUT /api/settings`
+- `GET /api/auth/session`
 - `GET /api/tts/voices`
 - `POST /api/tts/preview`
-- `POST /api/jobs`
-- `GET /api/jobs`
-- `GET /api/jobs/:jobId`
-- `PUT /api/jobs/:jobId`
-- `DELETE /api/jobs/:jobId`
-- `POST /api/jobs/:jobId/retry`
-- `POST /api/jobs/:jobId/open-location`
+- `GET /api/billing/wallet`
+- `POST /api/billing/topups`
+- `GET /api/billing/topups/:id/status`
+- `GET /api/settings`
+- `PUT /api/settings`
+- `GET /api/admin/users`
+- `POST /api/admin/users`
+- `PATCH /api/admin/users/:email`
+- `DELETE /api/admin/users/:email`
+- `POST /api/admin/users/:email/package-grants`
+- `GET /api/generation-sessions`
+- `POST /api/generation-sessions`
+- `GET /api/generation-sessions/:id`
+- `POST /api/generation-sessions/:id/tts`
+- `POST /api/generation-sessions/:id/complete`
+- `POST /api/generation-sessions/:id/fail`
+
+Route `/api/jobs*`, SSE progress, server-side download artifact, dan `open-location` sekarang dianggap legacy.
 
 ## Catatan Operasional
 
-- Bahasa utama: `id-ID`
-- Batas durasi hard cap: `60 detik`
-- Billing default: `Rp2.000/menit` dengan pembulatan ke atas per menit
-- Contoh billing: `60 detik = 1 menit = Rp2.000`
-- V1 memakai single general job, bukan multi-platform batch
-- Default voice diatur per gender pada halaman settings dan preview suaranya dibuat lewat LiteLLM
-- Mode utama repo ini adalah `AI_PROVIDER=litellm`
-- Model runtime script/TTS mengikuti `LITELLM_SCRIPT_MODEL` dan `LITELLM_TTS_MODEL`
-- Backend akan gagal boot jika `SUPABASE_URL`, `SUPABASE_ANON_KEY`, atau `SUPABASE_SERVICE_ROLE_KEY` belum diisi di `.env`
-- `WEBQRIS_*` dan `GENERATE_PRICE_IDR` hanya dibutuhkan jika fitur billing/generate berbayar diaktifkan
+- Hard cap video: `60 detik`
+- Billing default: `Rp2.000/generate`
+- Frame analisis: JPEG terkompresi, lebar maksimal `448px`
+- Final MP4 hanya tersedia di browser yang sama kecuali user mengunduhnya
+- Retry render lokal memanfaatkan cache IndexedDB agar tidak charge ulang
 
 ## Testing
 
 ```bash
-npm run test
+npm run test -w apps/web
 ```

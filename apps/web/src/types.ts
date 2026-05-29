@@ -18,17 +18,6 @@ export const VOICE_GENDERS = ["male", "female"] as const;
 export type JobVoiceGender = (typeof VOICE_GENDERS)[number];
 export type VoiceGender = JobVoiceGender | "neutral";
 
-export type JobStatus = "queued" | "running" | "success" | "failed" | "interrupted";
-export type JobProgressPhase =
-  | "queued"
-  | "analyzing"
-  | "scripting"
-  | "captioning"
-  | "synthesizing"
-  | "rendering"
-  | "success"
-  | "failed"
-  | "interrupted";
 export type UserRole = "user" | "superadmin";
 export type SubscriptionStatus = "active" | "inactive";
 export type AssignedPackageCode = "10_video" | "50_video" | "100_video" | "custom";
@@ -47,55 +36,6 @@ export interface AppSettings {
   safetyMode: "safe_marketing";
   concurrency: 1;
   genderVoices: GenderVoiceSettings[];
-}
-
-export interface GenerationCapacity {
-  overloaded: boolean;
-  runningCount: number;
-  queuedCount: number;
-  maxRunningJobs: number;
-  maxQueuedJobs: number;
-  maxRunningPerUser: number;
-  message: string;
-}
-
-export interface JobOutput {
-  captionPath?: string;
-  scriptPath?: string;
-  voicePath?: string;
-  finalVideoPath?: string;
-  captionDownloadedAt?: string;
-  finalVideoDownloadedAt?: string;
-  artifactPaths: string[];
-  updatedAt: string;
-}
-
-export interface JobProgress {
-  phase: JobProgressPhase;
-  percent: number;
-  label: string;
-  updatedAt: string;
-}
-
-export interface JobRecord {
-  jobId: string;
-  createdAt: string;
-  updatedAt: string;
-  ownerEmail?: string;
-  title: string;
-  description: string;
-  contentType: ContentType;
-  voiceGender: JobVoiceGender;
-  tone: string;
-  ctaText?: string;
-  referenceLink?: string;
-  videoPath: string;
-  videoMimeType: string;
-  videoDurationSec: number;
-  status: JobStatus;
-  progress: JobProgress;
-  errorMessage?: string;
-  output: JobOutput;
 }
 
 export interface AuthUser {
@@ -136,4 +76,125 @@ export interface ExcitedVoicePreset {
   version: string;
   gender: JobVoiceGender;
   voiceName: string;
+}
+
+export type GenerationSessionStatus =
+  | "creating"
+  | "ready_for_audio"
+  | "ready_for_render"
+  | "completed"
+  | "failed";
+
+export interface GenerationSessionRenderSummary {
+  finalDurationSec?: number;
+  finalSizeBytes?: number;
+  renderedAt?: string;
+  localFileName?: string;
+  lastClientError?: string;
+}
+
+export interface GenerationSessionRecord {
+  sessionId: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+  ownerEmail?: string;
+  title: string;
+  description: string;
+  contentType: ContentType;
+  voiceGender: JobVoiceGender;
+  tone: string;
+  ctaText?: string;
+  referenceLink?: string;
+  videoDurationSec: number;
+  frameCount: number;
+  status: GenerationSessionStatus;
+  scriptText?: string;
+  captionText?: string;
+  hashtags: string[];
+  voiceName?: string;
+  speechRate?: number;
+  chargedAmountIdr: number;
+  errorMessage?: string;
+  renderSummary?: GenerationSessionRenderSummary;
+}
+
+export interface ExtractedFrame {
+  index: number;
+  timestampSec: number;
+  mimeType: "image/jpeg";
+  base64Data: string;
+  dataUrl: string;
+  width: number;
+  height: number;
+}
+
+export interface GenerationSessionCreateInput {
+  title: string;
+  description: string;
+  contentType: ContentType;
+  voiceGender: JobVoiceGender;
+  tone: string;
+  ctaText?: string;
+  referenceLink?: string;
+  videoDurationSec: number;
+  frames: Array<{
+    timestampSec: number;
+    mimeType: "image/jpeg";
+    base64Data: string;
+    width: number;
+    height: number;
+  }>;
+}
+
+export interface GenerationSessionCreateResult {
+  session: GenerationSessionRecord;
+}
+
+export interface GenerationSessionCompleteInput {
+  finalDurationSec: number;
+  finalSizeBytes: number;
+  localFileName?: string;
+}
+
+export interface PreviewVoiceResult {
+  voiceName: string;
+  audioUrl: string;
+}
+
+export interface CachedGenerationSessionRecord {
+  sessionId: string;
+  sourceVideoName: string;
+  sourceVideoType: string;
+  sourceVideoBlob: Blob;
+  audioBlob?: Blob;
+  audioMimeType?: string;
+  renderedVideoBlob?: Blob;
+  renderFileName?: string;
+  updatedAt: string;
+}
+
+export interface VisualBriefHook {
+  startSec: number;
+  endSec: number;
+  reason: string;
+}
+
+export interface VisualBriefTimelineItem {
+  startSec: number;
+  endSec: number;
+  primaryVisual: string;
+  action: string;
+  onScreenText: string[];
+  narrationFocus: string;
+  avoidClaims: string[];
+}
+
+export interface VisualBrief {
+  summary: string;
+  hook: VisualBriefHook;
+  timeline: VisualBriefTimelineItem[];
+  mustMention: string[];
+  mustAvoid: string[];
+  uncertainties: string[];
 }

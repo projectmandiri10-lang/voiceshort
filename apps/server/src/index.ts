@@ -5,7 +5,7 @@ import { JobEvents } from "./services/job-events.js";
 import { JobProcessor } from "./services/job-processor.js";
 import type { AiService, SpeechService } from "./services/ai-service.js";
 import { BillingService } from "./services/billing-service.js";
-import { LiteLlmService } from "./services/litellm-service.js";
+import { GeminiService } from "./services/gemini-service.js";
 import { SupabaseAuthConfigService } from "./services/supabase-auth-config-service.js";
 import { createSupabaseClient } from "./services/supabase-client.js";
 import { JobsStore } from "./stores/jobs-store.js";
@@ -19,8 +19,8 @@ async function bootstrap(): Promise<void> {
   await ensureAppDirs();
   const env = loadEnv();
   const runtimeModelOverrides = {
-    scriptModel: env.litellmScriptModel,
-    ttsModel: env.litellmTtsModel
+    scriptModel: env.geminiScriptModel,
+    ttsModel: env.geminiTtsModel
   };
   const adminDb = createSupabaseClient({
     supabaseUrl: env.supabaseUrl,
@@ -55,16 +55,9 @@ async function bootstrap(): Promise<void> {
     logger.error({ err: error }, "Gagal sinkronisasi Google OAuth ke Supabase.");
   });
 
-  const litellm = new LiteLlmService({
-    baseUrl: env.litellmBaseUrl,
-    apiKey: env.litellmApiKey,
-    scriptModel: env.litellmScriptModel,
-    ttsModel: env.litellmTtsModel,
-    fileTargetModel: env.litellmFileTargetModel,
-    logger
-  });
-  const aiService: AiService = litellm;
-  const speechGenerator: SpeechService = litellm;
+  const gemini = new GeminiService(env.geminiApiKey, logger);
+  const aiService: AiService = gemini;
+  const speechGenerator: SpeechService = gemini;
   const billingService = new BillingService({
     db: adminDb,
     logger,
@@ -110,13 +103,12 @@ async function bootstrap(): Promise<void> {
   logger.info(
     {
       aiProvider: env.aiProvider,
-      litellmBaseUrl: env.litellmBaseUrl,
-      scriptModel: env.litellmScriptModel,
-      ttsModel: env.litellmTtsModel,
-      nonTtsProvider: "litellm",
-      ttsProvider: "litellm"
+      scriptModel: env.geminiScriptModel,
+      ttsModel: env.geminiTtsModel,
+      nonTtsProvider: "gemini",
+      ttsProvider: "gemini"
     },
-    "Routing AI aktif: upload, naskah, caption, dan suara via litellm."
+    "Routing AI aktif: upload, naskah, caption, dan suara via Gemini API native."
   );
   logger.info(`Server berjalan di http://localhost:${env.port}`);
 }

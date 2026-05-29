@@ -2,7 +2,6 @@
 setlocal
 
 cd /d "%~dp0"
-set "NEED_REPAIR=0"
 
 if not exist "node_modules" (
   echo [INFO] Installing dependencies...
@@ -13,66 +12,72 @@ if not exist "node_modules" (
   )
 )
 
-if not exist "node_modules\@babel\core\lib\index.js" (
-  set "NEED_REPAIR=1"
-)
-if not exist "node_modules\@google\genai\dist\node\index.mjs" (
-  set "NEED_REPAIR=1"
-)
-
 if not exist ".env" (
   echo [WARN] File .env belum ada. Menyalin dari .env.example...
   copy /y ".env.example" ".env" >nul
   echo [WARN] File yang perlu diedit: %cd%\.env
-  echo [WARN] Pastikan LITELLM_BASE_URL, LITELLM_SCRIPT_MODEL, dan LITELLM_TTS_MODEL terisi lalu jalankan lagi.
+  echo [WARN] Pastikan GEMINI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, VITE_SUPABASE_URL, dan VITE_SUPABASE_ANON_KEY terisi lalu jalankan lagi.
   goto :fail
 )
 
-findstr /r /c:"^LITELLM_BASE_URL=$" ".env" >nul
+findstr /r /c:"^GEMINI_API_KEY=$" ".env" >nul
 if "%ERRORLEVEL%"=="0" (
-  echo [WARN] File yang perlu diedit: %cd%\.env
-  echo [WARN] LITELLM_BASE_URL di .env masih kosong. Isi base URL LiteLLM lalu jalankan lagi.
+  echo [WARN] GEMINI_API_KEY di .env masih kosong.
   goto :fail
 )
 
-if "%NEED_REPAIR%"=="1" (
-  echo [WARN] Detected incomplete dependencies. Running repair install...
-  call npm install --force
-  if errorlevel 1 (
-    echo [ERROR] Dependency repair failed.
-    goto :fail
-  )
+findstr /r /c:"^SUPABASE_URL=$" ".env" >nul
+if "%ERRORLEVEL%"=="0" (
+  echo [WARN] SUPABASE_URL di .env masih kosong.
+  goto :fail
+)
+
+findstr /r /c:"^SUPABASE_SERVICE_ROLE_KEY=$" ".env" >nul
+if "%ERRORLEVEL%"=="0" (
+  echo [WARN] SUPABASE_SERVICE_ROLE_KEY di .env masih kosong.
+  goto :fail
+)
+
+findstr /r /c:"^VITE_SUPABASE_URL=$" ".env" >nul
+if "%ERRORLEVEL%"=="0" (
+  echo [WARN] VITE_SUPABASE_URL di .env masih kosong.
+  goto :fail
+)
+
+findstr /r /c:"^VITE_SUPABASE_ANON_KEY=$" ".env" >nul
+if "%ERRORLEVEL%"=="0" (
+  echo [WARN] VITE_SUPABASE_ANON_KEY di .env masih kosong.
+  goto :fail
 )
 
 echo [INFO] Chrome akan dibuka otomatis ke http://localhost:5174 saat frontend siap...
 start "VoiceShort Browser" powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0scripts\open-dev-browser.ps1" -Url "http://localhost:5174" -HostName "127.0.0.1" -Port 5174 -TimeoutSeconds 45
 
-rem Detect existing dev servers to avoid EADDRINUSE when user runs this twice.
-set "HAS_BACKEND=0"
+set "HAS_WORKER=0"
 set "HAS_FRONTEND=0"
-netstat -ano | findstr /R /C:":8788 .*LISTENING" >nul 2>nul && set "HAS_BACKEND=1"
+netstat -ano | findstr /R /C:":8787 .*LISTENING" >nul 2>nul && set "HAS_WORKER=1"
 netstat -ano | findstr /R /C:":5174 .*LISTENING" >nul 2>nul && set "HAS_FRONTEND=1"
 
-if "%HAS_BACKEND%"=="1" (
+if "%HAS_WORKER%"=="1" (
   if "%HAS_FRONTEND%"=="1" (
-    echo [INFO] Backend 8788 dan frontend 5174 sudah berjalan. Skip start.
+    echo [INFO] Worker API 8787 dan frontend 5174 sudah berjalan. Skip start.
     exit /b 0
   )
 )
 
-if "%HAS_BACKEND%"=="1" (
-  echo [INFO] Backend 8788 sudah berjalan. Menjalankan frontend saja...
+if "%HAS_WORKER%"=="1" (
+  echo [INFO] Worker API 8787 sudah berjalan. Menjalankan frontend saja...
   call npm run dev -w apps/web
   goto :after_run
 )
 
 if "%HAS_FRONTEND%"=="1" (
-  echo [INFO] Frontend 5174 sudah berjalan. Menjalankan backend saja...
-  call npm run dev -w apps/server
+  echo [INFO] Frontend 5174 sudah berjalan. Menjalankan Worker API saja...
+  call npm run dev:worker -w apps/web
   goto :after_run
 )
 
-echo [INFO] Starting server + frontend (dev mode)...
+echo [INFO] Starting frontend Vite + Worker API (dev mode)...
 call npm run dev
 :after_run
 if errorlevel 1 (

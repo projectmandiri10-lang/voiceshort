@@ -14,7 +14,7 @@ declare module "ffmpeg-static" {
   export default ffmpeg;
 }
 
-declare module "@google/genai/node" {
+declare module "@google/genai" {
   interface GeminiFile {
     name?: string;
     uri?: string;

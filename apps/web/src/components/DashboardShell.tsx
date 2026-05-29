@@ -51,7 +51,7 @@ export function DashboardShell<TView extends string>({
   const balanceLabel = user.isUnlimited ? "Unlimited" : formatRupiah(user.walletBalanceIdr);
   const balanceNote = user.isUnlimited
     ? "Akun tanpa batas"
-    : `${user.generateCreditsRemaining ?? 0} menit tersisa`;
+    : `${user.generateCreditsRemaining ?? 0} generate tersisa`;
   const accessLabel = user.role === "superadmin" ? "Admin" : "Pengguna";
 
   return (

@@ -2,17 +2,17 @@ import type {
   AdminUserRecord,
   AppSettings,
   AuthUser,
-  ContentType,
   ExcitedVoicePreset,
-  GenerationCapacity,
-  JobProgress,
-  JobRecord,
-  JobVoiceGender,
+  GenerationSessionCompleteInput,
+  GenerationSessionCreateInput,
+  GenerationSessionCreateResult,
+  GenerationSessionRecord,
+  PreviewVoiceResult,
   TtsVoiceOption
 } from "./types";
 import { isSupabaseAuthReady, supabase } from "./supabase";
 
-const DEV_BACKEND_PORT = "8788";
+const DEV_WORKER_PORT = "8787";
 const GOOGLE_CALLBACK_PATH = "/auth/callback";
 const DEFAULT_AUTH_NEXT_PATH = "/?view=generate";
 const USER_AUTH_NOT_READY_MESSAGE =
@@ -29,10 +29,10 @@ function resolveApiBase(): string {
     return trimTrailingSlash(envBase);
   }
   if (typeof window === "undefined") {
-    return `http://localhost:${DEV_BACKEND_PORT}`;
+    return `http://localhost:${DEV_WORKER_PORT}`;
   }
   if (import.meta.env.DEV) {
-    return `${window.location.protocol}//${window.location.hostname}:${DEV_BACKEND_PORT}`;
+    return `${window.location.protocol}//${window.location.hostname}:${DEV_WORKER_PORT}`;
   }
   return window.location.origin;
 }
@@ -61,6 +61,55 @@ export interface AuthResult {
   user: AuthUser | null;
   message: string;
   needsEmailConfirmation?: boolean;
+}
+
+export interface DepositPackage {
+  code: "10_video" | "50_video" | "100_video";
+  label: string;
+  payAmountIdr: number;
+  creditAmountIdr: number;
+  bonusAmountIdr: number;
+  generateCredits: number;
+}
+
+export interface PaymentOrder {
+  id: string;
+  packageCode: DepositPackage["code"];
+  payAmountIdr: number;
+  creditAmountIdr: number;
+  merchantOrderId: string;
+  webqrisInvoiceId?: string | null;
+  qrisPayload?: string | null;
+  uniqueCode?: number | null;
+  totalAmountIdr?: number | null;
+  status: "pending" | "paid" | "expired" | "failed" | "canceled";
+  expiredAt?: string | null;
+  paidAt?: string | null;
+  paymentMethod?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WalletLedgerEntry {
+  id: string;
+  amountIdr: number;
+  balanceAfterIdr: number;
+  entryType: string;
+  sourceType: string;
+  sourceId?: string | null;
+  description: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface WalletSummary {
+  walletBalanceIdr: number;
+  generatePriceIdr: number;
+  generateCreditsRemaining: number | null;
+  isUnlimited: boolean;
+  packages: DepositPackage[];
+  recentLedger: WalletLedgerEntry[];
+  recentTopups: PaymentOrder[];
 }
 
 export function isAuthReady(): boolean {
@@ -117,27 +166,21 @@ function friendlyAuthError(error: unknown, fallback: string): Error {
   if (normalized.includes("email not confirmed")) {
     return new Error("Email Anda belum dikonfirmasi. Cek inbox email, lalu masuk kembali.");
   }
-
   if (normalized.includes("invalid login") || normalized.includes("invalid credentials")) {
     return new Error("Email atau password belum cocok. Periksa lagi lalu coba masuk.");
   }
-
   if (normalized.includes("password")) {
     return new Error("Password belum memenuhi syarat. Gunakan minimal 8 karakter.");
   }
-
   if (normalized.includes("already registered") || normalized.includes("already exists")) {
     return new Error("Email ini sudah terdaftar. Silakan masuk dengan email tersebut.");
   }
-
   if (normalized.includes("rate limit") || normalized.includes("too many")) {
     return new Error("Terlalu banyak percobaan. Tunggu sebentar lalu coba lagi.");
   }
-
   if (normalized.includes("network") || normalized.includes("failed to fetch")) {
     return new Error("Koneksi belum stabil. Periksa internet Anda lalu coba lagi.");
   }
-
   if (normalized.includes("supabase auth belum dikonfigurasi")) {
     return new Error(USER_AUTH_NOT_READY_MESSAGE);
   }
@@ -181,55 +224,38 @@ async function apiFetch<T>(
     throw new ApiError(401, "Silakan login terlebih dahulu.");
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
-      ...(accessToken
-        ? {
-            Authorization: `Bearer ${accessToken}`
-          }
-        : {}),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...(init?.headers || {})
     }
   });
-  return parseResponse<T>(res);
+  return await parseResponse<T>(response);
 }
 
-async function buildAuthorizedApiUrl(path: string): Promise<string> {
+async function apiFetchBlob(
+  path: string,
+  init?: RequestInit,
+  options?: { requireAuth?: boolean }
+): Promise<Blob> {
+  const requireAuth = options?.requireAuth ?? true;
   const accessToken = await getAccessToken();
-  if (!accessToken) {
+  if (requireAuth && !accessToken) {
     throw new ApiError(401, "Silakan login terlebih dahulu.");
   }
 
-  const url = new URL(`${API_BASE}${path}`);
-  url.searchParams.set("access_token", accessToken);
-  return url.toString();
-}
-
-async function triggerBrowserDownload(path: string): Promise<void> {
-  if (typeof window === "undefined" || typeof document === "undefined") {
-    throw new Error("Download file hanya tersedia di browser.");
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...(init?.headers || {})
+    }
+  });
+  if (!response.ok) {
+    await parseResponse(response);
   }
-
-  const url = await buildAuthorizedApiUrl(path);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = "";
-  anchor.rel = "noreferrer";
-  anchor.style.display = "none";
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-}
-
-export function resolveOutputUrl(outputPath: string): string {
-  if (/^https?:\/\//i.test(outputPath)) {
-    return outputPath;
-  }
-  if (typeof window === "undefined") {
-    return outputPath;
-  }
-  return new URL(outputPath, `${API_BASE}/`).toString();
+  return await response.blob();
 }
 
 export async function startGoogleLogin(returnTo = "/"): Promise<void> {
@@ -261,7 +287,6 @@ export async function completeGoogleOAuthRedirect(): Promise<OAuthRedirectResult
   const oauthError = getOAuthError(currentUrl);
 
   if (oauthError) {
-    console.warn("Google OAuth returned an error:", oauthError);
     replaceBrowserUrl("/");
     return {
       authError: OAUTH_ERROR_LOGIN_FAILED,
@@ -282,9 +307,7 @@ export async function completeGoogleOAuthRedirect(): Promise<OAuthRedirectResult
   }
 
   const { error } = await supabase.auth.exchangeCodeForSession(code);
-
   if (error) {
-    console.warn("Google OAuth callback exchange failed:", error.message);
     replaceBrowserUrl("/");
     return {
       authError: OAUTH_ERROR_CALLBACK_INVALID,
@@ -312,47 +335,6 @@ export function subscribeToAuthState(
 
   return () => {
     subscription.unsubscribe();
-  };
-}
-
-export function subscribeToJobEvents(
-  jobId: string,
-  callbacks: {
-    onJob: (job: JobRecord) => void;
-    onError?: () => void;
-  }
-): () => void {
-  let closed = false;
-  let source: EventSource | null = null;
-
-  void (async () => {
-    try {
-      const accessToken = await getAccessToken();
-      if (!accessToken || closed) {
-        callbacks.onError?.();
-        return;
-      }
-
-      const eventsUrl = new URL(`${API_BASE}/api/jobs/${jobId}/events`);
-      eventsUrl.searchParams.set("access_token", accessToken);
-      source = new EventSource(eventsUrl.toString());
-
-      source.addEventListener("job", (event) => {
-        const payload = JSON.parse((event as MessageEvent<string>).data) as { job: JobRecord };
-        callbacks.onJob(payload.job);
-      });
-
-      source.onerror = () => {
-        callbacks.onError?.();
-      };
-    } catch {
-      callbacks.onError?.();
-    }
-  })();
-
-  return () => {
-    closed = true;
-    source?.close();
   };
 }
 
@@ -549,55 +531,6 @@ export async function updateSettings(settings: AppSettings): Promise<AppSettings
   });
 }
 
-export interface DepositPackage {
-  code: "10_video" | "50_video" | "100_video";
-  label: string;
-  payAmountIdr: number;
-  creditAmountIdr: number;
-  bonusAmountIdr: number;
-  generateCredits: number;
-}
-
-export interface PaymentOrder {
-  id: string;
-  packageCode: DepositPackage["code"];
-  payAmountIdr: number;
-  creditAmountIdr: number;
-  merchantOrderId: string;
-  webqrisInvoiceId?: string | null;
-  qrisPayload?: string | null;
-  uniqueCode?: number | null;
-  totalAmountIdr?: number | null;
-  status: "pending" | "paid" | "expired" | "failed" | "canceled";
-  expiredAt?: string | null;
-  paidAt?: string | null;
-  paymentMethod?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface WalletLedgerEntry {
-  id: string;
-  amountIdr: number;
-  balanceAfterIdr: number;
-  entryType: string;
-  sourceType: string;
-  sourceId?: string | null;
-  description: string;
-  metadata: Record<string, unknown>;
-  createdAt: string;
-}
-
-export interface WalletSummary {
-  walletBalanceIdr: number;
-  generatePriceIdr: number;
-  generateCreditsRemaining: number | null;
-  isUnlimited: boolean;
-  packages: DepositPackage[];
-  recentLedger: WalletLedgerEntry[];
-  recentTopups: PaymentOrder[];
-}
-
 export async function fetchWallet(): Promise<WalletSummary> {
   return await apiFetch<WalletSummary>("/api/billing/wallet");
 }
@@ -616,61 +549,11 @@ export async function fetchTopupStatus(orderId: string): Promise<PaymentOrder> {
   return await apiFetch<PaymentOrder>(`/api/billing/topups/${encodeURIComponent(orderId)}/status`);
 }
 
-export async function createJob(input: {
-  video: File;
-  title: string;
-  description: string;
-  contentType: ContentType;
-  voiceGender: JobVoiceGender;
-  tone: string;
-  ctaText?: string;
-  referenceLink?: string;
-}): Promise<{ jobId: string; status: string; progress: JobProgress }> {
-  const form = new FormData();
-  form.append("video", input.video);
-  form.append("title", input.title);
-  form.append("description", input.description);
-  form.append("contentType", input.contentType);
-  form.append("voiceGender", input.voiceGender);
-  form.append("tone", input.tone);
-  if (input.ctaText?.trim()) {
-    form.append("ctaText", input.ctaText.trim());
-  }
-  if (input.referenceLink?.trim()) {
-    form.append("referenceLink", input.referenceLink.trim());
-  }
-  return await apiFetch<{ jobId: string; status: string; progress: JobProgress }>("/api/jobs", {
+export async function createGenerationSession(
+  input: GenerationSessionCreateInput
+): Promise<GenerationSessionCreateResult> {
+  return await apiFetch<GenerationSessionCreateResult>("/api/generation-sessions", {
     method: "POST",
-    body: form
-  });
-}
-
-export async function fetchJobs(): Promise<JobRecord[]> {
-  return await apiFetch<JobRecord[]>("/api/jobs");
-}
-
-export async function fetchGenerationCapacity(): Promise<GenerationCapacity> {
-  return await apiFetch<GenerationCapacity>("/api/generation-capacity");
-}
-
-export async function fetchJobDetail(jobId: string): Promise<JobRecord> {
-  return await apiFetch<JobRecord>(`/api/jobs/${jobId}`);
-}
-
-export async function updateJob(
-  jobId: string,
-  input: {
-    title: string;
-    description: string;
-    contentType: ContentType;
-    voiceGender: JobVoiceGender;
-    tone: string;
-    ctaText?: string;
-    referenceLink?: string;
-  }
-): Promise<JobRecord> {
-  return await apiFetch<JobRecord>(`/api/jobs/${jobId}`, {
-    method: "PUT",
     headers: {
       "Content-Type": "application/json"
     },
@@ -678,30 +561,58 @@ export async function updateJob(
   });
 }
 
-export async function deleteJob(jobId: string): Promise<void> {
-  await apiFetch<{ ok: boolean }>(`/api/jobs/${jobId}`, {
-    method: "DELETE"
-  });
+export async function fetchGenerationSessions(): Promise<GenerationSessionRecord[]> {
+  const result = await apiFetch<{ sessions?: GenerationSessionRecord[] } | GenerationSessionRecord[]>(
+    "/api/generation-sessions"
+  );
+  return Array.isArray(result) ? result : result.sessions || [];
 }
 
-export async function downloadJobCaption(jobId: string): Promise<void> {
-  await triggerBrowserDownload(`/api/jobs/${jobId}/download/caption`);
+export async function fetchGenerationSession(sessionId: string): Promise<GenerationSessionRecord> {
+  const result = await apiFetch<{ session: GenerationSessionRecord }>(
+    `/api/generation-sessions/${encodeURIComponent(sessionId)}`
+  );
+  return result.session;
 }
 
-export async function downloadJobFinalVideo(jobId: string): Promise<void> {
-  await triggerBrowserDownload(`/api/jobs/${jobId}/download/final-video`);
-}
-
-export async function retryJob(jobId: string): Promise<void> {
-  await apiFetch<{ ok: boolean }>(`/api/jobs/${jobId}/retry`, {
+export async function fetchGenerationSessionAudio(sessionId: string): Promise<Blob> {
+  return await apiFetchBlob(`/api/generation-sessions/${encodeURIComponent(sessionId)}/tts`, {
     method: "POST"
   });
 }
 
-export async function openJobOutputLocation(jobId: string): Promise<void> {
-  await apiFetch<{ ok: boolean }>(`/api/jobs/${jobId}/open-location`, {
-    method: "POST"
-  });
+export async function completeGenerationSession(
+  sessionId: string,
+  input: GenerationSessionCompleteInput
+): Promise<GenerationSessionRecord> {
+  const result = await apiFetch<{ session: GenerationSessionRecord }>(
+    `/api/generation-sessions/${encodeURIComponent(sessionId)}/complete`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    }
+  );
+  return result.session;
+}
+
+export async function failGenerationSession(
+  sessionId: string,
+  input: { reason: string; retryable?: boolean }
+): Promise<GenerationSessionRecord> {
+  const result = await apiFetch<{ session: GenerationSessionRecord }>(
+    `/api/generation-sessions/${encodeURIComponent(sessionId)}/fail`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    }
+  );
+  return result.session;
 }
 
 export async function fetchTtsVoices(): Promise<{
@@ -711,19 +622,23 @@ export async function fetchTtsVoices(): Promise<{
   return await apiFetch<{
     voices: TtsVoiceOption[];
     excitedPresets: ExcitedVoicePreset[];
-  }>("/api/tts/voices");
+  }>("/api/tts/voices", undefined, { requireAuth: false });
 }
 
 export async function previewTtsVoice(input: {
   voiceName: string;
   speechRate: number;
   text?: string;
-}): Promise<{ voiceName: string; previewPath: string }> {
-  return await apiFetch<{ voiceName: string; previewPath: string }>("/api/tts/preview", {
+}): Promise<PreviewVoiceResult> {
+  const blob = await apiFetchBlob("/api/tts/preview", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify(input)
   });
+  return {
+    voiceName: input.voiceName,
+    audioUrl: URL.createObjectURL(blob)
+  };
 }

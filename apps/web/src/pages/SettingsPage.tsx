@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Gauge, Mic2, Save } from "lucide-react";
-import { fetchSettings, fetchTtsVoices, previewTtsVoice, resolveOutputUrl, updateSettings } from "../api";
+import { fetchSettings, fetchTtsVoices, previewTtsVoice, updateSettings } from "../api";
 import type { AppSettings, JobVoiceGender, TtsVoiceOption } from "../types";
 
 const GENDER_LABEL: Record<JobVoiceGender, string> = {
@@ -112,9 +112,12 @@ export function SettingsPage() {
             ? "Halo, ini contoh voice over pria untuk video short sampai 60 detik yang natural dan jelas."
             : "Halo, ini contoh voice over wanita untuk video short sampai 60 detik yang ringan dan menarik.",
       });
+      if (previewPaths[gender]) {
+        URL.revokeObjectURL(previewPaths[gender] || "");
+      }
       setPreviewPaths((current) => ({
         ...current,
-        [gender]: result.previewPath,
+        [gender]: result.audioUrl,
       }));
     } catch (previewError) {
       setError((previewError as Error).message);
@@ -139,7 +142,8 @@ export function SettingsPage() {
         <span className="eyebrow">Pengaturan Layanan</span>
         <h2>Atur batas durasi dan suara default untuk setiap proses generate.</h2>
         <p className="section-note">
-          Semua proses AI memakai LiteLLM, termasuk naskah, caption, voice over, dan preview suara.
+          Semua proses AI memakai Gemini langsung dari Worker, termasuk naskah, caption, voice over,
+          dan preview suara.
         </p>
       </div>
 
@@ -223,14 +227,12 @@ export function SettingsPage() {
                     </button>
                   </div>
 
-                  <p className="small">Preview ini memakai jalur voice LiteLLM yang sama dengan hasil generate.</p>
+                  <p className="small">
+                    Preview ini memakai jalur Gemini Worker yang sama dengan hasil generate.
+                  </p>
 
                   {previewPaths[gender] ? (
-                    <audio
-                      className="audio-preview"
-                      controls
-                      src={resolveOutputUrl(previewPaths[gender] || "")}
-                    />
+                    <audio className="audio-preview" controls src={previewPaths[gender] || ""} />
                   ) : null}
                 </div>
               </article>

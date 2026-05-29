@@ -30,9 +30,9 @@ interface GrantDraft {
 }
 
 const PACKAGE_LABEL: Record<AssignedPackageCode, string> = {
-  "10_video": "10 menit",
-  "50_video": "50 menit",
-  "100_video": "100 menit",
+  "10_video": "10 generate",
+  "50_video": "50 generate",
+  "100_video": "100 generate",
   custom: "Custom",
 };
 
@@ -329,7 +329,7 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
           const grantDraft = grantDrafts[user.email] ?? defaultGrantDraft(user);
           const balanceLabel = user.isUnlimited
             ? "Saldo Unlimited"
-            : `${formatRupiah(user.walletBalanceIdr)} (${user.generateCreditsRemaining ?? 0} menit penuh)`;
+            : `${formatRupiah(user.walletBalanceIdr)} (${user.generateCreditsRemaining ?? 0} generate)`;
 
           return (
             <article className="admin-user-card" key={user.email}>
@@ -423,9 +423,9 @@ export function AdminUsersPage({ onRefreshSession }: AdminUsersPageProps) {
                       }
                     >
                       <option value="">Belum ada</option>
-                      <option value="10_video">10 menit</option>
-                      <option value="50_video">50 menit</option>
-                      <option value="100_video">100 menit</option>
+                      <option value="10_video">10 generate</option>
+                      <option value="50_video">50 generate</option>
+                      <option value="100_video">100 generate</option>
                       <option value="custom">Custom</option>
                     </select>
                   </label>

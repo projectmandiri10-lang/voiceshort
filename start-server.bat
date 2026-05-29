@@ -2,7 +2,6 @@
 setlocal
 
 cd /d "%~dp0"
-set "NEED_REPAIR=0"
 
 if not exist "node_modules" (
   echo [INFO] Installing dependencies...
@@ -13,42 +12,36 @@ if not exist "node_modules" (
   )
 )
 
-if not exist "node_modules\@google\genai\dist\node\index.mjs" (
-  set "NEED_REPAIR=1"
-)
-if not exist "node_modules\@babel\core\lib\index.js" (
-  set "NEED_REPAIR=1"
-)
-
 if not exist ".env" (
   echo [WARN] File .env belum ada. Menyalin dari .env.example...
   copy /y ".env.example" ".env" >nul
-  echo [WARN] File yang perlu diedit: %cd%\.env
-  echo [WARN] Pastikan LITELLM_BASE_URL, LITELLM_SCRIPT_MODEL, dan LITELLM_TTS_MODEL terisi lalu jalankan lagi.
+  echo [WARN] Edit .env lalu isi GEMINI_API_KEY, SUPABASE_URL, dan SUPABASE_SERVICE_ROLE_KEY.
   goto :fail
 )
 
-findstr /r /c:"^LITELLM_BASE_URL=$" ".env" >nul
+findstr /r /c:"^GEMINI_API_KEY=$" ".env" >nul
 if "%ERRORLEVEL%"=="0" (
-  echo [WARN] File yang perlu diedit: %cd%\.env
-  echo [WARN] LITELLM_BASE_URL di .env masih kosong. Isi base URL LiteLLM lalu jalankan lagi.
+  echo [WARN] GEMINI_API_KEY di .env masih kosong.
   goto :fail
 )
 
-if "%NEED_REPAIR%"=="1" (
-  echo [WARN] Detected incomplete dependencies. Running repair install...
-  call npm install --force
-  if errorlevel 1 (
-    echo [ERROR] Dependency repair failed.
-    goto :fail
-  )
+findstr /r /c:"^SUPABASE_URL=$" ".env" >nul
+if "%ERRORLEVEL%"=="0" (
+  echo [WARN] SUPABASE_URL di .env masih kosong.
+  goto :fail
 )
 
-echo [INFO] Starting backend server (dev mode)...
-call npm run dev -w apps/server
+findstr /r /c:"^SUPABASE_SERVICE_ROLE_KEY=$" ".env" >nul
+if "%ERRORLEVEL%"=="0" (
+  echo [WARN] SUPABASE_SERVICE_ROLE_KEY di .env masih kosong.
+  goto :fail
+)
+
+echo [INFO] Starting Cloudflare Worker API (local dev)...
+call npm run dev:worker -w apps/web
 if errorlevel 1 (
   echo.
-  echo [ERROR] Backend server berhenti karena error.
+  echo [ERROR] Worker API berhenti karena error.
   goto :fail
 )
 

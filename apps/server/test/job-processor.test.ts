@@ -247,8 +247,8 @@ describe("job processor", () => {
 
     const contentService = {
       uploadVideo: vi.fn(async () => ({
-        provider: "litellm" as const,
-        fileId: "mock-file",
+        provider: "gemini" as const,
+        fileUri: "mock://file",
         mimeType: "video/mp4"
       })),
       generateVisualBrief: vi.fn(async () => visualBrief),

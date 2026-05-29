@@ -519,7 +519,7 @@ export class JobProcessor implements IJobProcessor {
           const data = await readFile(framePath);
           return {
             // Provider is only metadata for our app; the downstream services care about fileUri/fileId/base64Data.
-            provider: "litellm",
+            provider: "gemini",
             mimeType: "image/jpeg",
             base64Data: data.toString("base64")
           } satisfies UploadedAiFile;

@@ -1,39 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, FolderOpen, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
-import {
-  deleteJob,
-  downloadJobCaption,
-  downloadJobFinalVideo,
-  fetchJobDetail,
-  fetchJobs,
-  openJobOutputLocation,
-  retryJob,
-  subscribeToJobEvents
-} from "../api";
-import {
-  getCaptionArtifactPath,
-  isCaptionDownloadComplete,
-  isFinalVideoDownloadComplete,
-  isJobPendingRequiredDownloads
-} from "../job-download-policy";
-import { StatusBadge } from "../components/StatusBadge";
+import { Download, FolderClock, RefreshCw, Sparkles, Video } from "lucide-react";
+import { fetchGenerationSession, fetchGenerationSessions } from "../api";
+import { listCachedSessionIds, getCachedSessionAssets } from "../generation-cache";
 import { CONTENT_LABEL, GENDER_LABEL } from "../job-form-options";
-import type { AuthUser, JobRecord } from "../types";
+import type { AuthUser, GenerationSessionRecord } from "../types";
 
 interface JobsPageProps {
   currentUser: AuthUser;
   selectedJobId?: string;
   onSelectJob: (jobId: string) => void;
-}
-
-function upsertJob(current: JobRecord[], nextJob: JobRecord): JobRecord[] {
-  const index = current.findIndex((job) => job.jobId === nextJob.jobId);
-  if (index < 0) {
-    return [nextJob, ...current];
-  }
-  const next = [...current];
-  next[index] = nextJob;
-  return next;
+  onResumeSession: (jobId: string) => void;
 }
 
 function formatDateTime(value: string): string {
@@ -43,249 +19,151 @@ function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
-export function JobsPage({ currentUser, selectedJobId, onSelectJob }: JobsPageProps) {
-  const [jobs, setJobs] = useState<JobRecord[]>([]);
+function formatRupiah(value: number): string {
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0
+  }).format(value);
+}
+
+function downloadBlob(blob: Blob, fileName: string): void {
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  anchor.rel = "noreferrer";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+export function JobsPage({
+  currentUser,
+  selectedJobId,
+  onSelectJob,
+  onResumeSession
+}: JobsPageProps) {
+  const [sessions, setSessions] = useState<GenerationSessionRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
-  const [displayPercent, setDisplayPercent] = useState(0);
-  const [downloadingArtifact, setDownloadingArtifact] = useState<"" | "caption" | "finalVideo">("");
+  const [cachedSessionIds, setCachedSessionIds] = useState<string[]>([]);
 
   const selected = useMemo(() => {
-    if (!jobs.length) {
+    if (!sessions.length) {
       return undefined;
     }
-    return jobs.find((job) => job.jobId === selectedJobId) ?? jobs[0];
-  }, [jobs, selectedJobId]);
+    return sessions.find((session) => session.sessionId === selectedJobId) ?? sessions[0];
+  }, [sessions, selectedJobId]);
 
-  const selectedPercent = selected?.progress.percent ?? 0;
-  const isLiveStatus = selected?.status === "queued" || selected?.status === "running";
-  const selectedStatus = selected?.status;
-  const selectedLiveJobId = isLiveStatus ? selected?.jobId : undefined;
-  const captionOutputPath = selected ? getCaptionArtifactPath(selected) : undefined;
-  const captionDownloaded = selected ? isCaptionDownloadComplete(selected) : false;
-  const finalVideoDownloaded = selected ? isFinalVideoDownloadComplete(selected) : false;
-  const pendingRequiredDownloads = selected ? isJobPendingRequiredDownloads(selected) : false;
-  const isDeleteBlocked =
-    selected?.status === "running" ||
-    (selected?.status === "success" &&
-      pendingRequiredDownloads &&
-      currentUser.role !== "superadmin");
-
-  const loadJobs = async (preferredJobId?: string) => {
-    const nextJobs = await fetchJobs();
-    setJobs(nextJobs);
+  const loadSessions = async (preferredSessionId?: string) => {
+    const [nextSessions, nextCacheIds] = await Promise.all([
+      fetchGenerationSessions(),
+      listCachedSessionIds().catch(() => [])
+    ]);
+    setSessions(nextSessions);
+    setCachedSessionIds(nextCacheIds);
     const nextSelected =
-      nextJobs.find((job) => job.jobId === preferredJobId) ??
-      nextJobs.find((job) => job.jobId === selectedJobId) ??
-      nextJobs[0];
-    if (nextSelected && nextSelected.jobId !== selectedJobId) {
-      onSelectJob(nextSelected.jobId);
+      nextSessions.find((session) => session.sessionId === preferredSessionId) ??
+      nextSessions.find((session) => session.sessionId === selectedJobId) ??
+      nextSessions[0];
+    if (nextSelected && nextSelected.sessionId !== selectedJobId) {
+      onSelectJob(nextSelected.sessionId);
     }
     return nextSelected;
   };
 
   useEffect(() => {
     let mounted = true;
-
-    const load = async () => {
-      try {
-        const nextJobs = await fetchJobs();
-        if (!mounted) {
-          return;
-        }
-        setJobs(nextJobs);
-        const nextSelected = nextJobs.find((job) => job.jobId === selectedJobId) ?? nextJobs[0];
-        if (nextSelected && nextSelected.jobId !== selectedJobId) {
-          onSelectJob(nextSelected.jobId);
-        }
-      } catch (loadError) {
+    setLoading(true);
+    loadSessions()
+      .catch((loadError) => {
         if (mounted) {
           setActionError((loadError as Error).message);
         }
-      } finally {
+      })
+      .finally(() => {
         if (mounted) {
           setLoading(false);
         }
-      }
-    };
-
-    void load();
+      });
     return () => {
       mounted = false;
     };
   }, [onSelectJob, selectedJobId]);
 
-  useEffect(() => {
-    setDisplayPercent((current) => (current > selectedPercent ? selectedPercent : current));
-  }, [selected?.jobId, selectedPercent]);
-
-  useEffect(() => {
-    const target = Math.max(0, Math.min(100, selectedPercent));
-    const timer = window.setInterval(() => {
-      setDisplayPercent((current) => {
-        if (Math.abs(target - current) < 1) {
-          return target;
-        }
-        return current + Math.max(1, Math.ceil((target - current) / 5));
-      });
-    }, 60);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [selectedPercent]);
-
-  useEffect(() => {
-    if (!selectedLiveJobId || !selectedStatus || !isLiveStatus) {
-      return;
-    }
-
-    let stopPolling: number | undefined;
-    const unsubscribe = subscribeToJobEvents(selectedLiveJobId, {
-      onJob: (nextJob) => {
-        setJobs((current) => upsertJob(current, nextJob));
-      },
-      onError: () => {
-        unsubscribe();
-        if (stopPolling) {
-          return;
-        }
-        stopPolling = window.setInterval(async () => {
-          try {
-            const refreshed = await fetchJobDetail(selectedLiveJobId);
-            setJobs((current) => upsertJob(current, refreshed));
-            if (refreshed.status !== "queued" && refreshed.status !== "running" && stopPolling) {
-              window.clearInterval(stopPolling);
-            }
-          } catch {
-            // keep fallback polling silent
-          }
-        }, 5000);
-      }
-    });
-
-    return () => {
-      unsubscribe();
-      if (stopPolling) {
-        window.clearInterval(stopPolling);
-      }
-    };
-  }, [isLiveStatus, selectedLiveJobId, selectedStatus]);
-
   const onRefresh = async () => {
     setActionMessage("");
     setActionError("");
     try {
-      await loadJobs(selected?.jobId);
+      await loadSessions(selected?.sessionId);
     } catch (refreshError) {
       setActionError((refreshError as Error).message);
     }
   };
 
-  const onRetry = async () => {
+  const onDownloadCachedVideo = async () => {
     if (!selected) {
       return;
     }
-    setActionMessage("");
     setActionError("");
-    try {
-      await retryJob(selected.jobId);
-      await loadJobs(selected.jobId);
-      setActionMessage("Proses dimasukkan ulang ke antrean.");
-    } catch (retryError) {
-      setActionError((retryError as Error).message);
-    }
-  };
-
-  const onDelete = async () => {
-    if (!selected) {
-      return;
-    }
     setActionMessage("");
-    setActionError("");
     try {
-      await deleteJob(selected.jobId);
-      const nextSelected = await loadJobs();
-      if (!nextSelected) {
-        setActionMessage("Proses berhasil dihapus.");
-        return;
+      const cache = await getCachedSessionAssets(selected.sessionId);
+      if (!cache?.renderedVideoBlob) {
+        throw new Error("Final video lokal belum ada di browser ini.");
       }
-      setActionMessage("Proses berhasil dihapus.");
-    } catch (deleteError) {
-      setActionError((deleteError as Error).message);
-    }
-  };
-
-  const onOpenLocation = async () => {
-    if (!selected) {
-      return;
-    }
-    setActionMessage("");
-    setActionError("");
-    try {
-      await openJobOutputLocation(selected.jobId);
-      setActionMessage("Folder output dibuka.");
-    } catch (openError) {
-      setActionError((openError as Error).message);
-    }
-  };
-
-  const refreshDownloadedJob = async (jobId: string) => {
-    const refreshed = await fetchJobDetail(jobId);
-    setJobs((current) => upsertJob(current, refreshed));
-    return refreshed;
-  };
-
-  const onDownload = async (artifact: "caption" | "finalVideo") => {
-    if (!selected) {
-      return;
-    }
-
-    setActionMessage("");
-    setActionError("");
-    setDownloadingArtifact(artifact);
-    try {
-      if (artifact === "caption") {
-        await downloadJobCaption(selected.jobId);
-      } else {
-        await downloadJobFinalVideo(selected.jobId);
-      }
-
-      const refreshed = await refreshDownloadedJob(selected.jobId);
-      const nowComplete =
-        isCaptionDownloadComplete(refreshed) && isFinalVideoDownloadComplete(refreshed);
-      setActionMessage(
-        nowComplete
-          ? "Semua file wajib sudah diunduh. Generate job baru sekarang sudah aktif kembali."
-          : artifact === "caption"
-            ? "Caption berhasil diunduh."
-            : "Final video berhasil diunduh."
+      downloadBlob(
+        cache.renderedVideoBlob,
+        cache.renderFileName || `${selected.title || "voiceover"}-final.mp4`
       );
+      setActionMessage("Final video lokal berhasil diunduh ulang dari browser.");
     } catch (downloadError) {
       setActionError((downloadError as Error).message);
-    } finally {
-      setDownloadingArtifact("");
+    }
+  };
+
+  const onOpenSession = async (sessionId: string) => {
+    setActionError("");
+    setActionMessage("");
+    try {
+      const refreshed = await fetchGenerationSession(sessionId);
+      setSessions((current) =>
+        current.map((session) => (session.sessionId === sessionId ? refreshed : session))
+      );
+      onSelectJob(sessionId);
+    } catch (detailError) {
+      setActionError((detailError as Error).message);
     }
   };
 
   if (loading) {
     return (
       <section className="card app-page-card">
-        <h2>Riwayat Proses</h2>
-        <p>Memuat riwayat proses...</p>
+        <h2>Riwayat Session</h2>
+        <p>Memuat riwayat session...</p>
       </section>
     );
   }
+
+  const hasLocalCache = selected ? cachedSessionIds.includes(selected.sessionId) : false;
+  const canResumeLocally = Boolean(
+    selected && hasLocalCache && selected.status !== "completed"
+  );
+  const hasLocalFinalVideo = Boolean(
+    selected && selected.status === "completed" && hasLocalCache
+  );
 
   return (
     <section className="card app-page-card">
       <div className="job-toolbar">
         <div>
-          <span className="eyebrow">Riwayat</span>
-          <h2>Riwayat Proses</h2>
+          <span className="eyebrow">Riwayat Session</span>
+          <h2>Riwayat Generate</h2>
           <p className="section-note">
-            Pantau progress, unduh caption dan final video, lalu buka kembali generate job baru.
+            Lihat hasil AI, status render lokal, dan lanjutkan session dari browser yang sama.
           </p>
         </div>
         <div className="form-actions">
@@ -301,32 +179,49 @@ export function JobsPage({ currentUser, selectedJobId, onSelectJob }: JobsPagePr
           <section className="section-card">
             <div className="row-head">
               <div>
-                <h4>Daftar Proses</h4>
-                <p className="small">{jobs.length} item</p>
+                <h4>Daftar Session</h4>
+                <p className="small">{sessions.length} item</p>
               </div>
             </div>
 
             <div className="job-list">
-              {jobs.length ? (
-                jobs.map((job) => (
-                  <button
-                    type="button"
-                    key={job.jobId}
-                    className={selected?.jobId === job.jobId ? "job-item active" : "job-item"}
-                    onClick={() => onSelectJob(job.jobId)}
-                  >
-                    <div className="grid-form">
-                      <div className="row-head">
-                        <strong>{job.title}</strong>
-                        <StatusBadge status={job.status} />
+              {sessions.length ? (
+                sessions.map((session) => {
+                  const isActive = selected?.sessionId === session.sessionId;
+                  const isCached = cachedSessionIds.includes(session.sessionId);
+                  return (
+                    <button
+                      type="button"
+                      key={session.sessionId}
+                      className={isActive ? "job-item active" : "job-item"}
+                      onClick={() => void onOpenSession(session.sessionId)}
+                    >
+                      <div className="grid-form">
+                        <div className="row-head">
+                          <strong>{session.title}</strong>
+                          <span
+                            className={
+                              session.status === "completed"
+                                ? "status status-success"
+                                : session.status === "failed"
+                                  ? "status status-failed"
+                                  : "status status-running"
+                            }
+                          >
+                            {session.status}
+                          </span>
+                        </div>
+                        <span className="small">{CONTENT_LABEL[session.contentType]}</span>
+                        <span className="small">{formatDateTime(session.updatedAt)}</span>
+                        <span className="small">
+                          {isCached ? "Draft lokal tersedia" : "Tanpa cache lokal"}
+                        </span>
                       </div>
-                      <span className="small">{CONTENT_LABEL[job.contentType]}</span>
-                      <span className="small">{formatDateTime(job.updatedAt)}</span>
-                    </div>
-                  </button>
-                ))
+                    </button>
+                  );
+                })
               ) : (
-                <p className="small">Belum ada proses yang tersimpan.</p>
+                <p className="small">Belum ada session yang tersimpan.</p>
               )}
             </div>
           </section>
@@ -334,34 +229,65 @@ export function JobsPage({ currentUser, selectedJobId, onSelectJob }: JobsPagePr
 
         <div className="detail-box">
           {!selected ? (
-            <p>Pilih proses untuk melihat detailnya.</p>
+            <p>Pilih session untuk melihat detailnya.</p>
           ) : (
             <>
               <div className="job-panel-header">
                 <div className="row-head">
                   <div>
-                    <span className="eyebrow">Detail</span>
-                    <h3>Detail Proses</h3>
+                    <span className="eyebrow">Detail Session</span>
+                    <h3>Detail Generate</h3>
                     <p className="section-note">
-                      Progress akan bergerak otomatis selama proses masih berjalan.
+                      Final video disimpan di browser yang sama, bukan di server pusat.
                     </p>
                   </div>
-                  <StatusBadge status={selected.status} />
+                  <span
+                    className={
+                      selected.status === "completed"
+                        ? "status status-success"
+                        : selected.status === "failed"
+                          ? "status status-failed"
+                          : "status status-running"
+                    }
+                  >
+                    {selected.status}
+                  </span>
                 </div>
               </div>
 
               <div className="progress-card">
                 <div className="row-head">
-                  <strong>{selected.progress.label}</strong>
-                  <span>{Math.round(displayPercent)}%</span>
+                  <strong>{selected.title}</strong>
+                  <span>{selected.frameCount} frame</span>
                 </div>
-                <div className="progress-track" aria-label="Job progress">
-                  <div className="progress-value" style={{ width: `${displayPercent}%` }} />
+                <div className="progress-track" aria-label="Session status">
+                  <div
+                    className="progress-value"
+                    style={{
+                      width:
+                        selected.status === "completed"
+                          ? "100%"
+                          : selected.status === "ready_for_render"
+                            ? "78%"
+                            : selected.status === "ready_for_audio"
+                              ? "56%"
+                              : selected.status === "failed"
+                                ? "100%"
+                                : "24%"
+                    }}
+                  />
                 </div>
-                {selected.status === "success" ? (
-                  <p className="ok-text">Voice over selesai dibuat. Unduh caption dan final video dari tombol di bawah.</p>
+                {selected.errorMessage ? (
+                  <p className="err-text break-anywhere">{selected.errorMessage}</p>
                 ) : null}
-                {selected.errorMessage ? <p className="err-text break-anywhere">{selected.errorMessage}</p> : null}
+                {hasLocalCache ? (
+                  <p className="ok-text">Browser ini masih menyimpan draft lokal untuk session ini.</p>
+                ) : (
+                  <p className="small">
+                    Tidak ada cache lokal di browser ini. Anda masih bisa melihat hasil AI, tetapi tidak
+                    bisa render ulang tanpa upload video lagi.
+                  </p>
+                )}
               </div>
 
               <div className="meta-grid">
@@ -382,12 +308,16 @@ export function JobsPage({ currentUser, selectedJobId, onSelectJob }: JobsPagePr
                   <strong>{selected.tone}</strong>
                 </div>
                 <div className="meta-card">
-                  <span className="small">Durasi</span>
+                  <span className="small">Durasi Video</span>
                   <strong>{selected.videoDurationSec.toFixed(2)} detik</strong>
                 </div>
                 <div className="meta-card">
-                  <span className="small">ID Proses</span>
-                  <strong className="break-anywhere">#{selected.jobId}</strong>
+                  <span className="small">Biaya</span>
+                  <strong>
+                    {currentUser.isUnlimited
+                      ? "Unlimited"
+                      : formatRupiah(selected.chargedAmountIdr || currentUser.generatePriceIdr)}
+                  </strong>
                 </div>
               </div>
 
@@ -405,100 +335,75 @@ export function JobsPage({ currentUser, selectedJobId, onSelectJob }: JobsPagePr
                 </p>
               ) : null}
 
-              <div className="meta-grid">
-                <div className="meta-card">
-                  <span className="small">Status Caption</span>
-                  <strong>
-                    {!captionOutputPath
-                      ? "Tidak tersedia"
-                      : captionDownloaded
-                        ? "Sudah diunduh"
-                        : "Belum diunduh"}
-                  </strong>
-                </div>
-                <div className="meta-card">
-                  <span className="small">Status Final Video</span>
-                  <strong>
-                    {!selected.output.finalVideoPath
-                      ? "Tidak tersedia"
-                      : finalVideoDownloaded
-                        ? "Sudah diunduh"
-                        : "Belum diunduh"}
-                  </strong>
-                </div>
-              </div>
-
-              {selected.status === "success" && pendingRequiredDownloads ? (
-                <div className="notice-box notice-box-overload">
+              {selected.scriptText ? (
+                <div className="notice-box">
                   <div className="row-head">
-                    <strong>Generate job baru masih terkunci</strong>
-                    <span className="small">Unduh file wajib dulu</span>
+                    <strong>Naskah Voice Over</strong>
+                    <Sparkles size={16} />
                   </div>
-                  <p className="err-text">
-                    Anda harus mengunduh caption dan final video job ini terlebih dahulu sebelum
-                    membuat job baru.
-                  </p>
+                  <p className="break-anywhere">{selected.scriptText}</p>
                 </div>
               ) : null}
 
-              {selected.status === "success" && !pendingRequiredDownloads ? (
-                <p className="ok-text">
-                  Semua file wajib sudah diunduh. Generate job baru sekarang sudah aktif kembali.
-                </p>
+              {selected.captionText ? (
+                <div className="notice-box">
+                  <div className="row-head">
+                    <strong>Caption Sosial</strong>
+                    <FolderClock size={16} />
+                  </div>
+                  <p className="break-anywhere">{selected.captionText}</p>
+                  {selected.hashtags.length ? (
+                    <p className="small break-anywhere">{selected.hashtags.join(" ")}</p>
+                  ) : null}
+                </div>
               ) : null}
 
-              {captionOutputPath || selected.output.finalVideoPath ? (
-                <div className="output-links">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => void onDownload("caption")}
-                    disabled={!captionOutputPath || Boolean(downloadingArtifact)}
-                  >
-                    <Download size={16} />
-                    <span>
-                      {downloadingArtifact === "caption" ? "Mengunduh Caption..." : "Download Caption"}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={() => void onDownload("finalVideo")}
-                    disabled={!selected.output.finalVideoPath || Boolean(downloadingArtifact)}
-                  >
-                    <Download size={16} />
-                    <span>
-                      {downloadingArtifact === "finalVideo"
-                        ? "Mengunduh Final Video..."
-                        : "Download Final Video"}
-                    </span>
-                  </button>
+              {selected.renderSummary ? (
+                <div className="meta-grid">
+                  <div className="meta-card">
+                    <span className="small">Render Lokal</span>
+                    <strong>{selected.renderSummary.renderedAt ? "Selesai" : "Belum ada"}</strong>
+                  </div>
+                  <div className="meta-card">
+                    <span className="small">Ukuran File</span>
+                    <strong>
+                      {selected.renderSummary.finalSizeBytes
+                        ? `${(selected.renderSummary.finalSizeBytes / (1024 * 1024)).toFixed(2)} MB`
+                        : "-"}
+                    </strong>
+                  </div>
+                  <div className="meta-card">
+                    <span className="small">Durasi Final</span>
+                    <strong>
+                      {selected.renderSummary.finalDurationSec
+                        ? `${selected.renderSummary.finalDurationSec.toFixed(2)} detik`
+                        : "-"}
+                    </strong>
+                  </div>
                 </div>
-              ) : (
-                <p className="small">File output akan muncul otomatis saat proses selesai.</p>
-              )}
+              ) : null}
 
               <div className="form-actions section-divider">
-                <button type="button" onClick={() => void onOpenLocation()}>
-                  <FolderOpen size={16} />
-                  <span>Buka Folder Output</span>
+                <button type="button" onClick={() => onResumeSession(selected.sessionId)}>
+                  <Video size={16} />
+                  <span>Buka di Workspace Generate</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => void onRetry()}
-                  disabled={selected.status !== "failed" && selected.status !== "interrupted"}
+                  onClick={() => onResumeSession(selected.sessionId)}
+                  disabled={!canResumeLocally}
                 >
-                  <RotateCcw size={16} />
-                  <span>Coba Lagi</span>
+                  <Sparkles size={16} />
+                  <span>{canResumeLocally ? "Lanjut Render Lokal" : "Perlu Draft Lokal"}</span>
                 </button>
                 <button
                   type="button"
-                  className="danger-button"
-                  onClick={() => void onDelete()}
-                  disabled={isDeleteBlocked}
+                  className="primary-button"
+                  onClick={() => void onDownloadCachedVideo()}
+                  disabled={!hasLocalFinalVideo}
                 >
-                  <Trash2 size={16} />
-                  <span>Hapus Proses</span>
+                  <Download size={16} />
+                  <span>{hasLocalFinalVideo ? "Unduh Final dari Browser" : "Final Lokal Tidak Ada"}</span>
                 </button>
               </div>
             </>
