@@ -247,8 +247,10 @@ describe("web smoke", () => {
     expect(
       await screen.findByRole("heading", { name: /Bikin pengisi suara video short/i })
     ).toBeTruthy();
-    expect(screen.getByText(/^Rp2\.000$/i)).toBeTruthy();
-    expect(screen.getByText(/10 video/i)).toBeTruthy();
+    expect(screen.getByText(/^Rp2\.000$/i, { selector: ".pricing-price" })).toBeTruthy();
+    expect(
+      screen.getByText(/Pengisi suara AI realistis/i, { selector: ".pricing-card strong" })
+    ).toBeTruthy();
   });
 
   it("starts Google OAuth from landing page", async () => {

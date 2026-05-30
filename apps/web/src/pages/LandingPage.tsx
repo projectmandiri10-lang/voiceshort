@@ -49,29 +49,13 @@ const PACKAGES: Array<{
   quota: string;
   note: string;
   badge: string;
-  featured?: boolean;
 }> = [
   {
-    name: "Starter",
-    price: "Rp20.000",
-    quota: "10 video",
-    note: "Pas untuk mencoba alur kerja dan mulai produksi ringan.",
-    badge: "Starter"
-  },
-  {
-    name: "Harian",
-    price: "Rp90.000",
-    quota: "50 video",
-    note: "Cocok untuk produksi rutin dengan bonus saldo dibanding beli satuan.",
-    badge: "Paling Irit",
-    featured: true
-  },
-  {
-    name: "Produksi",
-    price: "Rp170.000",
-    quota: "100 video",
-    note: "Pilihan terbaik untuk volume tinggi dan kebutuhan tim kecil.",
-    badge: "Produksi"
+    name: "QRIS",
+    price: "Rp2.000",
+    quota: "Pengisi suara AI realistis",
+    note: "Bayar sekali untuk satu generate dengan pembayaran QRIS yang cepat dan otomatis.",
+    badge: "Single Card"
   }
 ] as const;
 
@@ -396,24 +380,26 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
             <span className="badge-dot" />
             Pembayaran QRIS
           </div>
-          <h2>Bayar Rp2.000 per generate dengan QRIS</h2>
-          <p className="section-note">Transaksi cepat, aman, dan saldo masuk otomatis setelah pembayaran berhasil.</p>
+          <h2>Bayar Rp2.000 untuk pengisi suara AI realistis</h2>
+          <p className="section-note">
+            Transaksi cepat, aman, dan saldo masuk otomatis setelah pembayaran berhasil.
+          </p>
         </div>
 
         <div className="pricing-grid">
           {PACKAGES.map((item) => (
-            <article className={item.featured ? "pricing-card featured" : "pricing-card"} key={item.name}>
+            <article className="pricing-card featured pricing-card-single" key={item.name}>
               <div className="pricing-card-head">
                 <span className="pricing-badge">{item.badge}</span>
-                {item.featured ? <span className="pricing-popular">Paling Irit</span> : null}
+                <span className="pricing-popular">QRIS</span>
               </div>
               <h3>{item.name}</h3>
               <div className="pricing-price">{item.price}</div>
               <strong>{item.quota}</strong>
               <div className="pricing-divider" />
               <p className="section-note">{item.note}</p>
-              <button className={item.featured ? "primary-btn pricing-action" : "ghost-button pricing-action"} type="button">
-                {item.featured ? "Bayar via QRIS" : "Pilih Paket via QRIS"}
+              <button className="primary-btn pricing-action" type="button">
+                Bayar via QRIS
               </button>
             </article>
           ))}

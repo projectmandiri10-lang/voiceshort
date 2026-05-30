@@ -1452,7 +1452,8 @@ button {
 
 .pricing-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 420px);
+  justify-content: center;
   gap: 20px;
   align-items: center;
 }
@@ -1460,6 +1461,10 @@ button {
 .pricing-card {
   padding: 28px;
   border-radius: 24px;
+}
+
+.pricing-card-single {
+  width: min(100%, 420px);
 }
 
 .pricing-card.featured {
