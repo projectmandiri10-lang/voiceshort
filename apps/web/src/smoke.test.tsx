@@ -241,21 +241,20 @@ beforeEach(() => {
 });
 
 describe("web smoke", () => {
-  it("renders landing page with flat per-generate pricing copy", async () => {
+  it("renders landing page with the new hero and pricing copy", async () => {
     render(<App />);
 
-    expect(await screen.findByText(/VoiceOver Shorts 60/i)).toBeTruthy();
     expect(
-      screen.getByRole("heading", { name: /Bikin voice over video sampai 60 detik/i })
+      await screen.findByRole("heading", { name: /Bikin pengisi suara video short/i })
     ).toBeTruthy();
-    expect(screen.getByText(/Rp\.2000\/generate/i)).toBeTruthy();
-    expect(screen.getByText(/10 generate/i)).toBeTruthy();
+    expect(screen.getByText(/^Rp2\.000$/i)).toBeTruthy();
+    expect(screen.getByText(/10 video/i)).toBeTruthy();
   });
 
   it("starts Google OAuth from landing page", async () => {
     render(<App />);
 
-    expect(await screen.findByText(/VoiceOver Shorts 60/i)).toBeTruthy();
+    await screen.findByRole("heading", { name: /Bikin pengisi suara video short/i });
     fireEvent.click(screen.getByRole("button", { name: /Masuk dengan Google/i }));
 
     await waitFor(() => {
@@ -271,7 +270,7 @@ describe("web smoke", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: /Bikin voice over video sampai 60 detik/i });
+    await screen.findByRole("heading", { name: /Bikin pengisi suara video short/i });
     fireEvent.change(screen.getByLabelText(/^Email$/i), {
       target: { value: activeUser.email }
     });
