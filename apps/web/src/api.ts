@@ -11,6 +11,7 @@ import type {
   TtsVoiceOption
 } from "./types";
 import { isSupabaseAuthReady, supabase } from "./supabase";
+import { getRuntimeConfig } from "./runtime-config";
 
 const DEV_WORKER_PORT = "8787";
 const GOOGLE_CALLBACK_PATH = "/auth/callback";
@@ -24,6 +25,10 @@ function trimTrailingSlash(url: string): string {
 }
 
 function resolveApiBase(): string {
+  const runtimeApiBase = getRuntimeConfig()?.apiBase?.trim();
+  if (runtimeApiBase) {
+    return trimTrailingSlash(runtimeApiBase);
+  }
   const envBase = import.meta.env.VITE_API_BASE?.trim();
   if (envBase) {
     return trimTrailingSlash(envBase);

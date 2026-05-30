@@ -1,7 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import { getRuntimeConfig } from "./runtime-config";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() ?? "";
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? "";
+const runtimeConfig = getRuntimeConfig();
+const supabaseUrl =
+  runtimeConfig?.supabaseUrl?.trim() || import.meta.env.VITE_SUPABASE_URL?.trim() || "";
+const supabaseAnonKey =
+  runtimeConfig?.supabaseAnonKey?.trim() || import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || "";
 
 export const supabase =
   supabaseUrl && supabaseAnonKey
