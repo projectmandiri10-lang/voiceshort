@@ -178,14 +178,14 @@ export function GeneratePage({
         if (cache?.renderedVideoBlob) {
           setFinalVideoBlob(cache.renderedVideoBlob);
           setFinalVideoName(cache.renderFileName || `${session.title || "voiceover"}.mp4`);
-          setResumeHint("Draft render lokal untuk session ini ditemukan. Anda bisa unduh ulang atau render lagi.");
+          setResumeHint("Draft final untuk session ini ditemukan. Anda bisa unduh ulang atau buat ulang.");
           return;
         }
         if (cache?.sourceVideoBlob) {
-          setResumeHint("Draft lokal untuk session ini ditemukan. Anda bisa melanjutkan render tanpa generate ulang.");
+          setResumeHint("Draft lokal untuk session ini ditemukan. Anda bisa melanjutkan finalisasi tanpa generate ulang.");
           return;
         }
-        setResumeHint("Session AI tersimpan, tetapi media lokal belum ada di browser ini.");
+        setResumeHint("Session AI tersimpan, tetapi media lokal belum ada di perangkat ini.");
       })
       .catch(() => {
         if (!cancelled) {
@@ -262,7 +262,7 @@ export function GeneratePage({
   ) => {
     setFlowState({
       phase: "rendering",
-      label: "Merender final.mp4 langsung di browser",
+      label: "Menyusun file final",
       percent: 72
     });
     const renderedVideoBlob = await renderFinalVideoLocally({
@@ -272,7 +272,7 @@ export function GeneratePage({
       onProgress: (ratio) => {
         setFlowState({
           phase: "rendering",
-          label: "Merender final.mp4 langsung di browser",
+          label: "Menyusun file final",
           percent: 72 + Math.round(ratio * 28)
         });
       }
@@ -303,7 +303,7 @@ export function GeneratePage({
     setFinalVideoName(nextFileName);
     setFlowState({
       phase: "completed",
-      label: "Final video siap diunduh dari browser",
+      label: "Final video siap diunduh",
       percent: 100
     });
     try {
@@ -316,14 +316,14 @@ export function GeneratePage({
   const continueRenderFromCache = async (session: GenerationSessionRecord) => {
     const cache = await getCachedSessionAssets(session.sessionId);
     if (!cache?.sourceVideoBlob) {
-      throw new Error("Draft video lokal untuk session ini tidak ditemukan di browser.");
+      throw new Error("Draft video lokal untuk session ini tidak ditemukan di perangkat ini.");
     }
 
     let audioBlob = cache.audioBlob;
     if (!audioBlob) {
       setFlowState({
         phase: "synthesizing",
-        label: "Mengambil ulang voice over dari Worker",
+        label: "Mengambil ulang audio utama",
         percent: 54
       });
       audioBlob = await fetchGenerationSessionAudio(session.sessionId);
@@ -373,7 +373,7 @@ export function GeneratePage({
     setFinalVideoBlob(null);
     setFlowState({
       phase: "extracting",
-      label: "Mengekstrak frame video di browser",
+      label: "Menganalisis video",
       percent: 8
     });
 
@@ -384,7 +384,7 @@ export function GeneratePage({
         onProgress: (progress) => {
           setFlowState({
             phase: "extracting",
-            label: `Mengekstrak frame video (${progress}%)`,
+            label: `Menganalisis video (${progress}%)`,
             percent: Math.max(8, Math.round(progress * 0.22))
           });
         }
@@ -392,7 +392,7 @@ export function GeneratePage({
 
       setFlowState({
         phase: "generating",
-        label: "Menghasilkan script, caption, dan voice plan",
+        label: "Menyusun naskah, caption, dan rencana suara",
         percent: 34
       });
 
@@ -432,7 +432,7 @@ export function GeneratePage({
 
       setFlowState({
         phase: "synthesizing",
-        label: "Mengambil audio TTS dari Worker",
+        label: "Mengambil audio utama",
         percent: 54
       });
       const audioBlob = await fetchGenerationSessionAudio(session.sessionId);
@@ -496,28 +496,28 @@ export function GeneratePage({
       : !hasEnoughBalance
         ? "Saldo belum cukup"
         : isFormReady(form)
-          ? "Siap generate"
+          ? "Siap proses"
           : "Lengkapi form";
   const telemetryStatusDescription = flowState.phase === "completed"
-    ? "Script, audio, dan final video sudah selesai dirakit langsung di browser."
+    ? "Naskah, audio, dan final video sudah selesai dirakit."
     : loading
       ? flowState.label
       : !hasEnoughBalance
         ? "Top up saldo dulu untuk memulai generate berikutnya."
-        : "Video lokal akan dianalisis di browser lalu final.mp4 dirender tanpa backend ffmpeg.";
+        : "Video lokal akan dianalisis otomatis lalu hasil final dirakit tanpa detail teknis yang ditampilkan.";
 
   return (
     <section className="generate-concise-shell">
       <div className="generate-editor-column">
         <div className="generate-hero">
           <div className="generate-hero-tags">
-            <span className="eyebrow">Browser First</span>
-            <span className="generate-hero-chip">Cloudflare Worker + Local Render</span>
+            <span className="eyebrow">Proses Lokal</span>
+            <span className="generate-hero-chip">Proses Otomatis</span>
           </div>
-          <h2>Buat voice over dan final.mp4 langsung dari browser Anda</h2>
+          <h2>Buat voice over dan final.mp4 langsung dari perangkat Anda</h2>
           <p>
-            Video tetap lokal di perangkat Anda. Browser mengekstrak frame, Worker menyusun script dan
-            audio, lalu MP4 final dirender langsung tanpa backend ffmpeg.
+            Video tetap lokal di perangkat Anda. Sistem menganalisis cuplikan visual, menyusun naskah dan
+            audio, lalu merakit MP4 final secara otomatis.
           </p>
         </div>
 
@@ -526,7 +526,7 @@ export function GeneratePage({
             <section className="workspace-inline-card">
               <div className="workspace-inline-card-head">
                 <strong>Session tersambung</strong>
-                <span className="small">Resume lokal</span>
+                <span className="small">Lanjut lokal</span>
               </div>
               <p className="section-note">{resumeHint}</p>
               <div className="form-actions">
@@ -537,7 +537,7 @@ export function GeneratePage({
                 {currentCacheReady && activeSession && activeSession.status !== "completed" ? (
                   <button type="button" onClick={() => void onResumeRender()} disabled={loading}>
                     <Video size={16} />
-                    <span>{loading ? "Melanjutkan..." : "Lanjut Render Lokal"}</span>
+                    <span>{loading ? "Melanjutkan..." : "Lanjutkan Finalisasi"}</span>
                   </button>
                 ) : null}
               </div>
@@ -550,7 +550,7 @@ export function GeneratePage({
                 <div>
                   <span className="generate-section-label">Upload Video</span>
                   <h3>Video Utama</h3>
-                  <p className="small">Video tetap lokal. Hanya frame analisis yang dikirim ke Worker.</p>
+                  <p className="small">Video tetap di perangkat Anda. Hanya cuplikan visual yang dipakai untuk analisis.</p>
                 </div>
                 <span
                   className={
@@ -582,7 +582,7 @@ export function GeneratePage({
                     </div>
                     <div className="generate-upload-copy">
                       <h4>{form.video ? form.video.name : "Pilih video (.mp4 / .mov)"}</h4>
-                      <p>Maksimal 60 detik. Frame akan diekstrak otomatis dengan skala analisis 448px.</p>
+                      <p>Maksimal 60 detik. Video akan dianalisis otomatis untuk mengambil cuplikan penting.</p>
                     </div>
                   </div>
                   <div className="generate-upload-side">
@@ -624,7 +624,7 @@ export function GeneratePage({
                   <Mic2 size={15} strokeWidth={2} />
                   <div>
                     <span className="generate-meta-label">Mode</span>
-                    <strong className="generate-meta-value">Flat per generate</strong>
+                    <strong className="generate-meta-value">Flat per proses</strong>
                   </div>
                 </div>
               </div>
@@ -638,7 +638,7 @@ export function GeneratePage({
                   <span className="generate-section-label">Isi Detail</span>
                   <h3>Detail Voice Over</h3>
                   <p className="small">
-                    Worker akan menghasilkan script, caption, hashtag, dan voice plan dari data ini.
+                    Sistem akan menghasilkan naskah, caption, hashtag, dan rencana suara dari data ini.
                   </p>
                 </div>
               </div>
@@ -839,7 +839,7 @@ export function GeneratePage({
 
               <button type="submit" className="generate-submit-button" disabled={formDisabled}>
                 <Sparkles size={17} strokeWidth={2} />
-                <span>{loading ? flowState.label : "Generate + Render Lokal"}</span>
+                <span>{loading ? flowState.label : "Generate + Buat Final"}</span>
               </button>
             </div>
           </form>
@@ -890,13 +890,13 @@ export function GeneratePage({
           <div className="generate-compute-metrics">
             <div className="generate-compute-metric">
               <Gauge size={15} strokeWidth={2} />
-              <span>Frame lokal</span>
-              <strong>448px</strong>
+              <span>Cuplikan visual</span>
+              <strong>Otomatis</strong>
             </div>
             <div className="generate-compute-metric">
               <Video size={15} strokeWidth={2} />
-              <span>Render</span>
-              <strong>ffmpeg.wasm</strong>
+              <span>Finalisasi</span>
+              <strong>Siap</strong>
             </div>
           </div>
         </section>
@@ -956,8 +956,8 @@ export function GeneratePage({
                 <Layers3 size={18} strokeWidth={2} />
               </div>
               <div>
-                <p className="generate-pipeline-title">Frame dianalisis</p>
-                <strong>{activeSession.frameCount} frame</strong>
+                <p className="generate-pipeline-title">Cuplikan visual dianalisis</p>
+                <strong>{activeSession.frameCount} cuplikan</strong>
               </div>
             </div>
             {activeSession.scriptText ? (
@@ -980,7 +980,7 @@ export function GeneratePage({
             <div>
               <h4>Final video siap</h4>
               <p>
-                File MP4 sudah dirender di browser. Ukuran saat ini{" "}
+                File MP4 sudah dirakit di perangkat ini. Ukuran saat ini{" "}
                 <strong>{(finalVideoBlob.size / (1024 * 1024)).toFixed(2)} MB</strong>.
               </p>
             </div>

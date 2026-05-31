@@ -155,7 +155,7 @@ export async function renderFinalVideoLocally(input: {
 
 async function estimateMediaDuration(blob: File | Blob, kind: "video" | "audio"): Promise<number> {
   if (typeof document === "undefined" || typeof URL.createObjectURL !== "function") {
-    throw new Error("Browser tidak mendukung pembacaan durasi media.");
+    throw new Error("Sistem ini tidak mendukung pembacaan durasi media.");
   }
   const objectUrl = URL.createObjectURL(blob);
   try {
@@ -167,7 +167,7 @@ async function estimateMediaDuration(blob: File | Blob, kind: "video" | "audio")
         element.removeAttribute("src");
         element.load();
         if (!Number.isFinite(duration) || duration <= 0) {
-          reject(new Error("Durasi media tidak valid untuk render."));
+          reject(new Error("Durasi media tidak valid untuk finalisasi."));
           return;
         }
         resolve(duration);
@@ -175,7 +175,7 @@ async function estimateMediaDuration(blob: File | Blob, kind: "video" | "audio")
       element.onerror = () => {
         element.removeAttribute("src");
         element.load();
-        reject(new Error("Media tidak bisa diproses untuk render lokal."));
+        reject(new Error("Media tidak bisa diproses untuk finalisasi."));
       };
       element.src = objectUrl;
     });

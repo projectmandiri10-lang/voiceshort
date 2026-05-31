@@ -30,7 +30,7 @@ function seekVideo(video: HTMLVideoElement, timestampSec: number): Promise<void>
     };
     const onError = () => {
       cleanup();
-      reject(new Error("Gagal mengambil frame dari video."));
+      reject(new Error("Gagal mengambil cuplikan dari video."));
     };
     const cleanup = () => {
       video.removeEventListener("seeked", onSeeked);
@@ -50,7 +50,7 @@ export async function extractFramesFromVideo(
   }
 ): Promise<ExtractedFrame[]> {
   if (typeof document === "undefined" || typeof URL.createObjectURL !== "function") {
-    throw new Error("Browser tidak mendukung ekstraksi frame video.");
+    throw new Error("Sistem ini tidak mendukung analisis video.");
   }
 
   const objectUrl = URL.createObjectURL(file);
@@ -59,7 +59,7 @@ export async function extractFramesFromVideo(
   const context = canvas.getContext("2d");
   if (!context) {
     URL.revokeObjectURL(objectUrl);
-    throw new Error("Canvas 2D tidak tersedia di browser ini.");
+    throw new Error("Canvas 2D tidak tersedia di sistem ini.");
   }
 
   const cleanup = () => {
@@ -77,13 +77,13 @@ export async function extractFramesFromVideo(
       video.onloadeddata = () => {
         const duration = Number(video.duration);
         if (!Number.isFinite(duration) || duration <= 0) {
-          reject(new Error("Durasi video tidak valid untuk ekstraksi frame."));
+          reject(new Error("Durasi video tidak valid untuk analisis."));
           return;
         }
         resolve(duration);
       };
       video.onerror = () => {
-        reject(new Error("Video tidak bisa dibuka untuk ekstraksi frame."));
+        reject(new Error("Video tidak bisa dibuka untuk analisis."));
       };
       video.src = objectUrl;
     });

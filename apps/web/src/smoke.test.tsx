@@ -291,7 +291,7 @@ describe("web smoke", () => {
     expect(await screen.findByText(/^Creator$/i)).toBeTruthy();
   });
 
-  it("renders the browser-first generate workspace", async () => {
+  it("renders the local generate workspace", async () => {
     render(
       <GeneratePage
         currentUser={activeUser}
@@ -304,10 +304,10 @@ describe("web smoke", () => {
       expect(generationCache.listCachedSessionIds).toHaveBeenCalled();
     });
     expect(screen.getByRole("region", { name: /^slot video 1$/i })).toBeTruthy();
-    expect(screen.getByText(/Cloudflare Worker \+ Local Render/i)).toBeTruthy();
+    expect(screen.getByText(/Proses Otomatis/i)).toBeTruthy();
     expect(screen.getByLabelText(/^Judul/i)).toBeTruthy();
-    expect(screen.getAllByText(/Flat per generate/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /Generate \+ Render Lokal/i })).toBeTruthy();
+    expect(screen.getAllByText(/Flat per proses/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Generate \+ Buat Final/i })).toBeTruthy();
   });
 
   it("submits one local render flow end-to-end", async () => {
@@ -343,7 +343,7 @@ describe("web smoke", () => {
       target: { value: "Jelaskan produk dengan singkat dan menarik" }
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Generate \+ Render Lokal/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Generate \+ Buat Final/i }));
 
     await waitFor(() => {
       expect(frameExtractor.extractFramesFromVideo).toHaveBeenCalledTimes(1);
@@ -403,7 +403,7 @@ describe("web smoke", () => {
     expect(await screen.findByRole("heading", { name: /Detail Generate/i })).toBeTruthy();
     expect(screen.getByText(/Draft lokal tersedia/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Buka di Workspace Generate/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Unduh Final dari Browser/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Unduh Final/i })).toBeTruthy();
   });
 
   it("uses object url previews for voice settings", async () => {

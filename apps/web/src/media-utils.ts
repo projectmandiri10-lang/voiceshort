@@ -22,7 +22,7 @@ function loadDurationFromElement<T extends HTMLMediaElement>(
     };
     element.onerror = () => {
       cleanup();
-      reject(new Error("Media tidak bisa diproses di browser ini."));
+      reject(new Error("Media tidak bisa diproses di perangkat ini."));
     };
     element.src = objectUrl;
   });
@@ -30,7 +30,7 @@ function loadDurationFromElement<T extends HTMLMediaElement>(
 
 export async function readBlobDuration(blob: Blob, kind: "video" | "audio"): Promise<number> {
   if (typeof document === "undefined" || typeof URL.createObjectURL !== "function") {
-    throw new Error("Browser ini tidak mendukung pembacaan durasi media.");
+    throw new Error("Sistem ini tidak mendukung pembacaan durasi media.");
   }
 
   const objectUrl = URL.createObjectURL(blob);

@@ -1,6 +1,6 @@
 export async function readVideoDuration(file: File): Promise<number> {
   if (typeof document === "undefined" || typeof URL.createObjectURL !== "function") {
-    throw new Error("Browser tidak mendukung pembacaan durasi video.");
+    throw new Error("Sistem ini tidak mendukung pembacaan durasi video.");
   }
 
   const objectUrl = URL.createObjectURL(file);

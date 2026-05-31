@@ -197,7 +197,7 @@ function trimTrailingSlash(url: string): string {
 function getRequiredEnv(env: WorkerEnv, key: keyof WorkerEnv): string {
   const value = String(env[key] || "").trim();
   if (!value) {
-    throw createHttpError(500, `${String(key)} belum dikonfigurasi di Worker.`);
+    throw createHttpError(500, `${String(key)} belum dikonfigurasi di sistem backend.`);
   }
   return value;
 }
@@ -523,10 +523,10 @@ function parseGenerationSessionCreateInput(input: unknown): GenerationSessionCre
 
   const frames = Array.isArray(body.frames) ? body.frames : [];
   if (!frames.length) {
-    throw createHttpError(400, "Frame video wajib dikirim untuk analisis.");
+    throw createHttpError(400, "Cuplikan video wajib dikirim untuk analisis.");
   }
   if (frames.length > 24) {
-    throw createHttpError(400, "Jumlah frame melebihi batas aman Worker.");
+    throw createHttpError(400, "Jumlah cuplikan melebihi batas aman.");
   }
 
   return {
@@ -540,17 +540,17 @@ function parseGenerationSessionCreateInput(input: unknown): GenerationSessionCre
     videoDurationSec,
     frames: frames.map((frame, index) => {
       if (!frame || typeof frame !== "object" || Array.isArray(frame)) {
-        throw createHttpError(400, `Frame #${index + 1} tidak valid.`);
+        throw createHttpError(400, `Cuplikan #${index + 1} tidak valid.`);
       }
       const record = frame as Record<string, unknown>;
       const mimeType = String(record.mimeType || "").trim();
       const base64Data = String(record.base64Data || "").trim();
       if (mimeType !== "image/jpeg" || !base64Data) {
-        throw createHttpError(400, `Frame #${index + 1} wajib berupa JPEG base64.`);
+        throw createHttpError(400, `Cuplikan #${index + 1} wajib berupa JPEG base64.`);
       }
       const timestampSec = Number(record.timestampSec);
       if (!Number.isFinite(timestampSec) || timestampSec < 0) {
-        throw createHttpError(400, `Timestamp frame #${index + 1} tidak valid.`);
+        throw createHttpError(400, `Timestamp cuplikan #${index + 1} tidak valid.`);
       }
       return {
         timestampSec,
@@ -1674,6 +1674,6 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
 
     throw createHttpError(404, "Route API tidak ditemukan.");
   } catch (error) {
-    return errorResponse(request, error, "Terjadi kesalahan pada Worker.");
+    return errorResponse(request, error, "Terjadi kesalahan pada sistem.");
   }
 }

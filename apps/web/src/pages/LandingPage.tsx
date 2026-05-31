@@ -36,7 +36,7 @@ const FEATURE_STEPS = [
   {
     title: "3. Unduh Hasil",
     description:
-      "Final MP4 dirender di browser, lengkap dengan caption dan voice over siap posting.",
+      "Final MP4 disiapkan otomatis, lengkap dengan caption dan voice over siap posting.",
     icon: Download
   }
 ] as const;
@@ -208,7 +208,7 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
               </div>
               <div>
                 <div className="stat-title">Client-first</div>
-                <div className="stat-subtitle">Render di browser</div>
+                <div className="stat-subtitle">Diproses lokal</div>
               </div>
             </article>
           </div>
@@ -352,7 +352,7 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
           </div>
           <h2>Tiga langkah, sudah jadi.</h2>
           <p className="section-note">
-            Tidak perlu software tambahan. Semua berjalan di browser Anda.
+            Tidak perlu software tambahan. Semua berjalan otomatis di perangkat Anda.
           </p>
         </div>
 
@@ -414,8 +414,8 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
               <span>Privasi</span>
             </div>
             <p className="section-note">
-              Kami menyimpan data akun dan metadata session. Video asli tetap client-first di
-              browser Anda. Data tidak dijual ke pihak lain.
+              Kami menyimpan data akun dan metadata session. Video asli tetap di perangkat Anda.
+              Data tidak dijual ke pihak lain.
             </p>
           </article>
 

@@ -113,13 +113,13 @@ export function JobsPage({
     try {
       const cache = await getCachedSessionAssets(selected.sessionId);
       if (!cache?.renderedVideoBlob) {
-        throw new Error("Final video lokal belum ada di browser ini.");
+        throw new Error("Final video lokal belum ada di perangkat ini.");
       }
       downloadBlob(
         cache.renderedVideoBlob,
         cache.renderFileName || `${selected.title || "voiceover"}-final.mp4`
       );
-      setActionMessage("Final video lokal berhasil diunduh ulang dari browser.");
+      setActionMessage("Final video berhasil diunduh ulang.");
     } catch (downloadError) {
       setActionError((downloadError as Error).message);
     }
@@ -163,7 +163,7 @@ export function JobsPage({
           <span className="eyebrow">Riwayat Session</span>
           <h2>Riwayat Generate</h2>
           <p className="section-note">
-            Lihat hasil AI, status render lokal, dan lanjutkan session dari browser yang sama.
+            Lihat hasil AI, status proses, dan lanjutkan session dari perangkat yang sama.
           </p>
         </div>
         <div className="form-actions">
@@ -238,7 +238,7 @@ export function JobsPage({
                     <span className="eyebrow">Detail Session</span>
                     <h3>Detail Generate</h3>
                     <p className="section-note">
-                      Final video disimpan di browser yang sama, bukan di server pusat.
+                      Final video disimpan di perangkat yang sama, bukan di server pusat.
                     </p>
                   </div>
                   <span
@@ -258,7 +258,7 @@ export function JobsPage({
               <div className="progress-card">
                 <div className="row-head">
                   <strong>{selected.title}</strong>
-                  <span>{selected.frameCount} frame</span>
+                  <span>{selected.frameCount} cuplikan</span>
                 </div>
                 <div className="progress-track" aria-label="Session status">
                   <div
@@ -281,10 +281,10 @@ export function JobsPage({
                   <p className="err-text break-anywhere">{selected.errorMessage}</p>
                 ) : null}
                 {hasLocalCache ? (
-                  <p className="ok-text">Browser ini masih menyimpan draft lokal untuk session ini.</p>
+                  <p className="ok-text">Perangkat ini masih menyimpan draft lokal untuk session ini.</p>
                 ) : (
                   <p className="small">
-                    Tidak ada cache lokal di browser ini. Anda masih bisa melihat hasil AI, tetapi tidak
+                    Tidak ada cache lokal di perangkat ini. Anda masih bisa melihat hasil AI, tetapi tidak
                     bisa render ulang tanpa upload video lagi.
                   </p>
                 )}
@@ -361,7 +361,7 @@ export function JobsPage({
               {selected.renderSummary ? (
                 <div className="meta-grid">
                   <div className="meta-card">
-                    <span className="small">Render Lokal</span>
+                    <span className="small">Finalisasi</span>
                     <strong>{selected.renderSummary.renderedAt ? "Selesai" : "Belum ada"}</strong>
                   </div>
                   <div className="meta-card">
@@ -394,7 +394,7 @@ export function JobsPage({
                   disabled={!canResumeLocally}
                 >
                   <Sparkles size={16} />
-                  <span>{canResumeLocally ? "Lanjut Render Lokal" : "Perlu Draft Lokal"}</span>
+                  <span>{canResumeLocally ? "Lanjutkan Finalisasi" : "Perlu Draft Lokal"}</span>
                 </button>
                 <button
                   type="button"
@@ -403,7 +403,7 @@ export function JobsPage({
                   disabled={!hasLocalFinalVideo}
                 >
                   <Download size={16} />
-                  <span>{hasLocalFinalVideo ? "Unduh Final dari Browser" : "Final Lokal Tidak Ada"}</span>
+                  <span>{hasLocalFinalVideo ? "Unduh Final" : "Final Belum Ada"}</span>
                 </button>
               </div>
             </>

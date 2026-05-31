@@ -6,12 +6,12 @@ const STORE_NAME = "session-assets";
 
 function openDatabase(): Promise<IDBDatabase> {
   if (typeof indexedDB === "undefined") {
-    throw new Error("IndexedDB tidak tersedia di browser ini.");
+    throw new Error("Penyimpanan lokal tidak tersedia di perangkat ini.");
   }
 
   return new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onerror = () => reject(new Error("Gagal membuka cache lokal browser."));
+    request.onerror = () => reject(new Error("Gagal membuka penyimpanan lokal."));
     request.onupgradeneeded = () => {
       const database = request.result;
       if (!database.objectStoreNames.contains(STORE_NAME)) {
@@ -31,7 +31,7 @@ async function withStore<T>(
     const transaction = database.transaction(STORE_NAME, mode);
     const store = transaction.objectStore(STORE_NAME);
     const request = action(store);
-    transaction.onerror = () => reject(new Error("Gagal menyimpan data render lokal."));
+    transaction.onerror = () => reject(new Error("Gagal menyimpan data final."));
     transaction.oncomplete = () => resolve((request as IDBRequest<T> | undefined)?.result);
   }).finally(() => {
     database.close();
@@ -58,7 +58,7 @@ export async function listCachedSessionIds(): Promise<string[]> {
     const transaction = database.transaction(STORE_NAME, "readonly");
     const store = transaction.objectStore(STORE_NAME);
     const request = store.getAllKeys();
-    request.onerror = () => reject(new Error("Gagal membaca daftar cache lokal."));
+    request.onerror = () => reject(new Error("Gagal membaca daftar penyimpanan lokal."));
     request.onsuccess = () => {
       resolve(request.result.map((item) => String(item)));
     };
