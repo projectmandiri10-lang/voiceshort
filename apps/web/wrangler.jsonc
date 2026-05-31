@@ -4,7 +4,7 @@
   "main": "./src/worker.ts",
   "compatibility_date": "2026-05-28",
   "vars": {
-    "SUPABASE_URL": "https://sluloqncvxuuyoybcacb.supabase.co"
+    "SUPABASE_URL": "https://sluloqncvxbuyoybcacb.supabase.co"
   },
   "assets": {
     "directory": "./dist",
