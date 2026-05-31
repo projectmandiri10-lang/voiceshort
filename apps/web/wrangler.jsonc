@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "voiceshort-app",
+  "name": "voiceshort",
   "main": "./src/worker.ts",
   "compatibility_date": "2026-05-28",
   "vars": {
