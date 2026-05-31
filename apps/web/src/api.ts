@@ -268,10 +268,11 @@ export async function startGoogleLogin(returnTo = "/"): Promise<void> {
     throw new Error(USER_AUTH_NOT_READY_MESSAGE);
   }
   const redirectTo = buildCallbackUrl(returnTo);
-  const { error } = await supabase.auth.signInWithOAuth({
+  const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
       redirectTo,
+      skipBrowserRedirect: true,
       queryParams: {
         prompt: "select_account"
       }
@@ -280,6 +281,10 @@ export async function startGoogleLogin(returnTo = "/"): Promise<void> {
   if (error) {
     throw friendlyAuthError(error, "Masuk dengan Google belum berhasil. Silakan coba lagi.");
   }
+  if (!data.url) {
+    throw new Error("Google belum mengirim URL login. Periksa konfigurasi OAuth Supabase.");
+  }
+  window.location.assign(data.url);
 }
 
 export async function completeGoogleOAuthRedirect(): Promise<OAuthRedirectResult> {
