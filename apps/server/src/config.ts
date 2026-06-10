@@ -10,7 +10,8 @@ export interface AppEnv {
   aiProvider: "gemini";
   geminiApiKey: string;
   geminiScriptModel: string;
-  geminiTtsModel: string;
+  openrouterApiKey: string;
+  openrouterTtsModel: string;
   port: number;
   webOrigins: string[];
   superadminEmail: string;
@@ -36,7 +37,9 @@ export function loadEnv(): AppEnv {
   const aiProvider = "gemini" as const;
   const geminiApiKey = process.env.GEMINI_API_KEY?.trim() ?? "";
   const geminiScriptModel = process.env.GEMINI_SCRIPT_MODEL?.trim() ?? "";
-  const geminiTtsModel = process.env.GEMINI_TTS_MODEL?.trim() ?? "";
+  const openrouterApiKey = process.env.OPENROUTER_API_KEY?.trim() ?? "";
+  const openrouterTtsModel =
+    process.env.OPENROUTER_TTS_MODEL?.trim() || "google/gemini-3.1-flash-tts-preview";
   const portRaw = process.env.PORT?.trim();
   const port = portRaw ? Number(portRaw) : DEFAULT_PORT;
   const webOrigins = (process.env.WEB_ORIGIN?.trim() || "http://localhost:5174")
@@ -74,8 +77,8 @@ export function loadEnv(): AppEnv {
   if (!geminiScriptModel) {
     throw new Error("GEMINI_SCRIPT_MODEL wajib diisi.");
   }
-  if (!geminiTtsModel) {
-    throw new Error("GEMINI_TTS_MODEL wajib diisi.");
+  if (!openrouterApiKey) {
+    throw new Error("OPENROUTER_API_KEY wajib diisi.");
   }
 
   if (!Number.isFinite(port) || port <= 0) {
@@ -111,7 +114,8 @@ export function loadEnv(): AppEnv {
     aiProvider,
     geminiApiKey,
     geminiScriptModel,
-    geminiTtsModel,
+    openrouterApiKey,
+    openrouterTtsModel,
     port,
     webOrigins,
     superadminEmail,

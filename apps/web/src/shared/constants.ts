@@ -19,7 +19,7 @@ export const FINAL_VOICE_LOUDNORM = "loudnorm=I=-14:TP=-1.0:LRA=11";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   scriptModel: "gemini-2.5-flash-lite",
-  ttsModel: "gemini-2.5-flash-preview-tts",
+  ttsModel: "google/gemini-3.1-flash-tts-preview",
   language: "id-ID",
   maxVideoSeconds: ABSOLUTE_MAX_VIDEO_SECONDS,
   safetyMode: "safe_marketing",
@@ -37,6 +37,19 @@ export const DEFAULT_SETTINGS: AppSettings = {
     }
   ]
 };
+
+const LEGACY_GEMINI_TTS_ALIASES = new Map<string, string>([
+  ["gemini-2.5-flash-preview-tts", DEFAULT_SETTINGS.ttsModel],
+  ["gemini-2.5-pro-preview-tts", DEFAULT_SETTINGS.ttsModel]
+]);
+
+export function normalizeTtsModel(model: string): string {
+  const trimmed = model.trim();
+  if (!trimmed) {
+    return DEFAULT_SETTINGS.ttsModel;
+  }
+  return LEGACY_GEMINI_TTS_ALIASES.get(trimmed) || trimmed;
+}
 
 export const GEMINI_TTS_VOICES: TtsVoiceOption[] = [
   { voiceName: "Zephyr", label: "Zephyr", tone: "Bright", gender: "neutral" },

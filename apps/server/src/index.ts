@@ -20,7 +20,7 @@ async function bootstrap(): Promise<void> {
   const env = loadEnv();
   const runtimeModelOverrides = {
     scriptModel: env.geminiScriptModel,
-    ttsModel: env.geminiTtsModel
+    ttsModel: env.openrouterTtsModel
   };
   const adminDb = createSupabaseClient({
     supabaseUrl: env.supabaseUrl,
@@ -55,7 +55,7 @@ async function bootstrap(): Promise<void> {
     logger.error({ err: error }, "Gagal sinkronisasi Google OAuth ke Supabase.");
   });
 
-  const gemini = new GeminiService(env.geminiApiKey, logger);
+  const gemini = new GeminiService(env.geminiApiKey, env.openrouterApiKey, logger);
   const aiService: AiService = gemini;
   const speechGenerator: SpeechService = gemini;
   const billingService = new BillingService({
@@ -104,11 +104,11 @@ async function bootstrap(): Promise<void> {
     {
       aiProvider: env.aiProvider,
       scriptModel: env.geminiScriptModel,
-      ttsModel: env.geminiTtsModel,
+      ttsModel: env.openrouterTtsModel,
       nonTtsProvider: "gemini",
-      ttsProvider: "gemini"
+      ttsProvider: "openrouter"
     },
-    "Routing AI aktif: upload, naskah, caption, dan suara via Gemini API native."
+    "Routing AI aktif: upload, naskah, dan caption via Gemini API native; suara via OpenRouter Gemini TTS."
   );
   logger.info(`Server berjalan di http://localhost:${env.port}`);
 }

@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { ABSOLUTE_MAX_VIDEO_SECONDS, DEFAULT_SETTINGS, GEMINI_EXCITED_PRESETS, GEMINI_TTS_VOICES, findGenderVoiceSetting, findTtsVoiceByName, isKnownTtsVoiceName } from "./shared/constants";
-import { buildCaptionPrompt, buildGeminiTtsPrompt, buildScriptPrompt, buildVisualBriefPrompt } from "./shared/prompt-builder";
-import { ensureWavAudio, extractScriptText, extractSocialMetadata, extractVisualBrief } from "./shared/model-output";
+import { ABSOLUTE_MAX_VIDEO_SECONDS, DEFAULT_SETTINGS, GEMINI_EXCITED_PRESETS, GEMINI_TTS_VOICES, findGenderVoiceSetting, findTtsVoiceByName, isKnownTtsVoiceName, normalizeTtsModel } from "./shared/constants";
+import { buildCaptionPrompt, buildScriptPrompt, buildVisualBriefPrompt } from "./shared/prompt-builder";
+import { extractScriptText, extractSocialMetadata, extractVisualBrief } from "./shared/model-output";
 import { CONTENT_TYPES, type AdminUserRecord, type AppSettings, type AssignedPackageCode, type AuthUser, type ContentType, type GenerationSessionCompleteInput, type GenerationSessionCreateInput, type GenerationSessionRecord, type GenerationSessionStatus, type JobVoiceGender, type TtsVoiceOption, type UserRole } from "./types";
 
 const SUPERADMIN_WHITELIST_EMAIL = "jho.j80@gmail.com";
@@ -38,6 +38,7 @@ interface WorkerAssetBinding {
 
 export interface WorkerEnv {
   GEMINI_API_KEY?: string;
+  OPENROUTER_API_KEY?: string;
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
@@ -292,7 +293,7 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
   const source = row
     ? {
         scriptModel: row.script_model,
-        ttsModel: row.tts_model,
+        ttsModel: normalizeTtsModel(row.tts_model),
         language: row.language,
         maxVideoSeconds: row.max_video_seconds,
         safetyMode: row.safety_mode,
@@ -303,7 +304,9 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
 
   return {
     scriptModel: String(source.scriptModel || DEFAULT_SETTINGS.scriptModel).trim() || DEFAULT_SETTINGS.scriptModel,
-    ttsModel: String(source.ttsModel || DEFAULT_SETTINGS.ttsModel).trim() || DEFAULT_SETTINGS.ttsModel,
+    ttsModel:
+      normalizeTtsModel(String(source.ttsModel || DEFAULT_SETTINGS.ttsModel).trim()) ||
+      DEFAULT_SETTINGS.ttsModel,
     language: "id-ID",
     maxVideoSeconds: Math.max(10, Math.min(ABSOLUTE_MAX_VIDEO_SECONDS, Math.trunc(source.maxVideoSeconds || DEFAULT_SETTINGS.maxVideoSeconds))),
     safetyMode: "safe_marketing",
@@ -496,7 +499,7 @@ function parseSettingsInput(input: unknown): AppSettings {
 
   return {
     scriptModel: assertString(body.scriptModel, "Script model") || DEFAULT_SETTINGS.scriptModel,
-    ttsModel: assertString(body.ttsModel, "TTS model") || DEFAULT_SETTINGS.ttsModel,
+    ttsModel: normalizeTtsModel(assertString(body.ttsModel, "TTS model") || DEFAULT_SETTINGS.ttsModel),
     language: "id-ID",
     maxVideoSeconds: Math.max(
       10,
@@ -633,6 +636,43 @@ async function callGemini(
   return payload;
 }
 
+const OPENROUTER_TTS_URL = "https://openrouter.ai/api/v1/audio/speech";
+
+async function callOpenRouterTts(
+  env: WorkerEnv,
+  body: Record<string, unknown>
+): Promise<Response> {
+  const response = await fetch(OPENROUTER_TTS_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getRequiredEnv(env, "OPENROUTER_API_KEY")}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    let payload: Record<string, unknown> = {};
+    if (text) {
+      try {
+        payload = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        payload = { message: text };
+      }
+    }
+    const message =
+      typeof (payload.error as { message?: unknown } | undefined)?.message === "string"
+        ? String((payload.error as { message?: unknown }).message)
+        : typeof payload.message === "string"
+          ? payload.message
+          : `OpenRouter TTS request gagal (${response.status}).`;
+    throw createHttpError(response.status === 429 ? 503 : response.status, message, payload);
+  }
+
+  return response;
+}
+
 async function withRetry<T>(task: () => Promise<T>, attempts = 3): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -661,42 +701,7 @@ function buildGeminiFrameParts(
   }));
 }
 
-function decodeBase64(input: string): Uint8Array {
-  const binary = atob(input);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-}
-
-function extractAudioFromGeminiResponse(response: Record<string, unknown>): GeminiAudio {
-  const candidates = Array.isArray(response.candidates) ? response.candidates : [];
-  if (!candidates.length) {
-    throw createHttpError(502, "Respons TTS Gemini tidak berisi kandidat audio.");
-  }
-
-  const content = (candidates[0] as { content?: { parts?: Array<Record<string, unknown>> } }).content;
-  const parts = Array.isArray(content?.parts) ? content.parts : [];
-  for (const part of parts) {
-    const inlineData =
-      part && typeof part === "object" && !Array.isArray(part)
-        ? (part.inlineData as { data?: string; mimeType?: string } | undefined)
-        : undefined;
-    if (!inlineData?.data) {
-      continue;
-    }
-    const bytes = ensureWavAudio(decodeBase64(inlineData.data), inlineData.mimeType || "audio/wav");
-    return {
-      bytes,
-      mimeType: "audio/wav"
-    };
-  }
-
-  throw createHttpError(502, "Data audio TTS tidak ditemukan di respons Gemini.");
-}
-
-async function generateGeminiAudio(
+async function generateOpenRouterAudio(
   env: WorkerEnv,
   settings: AppSettings,
   input: {
@@ -707,34 +712,18 @@ async function generateGeminiAudio(
   }
 ): Promise<GeminiAudio> {
   const response = await withRetry(() =>
-    callGemini(env, settings.ttsModel, {
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              text: buildGeminiTtsPrompt({
-                text: input.text,
-                speechRate: input.speechRate,
-                deliveryHint: input.deliveryHint
-              })
-            }
-          ]
-        }
-      ],
-      generationConfig: {
-        responseModalities: ["AUDIO"],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: input.voiceName
-            }
-          }
-        }
-      }
+    callOpenRouterTts(env, {
+      model: settings.ttsModel,
+      input: input.text.replace(/\s+/g, " ").trim(),
+      voice: input.voiceName,
+      response_format: "mp3",
+      speed: input.speechRate
     })
   );
-  return extractAudioFromGeminiResponse(response);
+  return {
+    bytes: new Uint8Array(await response.arrayBuffer()),
+    mimeType: response.headers.get("Content-Type")?.trim() || "audio/mpeg"
+  };
 }
 
 async function createGenerationSession(
@@ -983,7 +972,7 @@ async function synthesizeGenerationSessionTts(
   }
   const speechRate = Number(session.speech_rate) || 1;
 
-  const audio = await generateGeminiAudio(env, settings, {
+  const audio = await generateOpenRouterAudio(env, settings, {
     text: session.script_text,
     voiceName,
     speechRate,
@@ -1022,7 +1011,7 @@ async function previewVoice(env: WorkerEnv, context: AuthContext, payload: Recor
     throw createHttpError(400, `Voice ${voiceName} tidak tersedia.`);
   }
 
-  const audio = await generateGeminiAudio(env, settings, {
+  const audio = await generateOpenRouterAudio(env, settings, {
     text:
       assertString(payload.text, "Teks preview", { required: false, max: 220 }) ||
       "Halo, ini contoh voice over Bahasa Indonesia untuk video pendek yang natural dan jelas.",

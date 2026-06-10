@@ -11,7 +11,6 @@ import type {
 } from "../types.js";
 import { withRetry } from "../utils/retry.js";
 import {
-  extractAudioFromResponse,
   extractScriptText,
   extractSocialMetadata,
   extractVisualBrief
@@ -22,6 +21,8 @@ export { InvalidGeminiStructuredOutputError } from "./ai-service.js";
 const FILE_READY_POLL_INTERVAL_MS = 2000;
 const FILE_READY_MAX_ATTEMPTS = 30;
 const MAX_RETRY_DELAY_MS = 60_000;
+const OPENROUTER_TTS_ENDPOINT = "https://openrouter.ai/api/v1/audio/speech";
+const DEFAULT_OPENROUTER_TTS_MODEL = "google/gemini-3.1-flash-tts-preview";
 
 interface ParsedGeminiApiError {
   code?: number;
@@ -86,6 +87,11 @@ function parseGeminiApiError(error: unknown): ParsedGeminiApiError {
     }
   }
 
+  const statusFromError = Number((error as { status?: number })?.status);
+  if (Number.isFinite(statusFromError) && statusFromError > 0 && !parsed.code) {
+    parsed.code = statusFromError;
+  }
+
   return parsed;
 }
 
@@ -104,6 +110,7 @@ function isTransientError(error: unknown): boolean {
   const message = String((error as { message?: string })?.message || error).toLowerCase();
   return (
     parsed.code === 429 ||
+    (typeof parsed.code === "number" && parsed.code >= 500) ||
     parsed.status === "RESOURCE_EXHAUSTED" ||
     message.includes("429") ||
     message.includes("resource_exhausted") ||
@@ -129,39 +136,34 @@ function retryDelayMs(error: unknown, _attempt: number, fallbackDelayMs: number)
   return Math.min(Math.max(fromApi, fallbackDelayMs), MAX_RETRY_DELAY_MS);
 }
 
-function buildGeminiTtsPrompt(input: GenerateSpeechInput): string {
-  const paceInstruction =
-    input.speechRate >= 1.1
-      ? "Pace: sedikit cepat, tetap jelas dan tidak terburu-buru."
-      : input.speechRate <= 0.9
-        ? "Pace: sedikit lebih pelan, tetap natural dan tidak datar."
-        : "Pace: natural untuk voice over video pendek.";
-  const deliveryInstruction = input.deliveryHint?.trim()
-    ? `Nuansa tambahan: ${input.deliveryHint.trim()}.`
-    : "Nuansa tambahan: natural, jelas, dan enak didengar untuk penonton Indonesia.";
+function normalizeOpenRouterTtsModel(model: string): string {
+  const trimmed = model.trim();
+  if (!trimmed) {
+    return DEFAULT_OPENROUTER_TTS_MODEL;
+  }
+  if (trimmed === "gemini-2.5-flash-preview-tts" || trimmed === "gemini-2.5-pro-preview-tts") {
+    return DEFAULT_OPENROUTER_TTS_MODEL;
+  }
+  return trimmed;
+}
 
-  return [
-    "Narator voice over video berbahasa Indonesia.",
-    "Language: Bahasa Indonesia (id-ID).",
-    "Accent: penutur asli Indonesia, natural, jelas, dan tidak kaku.",
-    "Style: realistis, hangat, dan cocok untuk voice over video pendek.",
-    paceInstruction,
-    deliveryInstruction,
-    "Pronunciation: utamakan pelafalan kata Indonesia secara lokal, bukan aksen Inggris atau suara robotik.",
-    'Bacakan teks berikut persis apa adanya tanpa menambah kalimat lain:',
-    "",
-    input.text
-  ].join("\n");
+function normalizeSpeechText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 export class GeminiService implements AiService {
   private readonly client: GoogleGenAI;
+  public readonly appliesSpeechRateNatively = false;
 
   public constructor(
-    apiKey: string,
+    geminiApiKey: string,
+    private readonly openrouterApiKey: string,
     private readonly logger: FastifyBaseLogger
   ) {
-    this.client = new GoogleGenAI({ apiKey });
+    this.client = new GoogleGenAI({ apiKey: geminiApiKey });
+    if (!this.openrouterApiKey.trim()) {
+      throw new Error("OPENROUTER_API_KEY wajib diisi.");
+    }
   }
 
   private buildUserParts(prompt: string, video?: UploadedAiFile | UploadedAiFile[]) {
@@ -209,6 +211,50 @@ export class GeminiService implements AiService {
       ],
       config: input.config
     });
+  }
+
+  private async generateOpenRouterSpeech(
+    input: GenerateSpeechInput
+  ): Promise<{ data: Buffer; mimeType: string }> {
+    const response = await fetch(OPENROUTER_TTS_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.openrouterApiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: normalizeOpenRouterTtsModel(input.model),
+        input: normalizeSpeechText(input.text),
+        voice: input.voiceName,
+        response_format: "mp3",
+        speed: input.speechRate
+      })
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let payload: Record<string, unknown> = {};
+      if (text) {
+        try {
+          payload = JSON.parse(text) as Record<string, unknown>;
+        } catch {
+          payload = { message: text };
+        }
+      }
+      const message =
+        String((payload.error as { message?: unknown } | undefined)?.message || payload.message || "").trim() ||
+        `OpenRouter TTS request gagal (${response.status}).`;
+      throw Object.assign(new Error(message), {
+        status: response.status === 429 ? 503 : response.status,
+        details: payload
+      });
+    }
+
+    const data = Buffer.from(await response.arrayBuffer());
+    return {
+      data,
+      mimeType: response.headers.get("Content-Type")?.trim() || "audio/mpeg"
+    };
   }
 
   public async uploadVideo(
@@ -349,21 +395,7 @@ export class GeminiService implements AiService {
     input: GenerateSpeechInput
   ): Promise<{ data: Buffer; mimeType: string }> {
     const execute = async () => {
-      const response = await this.generateUserContent({
-        model: input.model,
-        prompt: buildGeminiTtsPrompt(input),
-        config: {
-          responseModalities: ["AUDIO"],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: input.voiceName
-              }
-            }
-          }
-        }
-      });
-      return extractAudioFromResponse(response);
+      return await this.generateOpenRouterSpeech(input);
     };
 
     return await withRetry(execute, {

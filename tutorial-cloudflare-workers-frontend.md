@@ -11,7 +11,7 @@ Nama file ini dipertahankan agar kompatibel dengan repo lama, tetapi isinya seka
 - static assets Vite dilayani dari binding `ASSETS`
 - browser mengekstrak frame video dan merender `final.mp4` lokal
 - Supabase dipakai untuk auth, profile, wallet, settings, dan history metadata
-- Gemini dipanggil langsung dari Worker via REST
+- Gemini dipanggil langsung dari Worker via REST untuk teks/analisis, sementara TTS memakai OpenRouter Gemini TTS
 
 Video asli dan final MP4 tidak disimpan permanen di server.
 
@@ -23,6 +23,7 @@ Siapkan:
 - `wrangler` CLI
 - project Supabase aktif
 - Gemini API key aktif
+- OpenRouter API key aktif
 - migration `generation_sessions` sudah diterapkan
 
 ## 3. File yang Dipakai
@@ -46,6 +47,7 @@ Worker secrets:
 
 ```txt
 GEMINI_API_KEY=your_gemini_api_key
+OPENROUTER_API_KEY=your_openrouter_api_key
 SUPABASE_URL=https://project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 SUPABASE_ANON_KEY=your_publishable_or_anon_key
@@ -111,6 +113,7 @@ Contoh:
 ```bash
 cd apps/web
 npx wrangler secret put GEMINI_API_KEY
+npx wrangler secret put OPENROUTER_API_KEY
 npx wrangler secret put SUPABASE_URL
 npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 npx wrangler secret put SUPABASE_ANON_KEY
@@ -164,6 +167,7 @@ Periksa:
 Periksa:
 
 - `GEMINI_API_KEY`
+- `OPENROUTER_API_KEY`
 - `GENERATE_PRICE_IDR`
 - migration `generation_sessions`
 

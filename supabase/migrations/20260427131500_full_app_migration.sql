@@ -383,7 +383,7 @@ insert into public.app_settings (
 values (
   'default',
   'gemini-3-flash-preview',
-  'gemini-2.5-flash-preview-tts',
+  'google/gemini-3.1-flash-tts-preview',
   'id-ID',
   60,
   'safe_marketing',

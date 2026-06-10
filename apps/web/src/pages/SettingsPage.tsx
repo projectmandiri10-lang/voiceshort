@@ -142,8 +142,8 @@ export function SettingsPage() {
         <span className="eyebrow">Pengaturan Layanan</span>
         <h2>Atur batas durasi dan suara default untuk setiap proses generate.</h2>
         <p className="section-note">
-          Semua proses AI memakai Gemini melalui sistem backend, termasuk naskah, caption, voice over,
-          dan preview suara.
+          Naskah dan caption tetap lewat Gemini, sementara voice over dan preview suara memakai Gemini TTS
+          via OpenRouter.
         </p>
       </div>
 
@@ -228,7 +228,7 @@ export function SettingsPage() {
                   </div>
 
                   <p className="small">
-                    Preview ini memakai jalur Gemini yang sama dengan hasil generate.
+                    Preview ini memakai jalur TTS OpenRouter yang sama dengan hasil generate.
                   </p>
 
                   {previewPaths[gender] ? (

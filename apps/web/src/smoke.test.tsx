@@ -121,7 +121,7 @@ const adminUser: AuthUser = {
 
 const mockSettings = {
   scriptModel: "gemini-2.5-flash-lite",
-  ttsModel: "gemini-2.5-flash-preview-tts",
+  ttsModel: "google/gemini-3.1-flash-tts-preview",
   language: "id-ID" as const,
   maxVideoSeconds: 60,
   safetyMode: "safe_marketing" as const,

@@ -1,9 +1,10 @@
 import pino from "pino";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const generateContentMock = vi.fn();
 const uploadMock = vi.fn();
 const getFileMock = vi.fn();
+const fetchMock = vi.fn();
 
 vi.mock("@google/genai", () => ({
   GoogleGenAI: vi.fn().mockImplementation(() => ({
@@ -26,6 +27,12 @@ describe("gemini service", () => {
     generateContentMock.mockReset();
     uploadMock.mockReset();
     getFileMock.mockReset();
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("puts fileData before prompt text for multimodal visual-brief calls", async () => {
@@ -54,7 +61,7 @@ describe("gemini service", () => {
       })
     });
 
-    const service = new GeminiService("test-key", logger);
+    const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
     await service.generateVisualBrief({
       model: "gemini-test",
       prompt: "Analisis video ini.",
@@ -88,7 +95,7 @@ describe("gemini service", () => {
       .mockResolvedValueOnce({ state: "PROCESSING" })
       .mockResolvedValueOnce({ state: "ACTIVE" });
 
-    const service = new GeminiService("test-key", logger);
+    const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
     const uploaded = await service.uploadVideo("C:/temp/source.mp4", "video/mp4");
 
     expect(uploaded).toEqual({
@@ -136,7 +143,7 @@ describe("gemini service", () => {
         })
       });
 
-    const service = new GeminiService("test-key", logger);
+    const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
     const brief = await service.generateVisualBrief({
       model: "gemini-test",
       prompt: "Analisis video ini.",
@@ -153,25 +160,17 @@ describe("gemini service", () => {
     expect(strictPrompt).toContain("Kembalikan hanya JSON valid");
   });
 
-  it("builds TTS prompts with pace and delivery instructions", async () => {
-    generateContentMock.mockResolvedValueOnce({
-      candidates: [
-        {
-          content: {
-            parts: [
-              {
-                inlineData: {
-                  data: Buffer.from("audio").toString("base64"),
-                  mimeType: "audio/wav"
-                }
-              }
-            ]
-          }
+  it("sends OpenRouter TTS requests with normalized Gemini model slugs", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(Buffer.from("audio"), {
+        status: 200,
+        headers: {
+          "Content-Type": "audio/mpeg"
         }
-      ]
-    });
+      })
+    );
 
-    const service = new GeminiService("test-key", logger);
+    const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
     const audio = await service.generateSpeech({
       model: "gemini-2.5-flash-preview-tts",
       text: "Halo semua, ini contoh voice over singkat.",
@@ -181,23 +180,21 @@ describe("gemini service", () => {
     });
 
     expect(audio.data.toString("utf8")).toBe("audio");
-    expect(audio.mimeType).toBe("audio/wav");
-    const payload = generateContentMock.mock.calls[0][0];
-    expect(payload.model).toBe("gemini-2.5-flash-preview-tts");
-    expect(payload.config).toMatchObject({
-      responseModalities: ["AUDIO"],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName: "Leda"
-          }
-        }
-      }
+    expect(audio.mimeType).toBe("audio/mpeg");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://openrouter.ai/api/v1/audio/speech");
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer test-openrouter-key",
+      "Content-Type": "application/json"
     });
-    const prompt = payload.contents[0].parts[0].text as string;
-    expect(prompt).toContain("Pace: sedikit cepat");
-    expect(prompt).toContain("Nuansa tambahan: hangat dan meyakinkan.");
-    expect(prompt).toContain("Bacakan teks berikut persis apa adanya");
-    expect(prompt).toContain("Halo semua, ini contoh voice over singkat.");
+    const payload = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      model: "google/gemini-3.1-flash-tts-preview",
+      input: "Halo semua, ini contoh voice over singkat.",
+      voice: "Leda",
+      response_format: "mp3",
+      speed: 1.15
+    });
   });
 });

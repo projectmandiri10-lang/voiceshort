@@ -1,6 +1,7 @@
 import type { AppSettings, AssignedPackageCode, AuthSessionUser, JobRecord, UserRecord } from "../types.js";
 import { buildProgressFromStatus } from "../utils/job-progress.js";
 import { GENERATE_PRICE_IDR_DEFAULT, normalizeGeneratePriceIdr } from "../utils/billing.js";
+import { normalizeTtsModel } from "../constants.js";
 
 export const SUPERADMIN_WHITELIST_EMAIL = "jho.j80@gmail.com";
 
@@ -134,7 +135,7 @@ export function userRecordToSessionUser(
 export function appSettingsRowToSettings(row: AppSettingsRow): AppSettings {
   return {
     scriptModel: row.script_model,
-    ttsModel: row.tts_model,
+    ttsModel: normalizeTtsModel(row.tts_model),
     language: row.language,
     maxVideoSeconds: row.max_video_seconds,
     safetyMode: row.safety_mode,

@@ -15,13 +15,19 @@ if not exist "node_modules" (
 if not exist ".env" (
   echo [WARN] File .env belum ada. Menyalin dari .env.example...
   copy /y ".env.example" ".env" >nul
-  echo [WARN] Edit .env lalu isi GEMINI_API_KEY, SUPABASE_URL, dan SUPABASE_SERVICE_ROLE_KEY.
+  echo [WARN] Edit .env lalu isi GEMINI_API_KEY, OPENROUTER_API_KEY, SUPABASE_URL, dan SUPABASE_SERVICE_ROLE_KEY.
   goto :fail
 )
 
 findstr /r /c:"^GEMINI_API_KEY=$" ".env" >nul
 if "%ERRORLEVEL%"=="0" (
   echo [WARN] GEMINI_API_KEY di .env masih kosong.
+  goto :fail
+)
+
+findstr /r /c:"^OPENROUTER_API_KEY=$" ".env" >nul
+if "%ERRORLEVEL%"=="0" (
+  echo [WARN] OPENROUTER_API_KEY di .env masih kosong.
   goto :fail
 )
 

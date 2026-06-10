@@ -13,7 +13,8 @@ function applyBaseEnv() {
   process.env.GENERATE_PRICE_IDR = "2000";
   process.env.GEMINI_API_KEY = "test-gemini-key";
   process.env.GEMINI_SCRIPT_MODEL = "gemini-2.5-flash-lite";
-  process.env.GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
+  process.env.OPENROUTER_API_KEY = "test-openrouter-key";
+  process.env.OPENROUTER_TTS_MODEL = "google/gemini-3.1-flash-tts-preview";
 }
 
 describe("env config", () => {
@@ -32,14 +33,14 @@ describe("env config", () => {
     expect(env.geminiApiKey).toBe("test-gemini-key");
   });
 
-  it("loads gemini model envs", () => {
+  it("loads model envs", () => {
     applyBaseEnv();
     process.env.GEMINI_SCRIPT_MODEL = "gemini-3.5-flash";
-    process.env.GEMINI_TTS_MODEL = "gemini-2.5-pro-preview-tts";
+    process.env.OPENROUTER_TTS_MODEL = "google/gemini-3.1-flash-tts-preview";
 
     const env = loadEnv();
     expect(env.geminiScriptModel).toBe("gemini-3.5-flash");
-    expect(env.geminiTtsModel).toBe("gemini-2.5-pro-preview-tts");
+    expect(env.openrouterTtsModel).toBe("google/gemini-3.1-flash-tts-preview");
     expect(env.successOutputRetentionHours).toBe(72);
   });
 
@@ -57,11 +58,11 @@ describe("env config", () => {
     expect(() => loadEnv()).toThrow("GEMINI_SCRIPT_MODEL wajib diisi");
   });
 
-  it("throws a clear error when gemini tts model is missing", () => {
+  it("throws a clear error when openrouter api key is missing", () => {
     applyBaseEnv();
-    process.env.GEMINI_TTS_MODEL = "";
+    process.env.OPENROUTER_API_KEY = "";
 
-    expect(() => loadEnv()).toThrow("GEMINI_TTS_MODEL wajib diisi");
+    expect(() => loadEnv()).toThrow("OPENROUTER_API_KEY wajib diisi");
   });
 
   it("loads custom success output retention hours", () => {

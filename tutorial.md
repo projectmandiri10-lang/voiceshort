@@ -24,8 +24,9 @@ Pilih jalur ini jika Anda ingin:
 
 ```txt
 GEMINI_API_KEY=your_gemini_api_key
+OPENROUTER_API_KEY=your_openrouter_api_key
 GEMINI_SCRIPT_MODEL=gemini-2.5-flash-lite
-GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts
+OPENROUTER_TTS_MODEL=google/gemini-3.1-flash-tts-preview
 SUPABASE_URL=https://project-ref.supabase.co
 SUPABASE_ANON_KEY=your_publishable_or_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key

@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ABSOLUTE_MAX_VIDEO_SECONDS, DEFAULT_SETTINGS, findGenderVoiceSetting } from "../constants.js";
+import {
+  ABSOLUTE_MAX_VIDEO_SECONDS,
+  DEFAULT_SETTINGS,
+  findGenderVoiceSetting,
+  normalizeTtsModel
+} from "../constants.js";
 import { SETTINGS_FILE } from "../utils/paths.js";
 import { JsonFile } from "../utils/json-file.js";
 import type { AppSettings, JobVoiceGender } from "../types.js";
@@ -26,7 +31,14 @@ export class SettingsStore {
     return {
       ...settings,
       scriptModel: scriptModel || settings.scriptModel,
-      ttsModel: ttsModel || settings.ttsModel
+      ttsModel: normalizeTtsModel(ttsModel || settings.ttsModel)
+    };
+  }
+
+  private normalizeLegacySettings(settings: AppSettings): AppSettings {
+    return {
+      ...settings,
+      ttsModel: normalizeTtsModel(settings.ttsModel)
     };
   }
 
@@ -61,15 +73,17 @@ export class SettingsStore {
         throw error;
       }
       return this.applyRuntimeModelOverrides(
-        parseSettings(
-          this.applyHardCaps(data ? appSettingsRowToSettings(data as AppSettingsRow) : DEFAULT_SETTINGS)
+        this.normalizeLegacySettings(
+          parseSettings(this.applyHardCaps(data ? appSettingsRowToSettings(data as AppSettingsRow) : DEFAULT_SETTINGS))
         )
       );
     }
 
     const settings = await this.file.get();
     try {
-      return this.applyRuntimeModelOverrides(parseSettings(this.applyHardCaps(settings)));
+      return this.applyRuntimeModelOverrides(
+        this.normalizeLegacySettings(parseSettings(this.applyHardCaps(settings)))
+      );
     } catch (error) {
       throw new Error(
         `Settings file tidak valid (${SETTINGS_FILE}): ${
@@ -80,7 +94,7 @@ export class SettingsStore {
   }
 
   public async set(next: AppSettings, client?: SupabaseClient): Promise<AppSettings> {
-    const parsed = parseSettings(next);
+    const parsed = this.normalizeLegacySettings(parseSettings(next));
     const db = client ?? this.adminClient;
     if (db) {
       const row = appSettingsToRow(parsed);

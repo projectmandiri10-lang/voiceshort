@@ -16,13 +16,19 @@ if not exist ".env" (
   echo [WARN] File .env belum ada. Menyalin dari .env.example...
   copy /y ".env.example" ".env" >nul
   echo [WARN] File yang perlu diedit: %cd%\.env
-  echo [WARN] Pastikan GEMINI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, VITE_SUPABASE_URL, dan VITE_SUPABASE_ANON_KEY terisi lalu jalankan lagi.
+  echo [WARN] Pastikan GEMINI_API_KEY, OPENROUTER_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, VITE_SUPABASE_URL, dan VITE_SUPABASE_ANON_KEY terisi lalu jalankan lagi.
   goto :fail
 )
 
 findstr /r /c:"^GEMINI_API_KEY=$" ".env" >nul
 if "%ERRORLEVEL%"=="0" (
   echo [WARN] GEMINI_API_KEY di .env masih kosong.
+  goto :fail
+)
+
+findstr /r /c:"^OPENROUTER_API_KEY=$" ".env" >nul
+if "%ERRORLEVEL%"=="0" (
+  echo [WARN] OPENROUTER_API_KEY di .env masih kosong.
   goto :fail
 )
 

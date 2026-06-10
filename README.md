@@ -14,7 +14,8 @@ Aplikasi untuk membuat voice over Bahasa Indonesia untuk video pendek sampai `60
   - render `final.mp4` lokal via `ffmpeg.wasm`
 - Worker melakukan:
   - auth/session via Supabase token
-  - generate visual brief, script, caption, hashtag, dan TTS via Gemini REST
+  - generate visual brief, script, caption, dan hashtag via Gemini REST
+  - generate voice over via Gemini TTS through OpenRouter
   - billing flat per generate
   - simpan metadata history ke Supabase `generation_sessions`
 - Video asli dan `final.mp4` tidak disimpan permanen di server.
@@ -36,6 +37,7 @@ Untuk Worker / `wrangler`:
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key
+OPENROUTER_API_KEY=your_openrouter_api_key
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 SUPABASE_ANON_KEY=your_publishable_or_anon_key
@@ -74,6 +76,7 @@ copy .env.example .env
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key
+OPENROUTER_API_KEY=your_openrouter_api_key
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 SUPABASE_ANON_KEY=your_publishable_or_anon_key

@@ -226,31 +226,13 @@ function geminiTextResponse(text: string): Response {
   );
 }
 
-function geminiAudioResponse(base64Audio: string): Response {
-  return new Response(
-    JSON.stringify({
-      candidates: [
-        {
-          content: {
-            parts: [
-              {
-                inlineData: {
-                  mimeType: "audio/wav",
-                  data: base64Audio
-                }
-              }
-            ]
-          }
-        }
-      ]
-    }),
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json"
-      }
+function openRouterAudioResponse(audioBytes: string): Response {
+  return new Response(Buffer.from(audioBytes), {
+    status: 200,
+    headers: {
+      "Content-Type": "audio/mpeg"
     }
-  );
+  });
 }
 
 describe("handleApiRequest", () => {
@@ -401,6 +383,7 @@ describe("handleApiRequest", () => {
       }),
       {
         GEMINI_API_KEY: "gemini-key",
+        OPENROUTER_API_KEY: "openrouter-key",
         GENERATE_PRICE_IDR: "2500",
         SUPABASE_URL: "https://project.supabase.co",
         SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
@@ -437,10 +420,8 @@ describe("handleApiRequest", () => {
         updateCollector: updates
       })
     );
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => geminiAudioResponse(Buffer.from("fakewav").toString("base64")))
-    );
+    const fetchMock = vi.fn(async () => openRouterAudioResponse("fakeaudio"));
+    vi.stubGlobal("fetch", fetchMock);
 
     const { handleApiRequest } = await import("./worker-api");
     const response = await handleApiRequest(
@@ -452,14 +433,31 @@ describe("handleApiRequest", () => {
       }),
       {
         GEMINI_API_KEY: "gemini-key",
+        OPENROUTER_API_KEY: "openrouter-key",
         SUPABASE_URL: "https://project.supabase.co",
         SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
       }
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Type")).toBe("audio/wav");
+    expect(response.headers.get("Content-Type")).toBe("audio/mpeg");
     expect(response.headers.get("X-Voice-Name")).toBe("Leda");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/audio/speech",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer openrouter-key"
+        })
+      })
+    );
+    const init = ((fetchMock.mock.calls[0] as unknown as [string, RequestInit] | undefined)?.[1] || {}) as RequestInit;
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      model: "google/gemini-3.1-flash-tts-preview",
+      voice: "Leda",
+      response_format: "mp3",
+      speed: 1
+    });
     expect(updates).toContainEqual(
       expect.objectContaining({
         status: "ready_for_render",
