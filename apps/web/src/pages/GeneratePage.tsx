@@ -26,15 +26,28 @@ import {
 } from "../api";
 import { extractFramesFromVideo } from "../frame-extractor";
 import { getCachedSessionAssets, upsertCachedSessionAssets } from "../generation-cache";
-import { CONTENT_LABEL, GENDER_LABEL, TONE_OPTIONS } from "../job-form-options";
+import {
+  CONTENT_LABEL,
+  GENDER_LABEL,
+  PLATFORM_LABEL,
+  PLATFORM_OPTIONS,
+  TONE_OPTIONS
+} from "../job-form-options";
 import { renderFinalVideoLocally } from "../local-render";
 import { listCachedSessionIds } from "../generation-cache";
-import type { AuthUser, ContentType, GenerationSessionRecord, JobVoiceGender } from "../types";
+import type {
+  AuthUser,
+  ContentType,
+  GenerationSessionRecord,
+  JobVoiceGender,
+  SocialPlatform
+} from "../types";
 import { CONTENT_TYPES } from "../types";
 import { readVideoDuration } from "../video-duration";
 import { calculateEstimatedChargeIdr, formatVideoDuration } from "../utils/billing";
 
 const DEFAULT_CONTENT_TYPE: ContentType = "affiliate";
+const DEFAULT_SOCIAL_PLATFORM: SocialPlatform = "instagram";
 const DEFAULT_VOICE_GENDER: JobVoiceGender = "female";
 const DEFAULT_TONE = "natural";
 
@@ -53,6 +66,7 @@ interface GenerateFormState {
   title: string;
   description: string;
   contentType: ContentType;
+  socialPlatform: SocialPlatform;
   voiceGender: JobVoiceGender;
   tone: string;
   ctaText: string;
@@ -85,6 +99,7 @@ function createInitialFormState(): GenerateFormState {
     title: "",
     description: "",
     contentType: DEFAULT_CONTENT_TYPE,
+    socialPlatform: DEFAULT_SOCIAL_PLATFORM,
     voiceGender: DEFAULT_VOICE_GENDER,
     tone: DEFAULT_TONE,
     ctaText: "",
@@ -109,6 +124,7 @@ function isFormReady(form: GenerateFormState): boolean {
       !form.durationError &&
       form.title.trim() &&
       form.description.trim() &&
+      form.socialPlatform.trim() &&
       form.tone.trim()
   );
 }
@@ -364,7 +380,7 @@ export function GeneratePage({
     }
     if (!isFormReady(form)) {
       setError(
-        "Form belum lengkap. Pastikan video, judul, brief, kategori, gender, dan tone sudah siap."
+        "Form belum lengkap. Pastikan video, judul, brief, kategori, platform, gender, dan tone sudah siap."
       );
       return;
     }
@@ -400,6 +416,7 @@ export function GeneratePage({
         title: form.title.trim(),
         description: form.description.trim(),
         contentType: form.contentType,
+        socialPlatform: form.socialPlatform,
         voiceGender: form.voiceGender,
         tone: form.tone.trim(),
         ctaText: form.ctaText.trim() || undefined,
@@ -714,6 +731,35 @@ export function GeneratePage({
 
                   <label className="generate-field">
                     <span className="generate-field-label">
+                      Platform Medsos <span className="required-mark">*</span>
+                    </span>
+                    <div className="generate-input-wrap">
+                      <select
+                        value={form.socialPlatform}
+                        onChange={(event) =>
+                          updateForm((current) => ({
+                            ...current,
+                            socialPlatform: event.target.value as SocialPlatform
+                          }))
+                        }
+                        disabled={formDisabled}
+                      >
+                        {PLATFORM_OPTIONS.map((item) => (
+                          <option key={item} value={item}>
+                            {PLATFORM_LABEL[item]}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="generate-input-icon" aria-hidden="true">
+                        <Globe size={16} strokeWidth={2} />
+                      </span>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="generate-field-row">
+                  <label className="generate-field">
+                    <span className="generate-field-label">
                       Gender Suara <span className="required-mark">*</span>
                     </span>
                     <div className="generate-input-wrap">
@@ -738,9 +784,7 @@ export function GeneratePage({
                       </span>
                     </div>
                   </label>
-                </div>
 
-                <div className="generate-field-row">
                   <label className="generate-field">
                     <span className="generate-field-label">
                       Tone <span className="required-mark">*</span>
@@ -767,7 +811,9 @@ export function GeneratePage({
                       </span>
                     </div>
                   </label>
+                </div>
 
+                <div className="generate-field-row">
                   <label className="generate-field">
                     <span className="generate-field-label">CTA Opsional</span>
                     <div className="generate-input-wrap">
@@ -787,27 +833,27 @@ export function GeneratePage({
                       </span>
                     </div>
                   </label>
-                </div>
 
-                <label className="generate-field">
-                  <span className="generate-field-label">Link Referensi Opsional</span>
-                  <div className="generate-input-wrap">
-                    <input
-                      value={form.referenceLink}
-                      placeholder="https://..."
-                      onChange={(event) =>
-                        updateForm((current) => ({
-                          ...current,
-                          referenceLink: event.target.value
-                        }))
-                      }
-                      disabled={formDisabled}
-                    />
-                    <span className="generate-input-icon" aria-hidden="true">
-                      <Globe size={16} strokeWidth={2} />
-                    </span>
-                  </div>
-                </label>
+                  <label className="generate-field">
+                    <span className="generate-field-label">Link Referensi Opsional</span>
+                    <div className="generate-input-wrap">
+                      <input
+                        value={form.referenceLink}
+                        placeholder="https://..."
+                        onChange={(event) =>
+                          updateForm((current) => ({
+                            ...current,
+                            referenceLink: event.target.value
+                          }))
+                        }
+                        disabled={formDisabled}
+                      />
+                      <span className="generate-input-icon" aria-hidden="true">
+                        <Globe size={16} strokeWidth={2} />
+                      </span>
+                    </div>
+                  </label>
+                </div>
               </div>
             </section>
 
@@ -958,6 +1004,15 @@ export function GeneratePage({
               <div>
                 <p className="generate-pipeline-title">Cuplikan visual dianalisis</p>
                 <strong>{activeSession.frameCount} cuplikan</strong>
+              </div>
+            </div>
+            <div className="generate-pipeline-item">
+              <div className="generate-pipeline-icon">
+                <Globe size={18} strokeWidth={2} />
+              </div>
+              <div>
+                <p className="generate-pipeline-title">Platform target</p>
+                <strong>{PLATFORM_LABEL[activeSession.socialPlatform]}</strong>
               </div>
             </div>
             {activeSession.scriptText ? (

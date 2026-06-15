@@ -27,6 +27,7 @@ describe("validation", () => {
       title: "Judul",
       description: "Brief singkat",
       contentType: "video-marketing",
+      socialPlatform: "tiktok",
       voiceGender: "male",
       tone: "informatif",
       ctaText: "  ",
@@ -34,6 +35,7 @@ describe("validation", () => {
     });
 
     expect(parsed.contentType).toBe("video-marketing");
+    expect(parsed.socialPlatform).toBe("tiktok");
     expect(parsed.voiceGender).toBe("male");
     expect(parsed.ctaText).toBeUndefined();
     expect(parsed.referenceLink).toBe("https://contoh.test/ref");

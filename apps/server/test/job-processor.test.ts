@@ -84,6 +84,7 @@ function buildJob(jobId: string, overrides: Partial<JobRecord> = {}): JobRecord 
     title: "Tips Produktif",
     description: "Konten motivasi singkat untuk kerja fokus.",
     contentType: "motivasi",
+    socialPlatform: "instagram",
     voiceGender: "male",
     tone: "hangat",
     videoPath: path.join(UPLOADS_DIR, jobId, "source.mp4"),

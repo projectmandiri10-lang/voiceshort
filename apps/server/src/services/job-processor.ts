@@ -577,6 +577,7 @@ export class JobProcessor implements IJobProcessor {
         title: job.title,
         description: job.description,
         contentType: job.contentType,
+        socialPlatform: job.socialPlatform,
         voiceGender: job.voiceGender,
         tone: job.tone,
         videoDurationSec: job.videoDurationSec,

@@ -2,7 +2,23 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { ABSOLUTE_MAX_VIDEO_SECONDS, DEFAULT_SETTINGS, GEMINI_EXCITED_PRESETS, GEMINI_TTS_VOICES, findGenderVoiceSetting, findTtsVoiceByName, isKnownTtsVoiceName, normalizeTtsModel } from "./shared/constants";
 import { buildCaptionPrompt, buildScriptPrompt, buildVisualBriefPrompt } from "./shared/prompt-builder";
 import { extractScriptText, extractSocialMetadata, extractVisualBrief } from "./shared/model-output";
-import { CONTENT_TYPES, type AdminUserRecord, type AppSettings, type AssignedPackageCode, type AuthUser, type ContentType, type GenerationSessionCompleteInput, type GenerationSessionCreateInput, type GenerationSessionRecord, type GenerationSessionStatus, type JobVoiceGender, type TtsVoiceOption, type UserRole } from "./types";
+import {
+  CONTENT_TYPES,
+  SOCIAL_PLATFORMS,
+  type AdminUserRecord,
+  type AppSettings,
+  type AssignedPackageCode,
+  type AuthUser,
+  type ContentType,
+  type GenerationSessionCompleteInput,
+  type GenerationSessionCreateInput,
+  type GenerationSessionRecord,
+  type GenerationSessionStatus,
+  type JobVoiceGender,
+  type SocialPlatform,
+  type TtsVoiceOption,
+  type UserRole
+} from "./types";
 
 const SUPERADMIN_WHITELIST_EMAIL = "jho.j80@gmail.com";
 const DEFAULT_GENERATE_PRICE_IDR = 2000;
@@ -86,6 +102,7 @@ interface GenerationSessionRow {
   title: string;
   description: string;
   content_type: ContentType;
+  social_platform: SocialPlatform;
   voice_gender: JobVoiceGender;
   tone: string;
   cta_text: string | null;
@@ -342,6 +359,7 @@ function mapGenerationSession(row: GenerationSessionRow): GenerationSessionRecor
     title: row.title,
     description: row.description,
     contentType: row.content_type,
+    socialPlatform: row.social_platform,
     voiceGender: row.voice_gender,
     tone: row.tone,
     ctaText: row.cta_text || undefined,
@@ -441,6 +459,14 @@ function assertContentType(value: unknown): ContentType {
   return contentType;
 }
 
+function assertSocialPlatform(value: unknown): SocialPlatform {
+  const socialPlatform = String(value ?? "").trim() as SocialPlatform;
+  if (!SOCIAL_PLATFORMS.includes(socialPlatform)) {
+    throw createHttpError(400, "Platform medsos tidak valid.");
+  }
+  return socialPlatform;
+}
+
 function assertVoiceGender(value: unknown): JobVoiceGender {
   const voiceGender = String(value ?? "").trim() as JobVoiceGender;
   if (voiceGender !== "male" && voiceGender !== "female") {
@@ -536,6 +562,7 @@ function parseGenerationSessionCreateInput(input: unknown): GenerationSessionCre
     title: assertString(body.title, "Judul", { max: 160 }) || "",
     description: assertString(body.description, "Brief / deskripsi", { max: 3000 }) || "",
     contentType: assertContentType(body.contentType),
+    socialPlatform: assertSocialPlatform(body.socialPlatform),
     voiceGender: assertVoiceGender(body.voiceGender),
     tone: assertString(body.tone, "Tone", { max: 80 }) || "",
     ctaText: assertString(body.ctaText, "CTA", { required: false, max: 200 }),
@@ -749,6 +776,7 @@ async function createGenerationSession(
     title: input.title,
     description: input.description,
     contentType: input.contentType,
+    socialPlatform: input.socialPlatform,
     voiceGender: input.voiceGender,
     tone: input.tone,
     videoDurationSec: input.videoDurationSec,
@@ -826,6 +854,7 @@ async function createGenerationSession(
     title: input.title,
     description: input.description,
     content_type: input.contentType,
+    social_platform: input.socialPlatform,
     voice_gender: input.voiceGender,
     tone: input.tone,
     cta_text: input.ctaText ?? null,

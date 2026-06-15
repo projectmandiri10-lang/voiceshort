@@ -14,6 +14,16 @@ export const CONTENT_TYPES = [
 
 export type ContentType = (typeof CONTENT_TYPES)[number];
 
+export const SOCIAL_PLATFORMS = [
+  "facebook",
+  "tiktok",
+  "youtube",
+  "shopee",
+  "instagram",
+  "lainnya"
+] as const;
+export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
+
 export const VOICE_GENDERS = ["male", "female"] as const;
 export type JobVoiceGender = (typeof VOICE_GENDERS)[number];
 export type VoiceGender = JobVoiceGender | "neutral";
@@ -102,6 +112,7 @@ export interface GenerationSessionRecord {
   title: string;
   description: string;
   contentType: ContentType;
+  socialPlatform: SocialPlatform;
   voiceGender: JobVoiceGender;
   tone: string;
   ctaText?: string;
@@ -133,6 +144,7 @@ export interface GenerationSessionCreateInput {
   title: string;
   description: string;
   contentType: ContentType;
+  socialPlatform: SocialPlatform;
   voiceGender: JobVoiceGender;
   tone: string;
   ctaText?: string;

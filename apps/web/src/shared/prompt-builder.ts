@@ -1,11 +1,18 @@
 import { CONTENT_CONFIG, CONTENT_LABELS } from "./content-config";
-import type { AppSettings, ContentType, JobVoiceGender, VisualBrief } from "../types";
+import type {
+  AppSettings,
+  ContentType,
+  JobVoiceGender,
+  SocialPlatform,
+  VisualBrief
+} from "../types";
 
 export interface PromptInput {
   settings: AppSettings;
   title: string;
   description: string;
   contentType: ContentType;
+  socialPlatform: SocialPlatform;
   voiceGender: JobVoiceGender;
   tone: string;
   videoDurationSec: number;
@@ -59,6 +66,40 @@ function voiceGenderLabel(gender: JobVoiceGender): string {
   return gender === "male" ? "pria" : "wanita";
 }
 
+function socialPlatformLabel(platform: SocialPlatform): string {
+  switch (platform) {
+    case "facebook":
+      return "Facebook";
+    case "tiktok":
+      return "TikTok";
+    case "youtube":
+      return "YouTube";
+    case "shopee":
+      return "Shopee";
+    case "instagram":
+      return "Instagram";
+    case "lainnya":
+      return "Lainnya";
+  }
+}
+
+function socialPlatformGuidance(platform: SocialPlatform): string {
+  switch (platform) {
+    case "facebook":
+      return "Buat gaya yang jelas, mudah dibaca, dan tetap ramah untuk audiens yang lebih luas.";
+    case "tiktok":
+      return "Buat hook cepat, ritme punchy, dan kalimat yang singkat supaya cocok untuk scroll cepat.";
+    case "youtube":
+      return "Buat alur lebih runtut, informatif, dan enak diikuti untuk durasi tonton yang lebih panjang.";
+    case "shopee":
+      return "Fokus pada manfaat produk, dorongan klik, dan ajakan yang terasa natural untuk konversi.";
+    case "instagram":
+      return "Buat copy ringkas, visual, dan enak dibaca untuk feed, reels, atau story.";
+    case "lainnya":
+      return "Pakai gaya umum yang fleksibel dan tetap natural untuk platform yang belum dispesifikkan.";
+  }
+}
+
 function buildClosingInstruction(input: PromptInput): string {
   if (input.ctaText?.trim()) {
     return `Gunakan CTA berikut secara natural di bagian akhir: "${input.ctaText.trim()}".`;
@@ -83,6 +124,8 @@ function buildReferenceLine(referenceLink?: string): string {
 function buildContextLines(input: PromptInput): string[] {
   return [
     `Kategori konten: ${CONTENT_LABELS[input.contentType]}`,
+    `Platform medsos target: ${socialPlatformLabel(input.socialPlatform)}`,
+    `Arah platform: ${socialPlatformGuidance(input.socialPlatform)}`,
     `Judul/topik: ${input.title}`,
     `Brief/deskripsi: ${input.description}`,
     buildReferenceLine(input.referenceLink),

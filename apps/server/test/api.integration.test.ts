@@ -18,6 +18,7 @@ function buildCreateForm(overrides?: {
   title?: string;
   description?: string;
   contentType?: string | null;
+  socialPlatform?: string;
   voiceGender?: string;
   tone?: string;
   ctaText?: string;
@@ -33,6 +34,7 @@ function buildCreateForm(overrides?: {
   if (overrides?.contentType !== null) {
     form.append("contentType", overrides?.contentType ?? "affiliate");
   }
+  form.append("socialPlatform", overrides?.socialPlatform ?? "instagram");
   form.append("voiceGender", overrides?.voiceGender ?? "female");
   form.append("tone", overrides?.tone ?? "natural");
   if (overrides?.ctaText) {
@@ -60,6 +62,7 @@ function buildJobRecord(
     title: "Job Satu",
     description: "Brief awal",
     contentType: "affiliate",
+    socialPlatform: "instagram",
     voiceGender: "female",
     tone: "natural",
     videoPath: "C:/video.mp4",
@@ -932,6 +935,7 @@ describe("api integration", () => {
         title: "Judul Baru",
         description: "Brief baru",
         contentType: "motivasi",
+        socialPlatform: "tiktok",
         voiceGender: "male",
         tone: "tegas",
         ctaText: "cek sekarang",
@@ -948,6 +952,7 @@ describe("api integration", () => {
       title: "Judul Baru",
       description: "Brief baru",
       contentType: "motivasi",
+      socialPlatform: "tiktok",
       voiceGender: "male",
       tone: "tegas",
       ctaText: "cek sekarang",

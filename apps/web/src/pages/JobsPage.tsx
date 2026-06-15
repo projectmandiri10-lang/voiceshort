@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, FolderClock, RefreshCw, Sparkles, Video } from "lucide-react";
 import { fetchGenerationSession, fetchGenerationSessions } from "../api";
 import { listCachedSessionIds, getCachedSessionAssets } from "../generation-cache";
-import { CONTENT_LABEL, GENDER_LABEL } from "../job-form-options";
+import { CONTENT_LABEL, GENDER_LABEL, PLATFORM_LABEL } from "../job-form-options";
 import type { AuthUser, GenerationSessionRecord } from "../types";
 
 interface JobsPageProps {
@@ -212,6 +212,7 @@ export function JobsPage({
                           </span>
                         </div>
                         <span className="small">{CONTENT_LABEL[session.contentType]}</span>
+                        <span className="small">{PLATFORM_LABEL[session.socialPlatform]}</span>
                         <span className="small">{formatDateTime(session.updatedAt)}</span>
                         <span className="small">
                           {isCached ? "Draft lokal tersedia" : "Tanpa cache lokal"}
@@ -298,6 +299,10 @@ export function JobsPage({
                 <div className="meta-card">
                   <span className="small">Kategori</span>
                   <strong>{CONTENT_LABEL[selected.contentType]}</strong>
+                </div>
+                <div className="meta-card">
+                  <span className="small">Platform</span>
+                  <strong>{PLATFORM_LABEL[selected.socialPlatform]}</strong>
                 </div>
                 <div className="meta-card">
                   <span className="small">Gender Suara</span>

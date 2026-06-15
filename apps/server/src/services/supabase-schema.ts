@@ -44,6 +44,7 @@ export interface JobRow {
   title: string;
   description: string;
   content_type: JobRecord["contentType"];
+  social_platform: JobRecord["socialPlatform"];
   voice_gender: JobRecord["voiceGender"];
   tone: string;
   cta_text: string | null;
@@ -170,6 +171,7 @@ export function jobRowToRecord(row: JobRow): JobRecord {
     title: row.title,
     description: row.description,
     contentType: row.content_type,
+    socialPlatform: row.social_platform,
     voiceGender: row.voice_gender,
     tone: row.tone,
     ctaText: row.cta_text || undefined,
@@ -198,6 +200,7 @@ export function jobRecordToRow(job: JobRecord): JobRow {
     title: job.title,
     description: job.description,
     content_type: job.contentType,
+    social_platform: job.socialPlatform,
     voice_gender: job.voiceGender,
     tone: job.tone,
     cta_text: job.ctaText ?? null,

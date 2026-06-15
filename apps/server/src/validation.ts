@@ -1,9 +1,18 @@
 import { z } from "zod";
 import { CONTENT_TYPES } from "./content-config.js";
 import { ABSOLUTE_MAX_VIDEO_SECONDS, GENDER_ORDER, isKnownTtsVoiceName } from "./constants.js";
-import type { AppSettings, AssignedPackageCode, ContentType, JobVoiceGender, UserRole } from "./types.js";
+import { SOCIAL_PLATFORMS } from "./types.js";
+import type {
+  AppSettings,
+  AssignedPackageCode,
+  ContentType,
+  JobVoiceGender,
+  SocialPlatform,
+  UserRole
+} from "./types.js";
 
 const contentTypeSchema = z.enum(CONTENT_TYPES);
+const socialPlatformSchema = z.enum(SOCIAL_PLATFORMS);
 const voiceGenderSchema = z.enum(GENDER_ORDER);
 const nonEmptyTextSchema = z.string().trim().min(1);
 const speechRateSchema = z.number().min(0.7).max(1.3);
@@ -44,6 +53,7 @@ const jobInputSchema = z.object({
   title: nonEmptyTextSchema,
   description: nonEmptyTextSchema,
   contentType: contentTypeSchema,
+  socialPlatform: socialPlatformSchema,
   voiceGender: voiceGenderSchema,
   tone: nonEmptyTextSchema.max(80),
   ctaText: optionalTextSchema,
@@ -118,6 +128,7 @@ export function parseJobCreateInput(input: unknown): {
   title: string;
   description: string;
   contentType: ContentType;
+  socialPlatform: SocialPlatform;
   voiceGender: JobVoiceGender;
   tone: string;
   ctaText?: string;
@@ -130,6 +141,7 @@ export function parseJobUpdateInput(input: unknown): {
   title: string;
   description: string;
   contentType: ContentType;
+  socialPlatform: SocialPlatform;
   voiceGender: JobVoiceGender;
   tone: string;
   ctaText?: string;

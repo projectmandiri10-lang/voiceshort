@@ -170,6 +170,7 @@ function buildSession(
     title: "Voice Over Produk",
     description: "Jelaskan produk dengan singkat dan menarik",
     contentType: "affiliate",
+    socialPlatform: "instagram",
     voiceGender: "female",
     tone: "natural",
     ctaText: "cek detailnya sekarang",

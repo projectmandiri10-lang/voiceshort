@@ -11,6 +11,16 @@ export type ContentType =
   | "motivasi"
   | "promosi-event";
 
+export const SOCIAL_PLATFORMS = [
+  "facebook",
+  "tiktok",
+  "youtube",
+  "shopee",
+  "instagram",
+  "lainnya"
+] as const;
+export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
+
 export type SubtitleStyle = "short_punchy" | "clear" | "narrative" | "sales";
 
 export type JobVoiceGender = "female" | "male";
@@ -84,6 +94,7 @@ export interface JobRecord {
   title: string;
   description: string;
   contentType: ContentType;
+  socialPlatform: SocialPlatform;
   voiceGender: JobVoiceGender;
   tone: string;
   ctaText?: string;
