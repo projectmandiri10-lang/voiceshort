@@ -305,10 +305,10 @@ describe("web smoke", () => {
       expect(generationCache.listCachedSessionIds).toHaveBeenCalled();
     });
     expect(screen.getByRole("region", { name: /^slot video 1$/i })).toBeTruthy();
-    expect(screen.getByText(/Proses Otomatis/i)).toBeTruthy();
+    expect(screen.getByText(/Video Utama/i)).toBeTruthy();
     expect(screen.getByLabelText(/^Judul/i)).toBeTruthy();
     expect(screen.getAllByText(/Flat per proses/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /Generate \+ Buat Final/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Proses Video/i })).toBeTruthy();
   });
 
   it("submits one local render flow end-to-end", async () => {
@@ -344,7 +344,7 @@ describe("web smoke", () => {
       target: { value: "Jelaskan produk dengan singkat dan menarik" }
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Generate \+ Buat Final/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Proses Video/i }));
 
     await waitFor(() => {
       expect(frameExtractor.extractFramesFromVideo).toHaveBeenCalledTimes(1);

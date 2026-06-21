@@ -6,7 +6,6 @@ import {
   FolderClock,
   Gauge,
   Globe,
-  History,
   Layers3,
   Link2,
   Mic2,
@@ -526,18 +525,6 @@ export function GeneratePage({
   return (
     <section className="generate-concise-shell">
       <div className="generate-editor-column">
-        <div className="generate-hero">
-          <div className="generate-hero-tags">
-            <span className="eyebrow">Proses Lokal</span>
-            <span className="generate-hero-chip">Proses Otomatis</span>
-          </div>
-          <h2>Buat voice over dan final.mp4 langsung dari perangkat Anda</h2>
-          <p>
-            Video tetap lokal di perangkat Anda. Sistem menganalisis cuplikan visual, menyusun naskah dan
-            audio, lalu merakit MP4 final secara otomatis.
-          </p>
-        </div>
-
         <div className="generate-editor-stack">
           {resumeHint ? (
             <section className="workspace-inline-card">
@@ -567,7 +554,7 @@ export function GeneratePage({
                 <div>
                   <span className="generate-section-label">Upload Video</span>
                   <h3>Video Utama</h3>
-                  <p className="small">Video tetap di perangkat Anda. Hanya cuplikan visual yang dipakai untuk analisis.</p>
+                  <p className="small">Video tetap di perangkat Anda dan hanya dipakai untuk analisis lokal.</p>
                 </div>
                 <span
                   className={
@@ -654,9 +641,7 @@ export function GeneratePage({
                 <div>
                   <span className="generate-section-label">Isi Detail</span>
                   <h3>Detail Voice Over</h3>
-                  <p className="small">
-                    Sistem akan menghasilkan naskah, caption, hashtag, dan rencana suara dari data ini.
-                  </p>
+                  <p className="small">Lengkapi arahan utama agar naskah dan audio lebih akurat.</p>
                 </div>
               </div>
 
@@ -860,32 +845,15 @@ export function GeneratePage({
             {error ? <p className="err-text">{error}</p> : null}
 
             <div className="generate-floating-dock">
-              <button
-                type="button"
-                className="generate-history-button"
-                onClick={() => onViewJobs(activeSession?.sessionId)}
-              >
-                <History size={17} strokeWidth={2} />
-                <span>Riwayat Session</span>
-              </button>
-
-              <div className="generate-dock-divider" aria-hidden="true" />
-
-              <div className="generate-dock-summary">
-                <span className="generate-dock-label">Biaya Generate</span>
-                <strong>
-                  {currentUser.isUnlimited ? "Unlimited" : formatRupiah(estimatedChargeIdr)}
-                </strong>
-                <p className="small">
-                  {currentUser.isUnlimited
-                    ? "Akun ini tidak dipotong saldo."
-                    : "Satu generate memotong satu biaya flat."}
-                </p>
-              </div>
+              <p className="generate-action-note small">
+                {currentUser.isUnlimited
+                  ? "Akun ini dapat memproses video tanpa potong saldo."
+                  : `Biaya per proses ${formatRupiah(estimatedChargeIdr)}. Riwayat tersedia di tab Riwayat.`}
+              </p>
 
               <button type="submit" className="generate-submit-button" disabled={formDisabled}>
                 <Sparkles size={17} strokeWidth={2} />
-                <span>{loading ? flowState.label : "Generate + Buat Final"}</span>
+                <span>{loading ? flowState.label : "Proses Video"}</span>
               </button>
             </div>
           </form>
@@ -895,10 +863,6 @@ export function GeneratePage({
       <aside className="generate-side-panel">
         <div className="generate-side-head">
           <h3>Ringkasan</h3>
-          <span className="generate-live-pill">
-            <span className="generate-live-dot" aria-hidden="true" />
-            Aktif
-          </span>
         </div>
 
         <section className="generate-side-card generate-compute-card">

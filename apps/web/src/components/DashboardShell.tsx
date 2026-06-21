@@ -118,35 +118,28 @@ export function DashboardShell<TView extends string>({
         <div className="dashboard-concise-main">
           <header className="dashboard-topbar">
             <div className="dashboard-topbar-copy">
-              <div className="dashboard-breadcrumb" aria-label="Lokasi halaman">
-                <span>Beranda</span>
-                <span className="dashboard-breadcrumb-dot" aria-hidden="true" />
-                <span className="dashboard-breadcrumb-active">{activeTab?.label ?? "Halaman"}</span>
-              </div>
               <h1>{activeTab?.label ?? "Halaman"}</h1>
             </div>
 
             <div className="dashboard-topbar-meta">
               <div className="dashboard-balance-pill">
+                <div className="dashboard-balance-icon" aria-hidden="true">
+                  <Wallet size={16} strokeWidth={2} />
+                </div>
                 <div className="dashboard-balance-copy">
                   <span>Saldo</span>
                   <strong>{balanceLabel}</strong>
                   <p>{balanceNote}</p>
                 </div>
-                <div className="dashboard-balance-icon" aria-hidden="true">
-                  <Wallet size={16} strokeWidth={2} />
-                </div>
               </div>
 
-              <div className="dashboard-topbar-separator" aria-hidden="true" />
-
               <div className="dashboard-user-chip">
+                <div className="dashboard-avatar" aria-hidden="true">
+                  <div className="dashboard-avatar-inner">{getInitials(user.displayName)}</div>
+                </div>
                 <div className="dashboard-user-copy">
                   <strong>{user.displayName}</strong>
                   <span>{accessLabel}</span>
-                </div>
-                <div className="dashboard-avatar" aria-hidden="true">
-                  <div className="dashboard-avatar-inner">{getInitials(user.displayName)}</div>
                 </div>
               </div>
             </div>
