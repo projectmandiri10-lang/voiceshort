@@ -63,6 +63,8 @@ describe("gemini service", () => {
 
     const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
     await service.generateVisualBrief({
+      provider: "gemini_direct",
+      fallbackProvider: "openrouter",
       model: "gemini-test",
       prompt: "Analisis video ini.",
       video: {
@@ -145,6 +147,8 @@ describe("gemini service", () => {
 
     const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
     const brief = await service.generateVisualBrief({
+      provider: "gemini_direct",
+      fallbackProvider: "openrouter",
       model: "gemini-test",
       prompt: "Analisis video ini.",
       video: {
@@ -160,6 +164,46 @@ describe("gemini service", () => {
     expect(strictPrompt).toContain("Kembalikan hanya JSON valid");
   });
 
+  it("falls back to OpenRouter text generation when Gemini direct fails", async () => {
+    generateContentMock.mockRejectedValue(
+      Object.assign(new Error("Gemini text gagal"), { status: 503 })
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  script: "Script fallback dari OpenRouter."
+                })
+              }
+            }
+          ]
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      )
+    );
+
+    const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
+    const result = await service.generateScript({
+      provider: "gemini_direct",
+      fallbackProvider: "openrouter",
+      model: "gemini-2.5-flash-lite",
+      prompt: "Tulis script singkat."
+    });
+
+    expect(result).toBe("Script fallback dari OpenRouter.");
+    expect(generateContentMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
+  });
+
   it("sends OpenRouter TTS requests with normalized Gemini model slugs", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(Buffer.from("audio"), {
@@ -172,6 +216,8 @@ describe("gemini service", () => {
 
     const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
     const audio = await service.generateSpeech({
+      provider: "openrouter",
+      fallbackProvider: "gemini_direct",
       model: "gemini-2.5-flash-preview-tts",
       text: "Halo semua, ini contoh voice over singkat.",
       voiceName: "Leda",
@@ -195,6 +241,54 @@ describe("gemini service", () => {
       voice: "Leda",
       response_format: "mp3",
       speed: 1.15
+    });
+  });
+
+  it("uses Gemini direct TTS when configured and requests audio output", async () => {
+    generateContentMock.mockResolvedValueOnce({
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                inlineData: {
+                  data: Buffer.from("audio", "utf8").toString("base64"),
+                  mimeType: "audio/wav"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    });
+
+    const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
+    const audio = await service.generateSpeech({
+      provider: "gemini_direct",
+      fallbackProvider: "openrouter",
+      model: "google/gemini-3.1-flash-tts-preview",
+      text: "Halo semua, ini contoh Gemini direct.",
+      voiceName: "Leda",
+      speechRate: 1,
+      deliveryHint: "jelas dan profesional"
+    });
+
+    expect(audio.data.toString("utf8")).toBe("audio");
+    expect(audio.mimeType).toBe("audio/wav");
+    expect(generateContentMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(generateContentMock.mock.calls[0]?.[0]).toMatchObject({
+      model: "gemini-3.1-flash-tts-preview",
+      config: {
+        responseModalities: ["AUDIO"],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: "Leda"
+            }
+          }
+        }
+      }
     });
   });
 });

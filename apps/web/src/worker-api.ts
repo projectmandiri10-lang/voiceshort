@@ -1,11 +1,33 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { ABSOLUTE_MAX_VIDEO_SECONDS, DEFAULT_SETTINGS, GEMINI_EXCITED_PRESETS, GEMINI_TTS_VOICES, findGenderVoiceSetting, findTtsVoiceByName, isKnownTtsVoiceName, normalizeTtsModel } from "./shared/constants";
-import { buildCaptionPrompt, buildScriptPrompt, buildVisualBriefPrompt } from "./shared/prompt-builder";
-import { extractScriptText, extractSocialMetadata, extractVisualBrief } from "./shared/model-output";
+import {
+  ABSOLUTE_MAX_VIDEO_SECONDS,
+  DEFAULT_SETTINGS,
+  GEMINI_EXCITED_PRESETS,
+  GEMINI_TTS_VOICES,
+  findGenderVoiceSetting,
+  findTtsVoiceByName,
+  isKnownTtsVoiceName,
+  normalizeAiProvider,
+  normalizeScriptModel,
+  normalizeTtsModel
+} from "./shared/constants";
+import {
+  buildCaptionPrompt,
+  buildGeminiTtsPrompt,
+  buildScriptPrompt,
+  buildVisualBriefPrompt
+} from "./shared/prompt-builder";
+import {
+  ensureWavAudio,
+  extractScriptText,
+  extractSocialMetadata,
+  extractVisualBrief
+} from "./shared/model-output";
 import {
   CONTENT_TYPES,
   SOCIAL_PLATFORMS,
   type AdminUserRecord,
+  type AiProvider,
   type AppSettings,
   type AssignedPackageCode,
   type AuthUser,
@@ -86,7 +108,11 @@ interface ProfileRow {
 
 interface AppSettingsRow {
   settings_key: "default";
+  script_provider?: AppSettings["scriptProvider"];
+  script_fallback_provider?: AppSettings["scriptFallbackProvider"];
   script_model: string;
+  tts_provider?: AppSettings["ttsProvider"];
+  tts_fallback_provider?: AppSettings["ttsFallbackProvider"];
   tts_model: string;
   language: "id-ID";
   max_video_seconds: number;
@@ -309,8 +335,18 @@ function mapProfileToAdminUser(profile: ProfileRow, generatePriceIdr: number): A
 function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
   const source = row
     ? {
+        scriptProvider: normalizeAiProvider(row.script_provider, DEFAULT_SETTINGS.scriptProvider),
+        scriptFallbackProvider: normalizeAiProvider(
+          row.script_fallback_provider,
+          DEFAULT_SETTINGS.scriptFallbackProvider
+        ),
         scriptModel: row.script_model,
-        ttsModel: normalizeTtsModel(row.tts_model),
+        ttsProvider: normalizeAiProvider(row.tts_provider, DEFAULT_SETTINGS.ttsProvider),
+        ttsFallbackProvider: normalizeAiProvider(
+          row.tts_fallback_provider,
+          DEFAULT_SETTINGS.ttsFallbackProvider
+        ),
+        ttsModel: row.tts_model,
         language: row.language,
         maxVideoSeconds: row.max_video_seconds,
         safetyMode: row.safety_mode,
@@ -320,10 +356,24 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
     : DEFAULT_SETTINGS;
 
   return {
-    scriptModel: String(source.scriptModel || DEFAULT_SETTINGS.scriptModel).trim() || DEFAULT_SETTINGS.scriptModel,
-    ttsModel:
-      normalizeTtsModel(String(source.ttsModel || DEFAULT_SETTINGS.ttsModel).trim()) ||
-      DEFAULT_SETTINGS.ttsModel,
+    scriptProvider: normalizeAiProvider(source.scriptProvider, DEFAULT_SETTINGS.scriptProvider),
+    scriptFallbackProvider: normalizeAiProvider(
+      source.scriptFallbackProvider,
+      DEFAULT_SETTINGS.scriptFallbackProvider
+    ),
+    scriptModel: normalizeScriptModel(
+      String(source.scriptModel || DEFAULT_SETTINGS.scriptModel).trim() || DEFAULT_SETTINGS.scriptModel,
+      normalizeAiProvider(source.scriptProvider, DEFAULT_SETTINGS.scriptProvider)
+    ),
+    ttsProvider: normalizeAiProvider(source.ttsProvider, DEFAULT_SETTINGS.ttsProvider),
+    ttsFallbackProvider: normalizeAiProvider(
+      source.ttsFallbackProvider,
+      DEFAULT_SETTINGS.ttsFallbackProvider
+    ),
+    ttsModel: normalizeTtsModel(
+      String(source.ttsModel || DEFAULT_SETTINGS.ttsModel).trim() || DEFAULT_SETTINGS.ttsModel,
+      normalizeAiProvider(source.ttsProvider, DEFAULT_SETTINGS.ttsProvider)
+    ),
     language: "id-ID",
     maxVideoSeconds: Math.max(10, Math.min(ABSOLUTE_MAX_VIDEO_SECONDS, Math.trunc(source.maxVideoSeconds || DEFAULT_SETTINGS.maxVideoSeconds))),
     safetyMode: "safe_marketing",
@@ -523,9 +573,42 @@ function parseSettingsInput(input: unknown): AppSettings {
     };
   });
 
+  const scriptProvider = normalizeAiProvider(
+    String(body.scriptProvider || "").trim(),
+    DEFAULT_SETTINGS.scriptProvider
+  );
+  const scriptFallbackProvider = normalizeAiProvider(
+    String(body.scriptFallbackProvider || "").trim(),
+    DEFAULT_SETTINGS.scriptFallbackProvider
+  );
+  const ttsProvider = normalizeAiProvider(
+    String(body.ttsProvider || "").trim(),
+    DEFAULT_SETTINGS.ttsProvider
+  );
+  const ttsFallbackProvider = normalizeAiProvider(
+    String(body.ttsFallbackProvider || "").trim(),
+    DEFAULT_SETTINGS.ttsFallbackProvider
+  );
+  if (scriptProvider === scriptFallbackProvider) {
+    throw createHttpError(400, "Fallback provider script harus berbeda dari provider utama.");
+  }
+  if (ttsProvider === ttsFallbackProvider) {
+    throw createHttpError(400, "Fallback provider TTS harus berbeda dari provider utama.");
+  }
+
   return {
-    scriptModel: assertString(body.scriptModel, "Script model") || DEFAULT_SETTINGS.scriptModel,
-    ttsModel: normalizeTtsModel(assertString(body.ttsModel, "TTS model") || DEFAULT_SETTINGS.ttsModel),
+    scriptProvider,
+    scriptFallbackProvider,
+    scriptModel: normalizeScriptModel(
+      assertString(body.scriptModel, "Script model") || DEFAULT_SETTINGS.scriptModel,
+      scriptProvider
+    ),
+    ttsProvider,
+    ttsFallbackProvider,
+    ttsModel: normalizeTtsModel(
+      assertString(body.ttsModel, "TTS model") || DEFAULT_SETTINGS.ttsModel,
+      ttsProvider
+    ),
     language: "id-ID",
     maxVideoSeconds: Math.max(
       10,
@@ -663,7 +746,35 @@ async function callGemini(
   return payload;
 }
 
+const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_TTS_URL = "https://openrouter.ai/api/v1/audio/speech";
+
+async function callOpenRouterText(
+  env: WorkerEnv,
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const response = await fetch(OPENROUTER_CHAT_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getRequiredEnv(env, "OPENROUTER_API_KEY")}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    const message =
+      typeof (payload.error as { message?: unknown } | undefined)?.message === "string"
+        ? String((payload.error as { message?: unknown }).message)
+        : typeof payload.message === "string"
+          ? payload.message
+          : `OpenRouter text request gagal (${response.status}).`;
+    throw createHttpError(response.status === 429 ? 503 : response.status, message, payload);
+  }
+
+  return payload;
+}
 
 async function callOpenRouterTts(
   env: WorkerEnv,
@@ -728,8 +839,159 @@ function buildGeminiFrameParts(
   }));
 }
 
-async function generateOpenRouterAudio(
+function buildOpenRouterFrameParts(
+  frames: GenerationSessionCreateInput["frames"]
+): Array<Record<string, unknown>> {
+  return frames.map((frame) => ({
+    type: "image_url",
+    image_url: {
+      url: `data:${frame.mimeType};base64,${frame.base64Data}`
+    }
+  }));
+}
+
+function shouldUseFallbackProvider(primary: AiProvider, fallback: AiProvider | undefined): fallback is AiProvider {
+  return Boolean(fallback && fallback !== primary);
+}
+
+function openRouterPayloadToGeminiLike(payload: Record<string, unknown>): Record<string, unknown> {
+  const choices = Array.isArray(payload.choices) ? payload.choices : [];
+  const first = choices[0] as { message?: { content?: unknown } } | undefined;
+  const rawContent = first?.message?.content;
+  const content =
+    typeof rawContent === "string"
+      ? rawContent
+      : Array.isArray(rawContent)
+        ? rawContent
+            .map((part) => {
+              if (!part || typeof part !== "object" || Array.isArray(part)) {
+                return "";
+              }
+              const value = (part as { text?: unknown }).text;
+              return typeof value === "string" ? value : "";
+            })
+            .filter(Boolean)
+            .join("\n")
+        : "";
+
+  return {
+    candidates: [
+      {
+        content: {
+          parts: [{ text: content }]
+        }
+      }
+    ]
+  };
+}
+
+function extractGeminiAudio(response: Record<string, unknown>): GeminiAudio {
+  const candidates = Array.isArray(response.candidates) ? response.candidates : [];
+  const first = candidates[0] as { content?: { parts?: Array<Record<string, unknown>> } } | undefined;
+  const parts = Array.isArray(first?.content?.parts) ? first?.content?.parts : [];
+  for (const part of parts) {
+    const inlineData = part.inlineData as { data?: unknown; mimeType?: unknown } | undefined;
+    if (typeof inlineData?.data === "string") {
+      const normalized = inlineData.data.trim();
+      if (!normalized) {
+        continue;
+      }
+      return {
+        bytes: ensureWavAudio(
+          Uint8Array.from(atob(normalized), (char) => char.charCodeAt(0)),
+          typeof inlineData.mimeType === "string" && inlineData.mimeType.trim()
+            ? inlineData.mimeType.trim()
+            : "audio/wav"
+        ),
+        mimeType:
+          typeof inlineData.mimeType === "string" && inlineData.mimeType.trim()
+            ? inlineData.mimeType.trim().toLowerCase().includes("pcm") ||
+              inlineData.mimeType.trim().toLowerCase().includes("raw") ||
+              inlineData.mimeType.trim().toLowerCase().includes("l16")
+              ? "audio/wav"
+              : inlineData.mimeType.trim()
+            : "audio/wav"
+      };
+    }
+  }
+
+  throw createHttpError(502, "Gemini direct tidak mengembalikan audio.");
+}
+
+async function runWithProviderFallback<T>(input: {
+  stage: string;
+  primaryProvider: AiProvider;
+  fallbackProvider?: AiProvider;
+  task: (provider: AiProvider) => Promise<T>;
+}): Promise<T> {
+  try {
+    return await input.task(input.primaryProvider);
+  } catch (primaryError) {
+    if (!shouldUseFallbackProvider(input.primaryProvider, input.fallbackProvider)) {
+      throw primaryError;
+    }
+    console.warn(`[AI Fallback] ${input.stage}: ${input.primaryProvider} gagal, coba ${input.fallbackProvider}.`, primaryError);
+    try {
+      return await input.task(input.fallbackProvider);
+    } catch (fallbackError) {
+      const primaryMessage = (primaryError as Error).message || "Primary provider gagal.";
+      const fallbackMessage = (fallbackError as Error).message || "Fallback provider gagal.";
+      throw createHttpError(
+        Number((fallbackError as { status?: number }).status || (primaryError as { status?: number }).status || 502),
+        `${input.stage} gagal pada provider utama (${input.primaryProvider}) dan fallback (${input.fallbackProvider}).`,
+        {
+          primaryProvider: input.primaryProvider,
+          fallbackProvider: input.fallbackProvider,
+          primaryError: primaryMessage,
+          fallbackError: fallbackMessage
+        }
+      );
+    }
+  }
+}
+
+async function generateTextWithProvider(
   env: WorkerEnv,
+  provider: AiProvider,
+  model: string,
+  input: {
+    prompt: string;
+    frames?: GenerationSessionCreateInput["frames"];
+  }
+): Promise<Record<string, unknown>> {
+  if (provider === "openrouter") {
+    const payload = await callOpenRouterText(env, {
+      model: normalizeScriptModel(model, provider),
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: input.prompt },
+            ...buildOpenRouterFrameParts(input.frames || [])
+          ]
+        }
+      ]
+    });
+    return openRouterPayloadToGeminiLike(payload);
+  }
+
+  const parts = [
+    ...(input.frames ? buildGeminiFrameParts(input.frames) : []),
+    { text: input.prompt }
+  ];
+  return await callGemini(env, normalizeScriptModel(model, provider), {
+    contents: [
+      {
+        role: "user",
+        parts
+      }
+    ]
+  });
+}
+
+async function generateAudioWithProvider(
+  env: WorkerEnv,
+  provider: AiProvider,
   settings: AppSettings,
   input: {
     text: string;
@@ -738,19 +1000,50 @@ async function generateOpenRouterAudio(
     deliveryHint?: string;
   }
 ): Promise<GeminiAudio> {
+  if (provider === "openrouter") {
+    const response = await withRetry(() =>
+      callOpenRouterTts(env, {
+        model: normalizeTtsModel(settings.ttsModel, provider),
+        input: input.text.replace(/\s+/g, " ").trim(),
+        voice: input.voiceName,
+        response_format: "mp3",
+        speed: input.speechRate
+      })
+    );
+    return {
+      bytes: new Uint8Array(await response.arrayBuffer()),
+      mimeType: response.headers.get("Content-Type")?.trim() || "audio/mpeg"
+    };
+  }
+
   const response = await withRetry(() =>
-    callOpenRouterTts(env, {
-      model: settings.ttsModel,
-      input: input.text.replace(/\s+/g, " ").trim(),
-      voice: input.voiceName,
-      response_format: "mp3",
-      speed: input.speechRate
+    callGemini(env, normalizeTtsModel(settings.ttsModel, provider), {
+      contents: [
+        {
+          parts: [
+            {
+              text: buildGeminiTtsPrompt({
+                text: input.text,
+                speechRate: input.speechRate,
+                deliveryHint: input.deliveryHint
+              })
+            }
+          ]
+        }
+      ],
+      config: {
+        responseModalities: ["AUDIO"],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: input.voiceName
+            }
+          }
+        }
+      }
     })
   );
-  return {
-    bytes: new Uint8Array(await response.arrayBuffer()),
-    mimeType: response.headers.get("Content-Type")?.trim() || "audio/mpeg"
-  };
+  return extractGeminiAudio(response);
 }
 
 async function createGenerationSession(
@@ -785,54 +1078,53 @@ async function createGenerationSession(
     referenceLink: input.referenceLink
   } as const;
 
-  const frameParts = buildGeminiFrameParts(input.frames);
   const visualBriefPrompt = buildVisualBriefPrompt(promptBase);
-  const visualBriefResponse = await withRetry(() =>
-    callGemini(env, settings.scriptModel, {
-      contents: [
-        {
-          role: "user",
-          parts: [...frameParts, { text: visualBriefPrompt }]
-        }
-      ]
-    })
-  );
-  const visualBrief = extractVisualBrief(visualBriefResponse);
+  const visualBrief = await runWithProviderFallback({
+    stage: "Visual brief",
+    primaryProvider: settings.scriptProvider,
+    fallbackProvider: settings.scriptFallbackProvider,
+    task: (provider) =>
+      withRetry(() =>
+        generateTextWithProvider(env, provider, settings.scriptModel, {
+          prompt: visualBriefPrompt,
+          frames: input.frames
+        }).then((response) => extractVisualBrief(response))
+      )
+  });
 
-  const scriptResponse = await withRetry(() =>
-    callGemini(env, settings.scriptModel, {
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: buildScriptPrompt({ ...promptBase, visualBrief }) }]
-        }
-      ]
-    })
-  );
-  const scriptText = extractScriptText(scriptResponse);
-  if (!scriptText) {
-    throw createHttpError(502, "Gemini mengembalikan naskah kosong.");
-  }
+  const scriptText = await runWithProviderFallback({
+    stage: "Script generation",
+    primaryProvider: settings.scriptProvider,
+    fallbackProvider: settings.scriptFallbackProvider,
+    task: (provider) =>
+      withRetry(() =>
+        generateTextWithProvider(env, provider, settings.scriptModel, {
+          prompt: buildScriptPrompt({ ...promptBase, visualBrief })
+        }).then((response) => {
+          const script = extractScriptText(response);
+          if (!script) {
+            throw createHttpError(502, "Provider AI mengembalikan naskah kosong.");
+          }
+          return script;
+        })
+      )
+  });
 
-  const captionResponse = await withRetry(() =>
-    callGemini(env, settings.scriptModel, {
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              text: buildCaptionPrompt({
-                ...promptBase,
-                visualBrief,
-                scriptText
-              })
-            }
-          ]
-        }
-      ]
-    })
-  );
-  const social = extractSocialMetadata(captionResponse);
+  const social = await runWithProviderFallback({
+    stage: "Caption generation",
+    primaryProvider: settings.scriptProvider,
+    fallbackProvider: settings.scriptFallbackProvider,
+    task: (provider) =>
+      withRetry(() =>
+        generateTextWithProvider(env, provider, settings.scriptModel, {
+          prompt: buildCaptionPrompt({
+            ...promptBase,
+            visualBrief,
+            scriptText
+          })
+        }).then((response) => extractSocialMetadata(response))
+      )
+  });
 
   const sessionId = crypto.randomUUID();
   const chargeAmountIdr = getGeneratePriceIdr(env);
@@ -990,7 +1282,8 @@ async function synthesizeGenerationSessionTts(
 ): Promise<Response> {
   const session = await getGenerationSessionForUser(context, sessionId);
   const settings = await getSettings(context.serviceDb);
-  if (!session.script_text) {
+  const scriptText = session.script_text;
+  if (!scriptText) {
     throw createHttpError(400, "Session ini belum memiliki naskah untuk TTS.");
   }
 
@@ -1001,11 +1294,17 @@ async function synthesizeGenerationSessionTts(
   }
   const speechRate = Number(session.speech_rate) || 1;
 
-  const audio = await generateOpenRouterAudio(env, settings, {
-    text: session.script_text,
-    voiceName,
-    speechRate,
-    deliveryHint: `${session.tone} dan ${voice?.tone?.toLowerCase() || "natural"} untuk video pendek Indonesia`
+  const audio = await runWithProviderFallback({
+    stage: "Generation session TTS",
+    primaryProvider: settings.ttsProvider,
+    fallbackProvider: settings.ttsFallbackProvider,
+    task: (provider) =>
+      generateAudioWithProvider(env, provider, settings, {
+        text: scriptText,
+        voiceName,
+        speechRate,
+        deliveryHint: `${session.tone} dan ${voice?.tone?.toLowerCase() || "natural"} untuk video pendek Indonesia`
+      })
   });
 
   const updateResult = await context.serviceDb
@@ -1040,13 +1339,19 @@ async function previewVoice(env: WorkerEnv, context: AuthContext, payload: Recor
     throw createHttpError(400, `Voice ${voiceName} tidak tersedia.`);
   }
 
-  const audio = await generateOpenRouterAudio(env, settings, {
-    text:
-      assertString(payload.text, "Teks preview", { required: false, max: 220 }) ||
-      "Halo, ini contoh voice over Bahasa Indonesia untuk video pendek yang natural dan jelas.",
-    voiceName: voice.voiceName,
-    speechRate: assertSpeechRate(payload.speechRate ?? 1),
-    deliveryHint: `${voice.tone.toLowerCase()} dan natural untuk voice over video Indonesia`
+  const audio = await runWithProviderFallback({
+    stage: "Voice preview TTS",
+    primaryProvider: settings.ttsProvider,
+    fallbackProvider: settings.ttsFallbackProvider,
+    task: (provider) =>
+      generateAudioWithProvider(env, provider, settings, {
+        text:
+          assertString(payload.text, "Teks preview", { required: false, max: 220 }) ||
+          "Halo, ini contoh voice over Bahasa Indonesia untuk video pendek yang natural dan jelas.",
+        voiceName: voice.voiceName,
+        speechRate: assertSpeechRate(payload.speechRate ?? 1),
+        deliveryHint: `${voice.tone.toLowerCase()} dan natural untuk voice over video Indonesia`
+      })
   });
 
   return new Response(new Blob([Uint8Array.from(audio.bytes)], { type: audio.mimeType }), {
@@ -1614,7 +1919,11 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
         .from("app_settings")
         .upsert({
           settings_key: "default",
+          script_provider: nextSettings.scriptProvider,
+          script_fallback_provider: nextSettings.scriptFallbackProvider,
           script_model: nextSettings.scriptModel,
+          tts_provider: nextSettings.ttsProvider,
+          tts_fallback_provider: nextSettings.ttsFallbackProvider,
           tts_model: nextSettings.ttsModel,
           language: nextSettings.language,
           max_video_seconds: nextSettings.maxVideoSeconds,

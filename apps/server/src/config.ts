@@ -9,7 +9,11 @@ dotenv.config({ path: path.join(ROOT_DIR, ".env"), override: true });
 export interface AppEnv {
   aiProvider: "gemini";
   geminiApiKey: string;
+  scriptProvider: "gemini_direct" | "openrouter";
+  scriptFallbackProvider: "gemini_direct" | "openrouter";
   geminiScriptModel: string;
+  ttsProvider: "gemini_direct" | "openrouter";
+  ttsFallbackProvider: "gemini_direct" | "openrouter";
   openrouterApiKey: string;
   openrouterTtsModel: string;
   port: number;
@@ -34,9 +38,21 @@ export interface AppEnv {
 }
 
 export function loadEnv(): AppEnv {
-  const aiProvider = "gemini" as const;
+  const aiProvider: AppEnv["aiProvider"] = "gemini";
   const geminiApiKey = process.env.GEMINI_API_KEY?.trim() ?? "";
+  const scriptProvider: AppEnv["scriptProvider"] = (
+    process.env.SCRIPT_PROVIDER?.trim() === "openrouter" ? "openrouter" : "gemini_direct"
+  );
+  const scriptFallbackProvider: AppEnv["scriptFallbackProvider"] = (
+    process.env.SCRIPT_FALLBACK_PROVIDER?.trim() === "gemini_direct" ? "gemini_direct" : "openrouter"
+  );
   const geminiScriptModel = process.env.GEMINI_SCRIPT_MODEL?.trim() ?? "";
+  const ttsProvider: AppEnv["ttsProvider"] = (
+    process.env.TTS_PROVIDER?.trim() === "gemini_direct" ? "gemini_direct" : "openrouter"
+  );
+  const ttsFallbackProvider: AppEnv["ttsFallbackProvider"] = (
+    process.env.TTS_FALLBACK_PROVIDER?.trim() === "openrouter" ? "openrouter" : "gemini_direct"
+  );
   const openrouterApiKey = process.env.OPENROUTER_API_KEY?.trim() ?? "";
   const openrouterTtsModel =
     process.env.OPENROUTER_TTS_MODEL?.trim() || "google/gemini-3.1-flash-tts-preview";
@@ -80,6 +96,12 @@ export function loadEnv(): AppEnv {
   if (!openrouterApiKey) {
     throw new Error("OPENROUTER_API_KEY wajib diisi.");
   }
+  if (scriptProvider === scriptFallbackProvider) {
+    throw new Error("SCRIPT_FALLBACK_PROVIDER wajib berbeda dari SCRIPT_PROVIDER.");
+  }
+  if (ttsProvider === ttsFallbackProvider) {
+    throw new Error("TTS_FALLBACK_PROVIDER wajib berbeda dari TTS_PROVIDER.");
+  }
 
   if (!Number.isFinite(port) || port <= 0) {
     throw new Error(`PORT tidak valid: ${portRaw}`);
@@ -113,7 +135,11 @@ export function loadEnv(): AppEnv {
   return {
     aiProvider,
     geminiApiKey,
+    scriptProvider,
+    scriptFallbackProvider,
     geminiScriptModel,
+    ttsProvider,
+    ttsFallbackProvider,
     openrouterApiKey,
     openrouterTtsModel,
     port,

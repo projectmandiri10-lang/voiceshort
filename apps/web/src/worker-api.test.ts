@@ -61,12 +61,13 @@ function buildSessionRow(overrides: Record<string, unknown> = {}) {
 function buildServiceClient(options?: {
   sessions?: Record<string, unknown>[];
   sessionRow?: Record<string, unknown>;
+  settingsRow?: Record<string, unknown> | null;
   insertError?: { message: string };
   updateCollector?: unknown[];
   rpcMock?: ReturnType<typeof vi.fn>;
 }) {
   const profileRow = buildProfileRow();
-  const settingsRow = null;
+  const settingsRow = options?.settingsRow ?? null;
   const sessions = options?.sessions || [buildSessionRow()];
   const sessionRow = options?.sessionRow || buildSessionRow();
   const updateCollector = options?.updateCollector || [];
@@ -234,6 +235,54 @@ function openRouterAudioResponse(audioBytes: string): Response {
       "Content-Type": "audio/mpeg"
     }
   });
+}
+
+function openRouterTextResponse(text: string): Response {
+  return new Response(
+    JSON.stringify({
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: text
+          }
+        }
+      ]
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json"
+      }
+    }
+  );
+}
+
+function geminiAudioResponse(audioText: string, mimeType = "audio/wav"): Response {
+  return new Response(
+    JSON.stringify({
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                inlineData: {
+                  data: Buffer.from(audioText, "utf8").toString("base64"),
+                  mimeType
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json"
+      }
+    }
+  );
 }
 
 describe("handleApiRequest", () => {
@@ -410,6 +459,223 @@ describe("handleApiRequest", () => {
     );
   });
 
+  it("supports OpenRouter as the script provider for visual brief, script, and caption", async () => {
+    const rpcMock = vi.fn(async () => ({ data: {}, error: null }));
+    createClientMock.mockReturnValue(
+      buildServiceClient({
+        rpcMock,
+        settingsRow: {
+          settings_key: "default",
+          script_provider: "openrouter",
+          script_fallback_provider: "gemini_direct",
+          script_model: "google/gemini-2.5-flash-lite",
+          tts_provider: "openrouter",
+          tts_fallback_provider: "gemini_direct",
+          tts_model: "google/gemini-3.1-flash-tts-preview",
+          language: "id-ID",
+          max_video_seconds: 60,
+          safety_mode: "safe_marketing",
+          concurrency: 1,
+          gender_voices: [
+            { gender: "male", voiceName: "Charon", speechRate: 1 },
+            { gender: "female", voiceName: "Leda", speechRate: 1 }
+          ]
+        }
+      })
+    );
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        openRouterTextResponse(
+          JSON.stringify({
+            summary: "Ringkasan visual",
+            hook: { startSec: 0, endSec: 2, reason: "Hook awal" },
+            timeline: [
+              {
+                startSec: 0,
+                endSec: 2,
+                primaryVisual: "Produk terlihat",
+                action: "Kamera maju",
+                onScreenText: ["Promo"],
+                narrationFocus: "Sorot produk",
+                avoidClaims: ["Klaim palsu"]
+              }
+            ],
+            mustMention: ["produk"],
+            mustAvoid: ["klaim palsu"],
+            uncertainties: []
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        openRouterTextResponse(JSON.stringify({ script: "Ini script dari OpenRouter." }))
+      )
+      .mockResolvedValueOnce(
+        openRouterTextResponse(
+          JSON.stringify({
+            caption: "Caption dari OpenRouter.",
+            hashtags: ["#openrouter", "#voiceshort"]
+          })
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(
+      new Request("https://voiceshort.example/api/generation-sessions", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token-123",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          title: "Voice Over Produk",
+          description: "Jelaskan produk dengan singkat dan menarik",
+          contentType: "affiliate",
+          socialPlatform: "instagram",
+          voiceGender: "female",
+          tone: "natural",
+          videoDurationSec: 42,
+          frames: [
+            {
+              timestampSec: 0,
+              mimeType: "image/jpeg",
+              base64Data: "frame-one",
+              width: 448,
+              height: 252
+            }
+          ]
+        })
+      }),
+      {
+        GEMINI_API_KEY: "gemini-key",
+        OPENROUTER_API_KEY: "openrouter-key",
+        GENERATE_PRICE_IDR: "2000",
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+      }
+    );
+
+    expect(response.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const call of fetchMock.mock.calls) {
+      expect(call[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
+    }
+  });
+
+  it("falls back to OpenRouter text generation when Gemini direct script calls fail", async () => {
+    const rpcMock = vi.fn(async () => ({ data: {}, error: null }));
+    createClientMock.mockReturnValue(
+      buildServiceClient({
+        rpcMock,
+        settingsRow: {
+          settings_key: "default",
+          script_provider: "gemini_direct",
+          script_fallback_provider: "openrouter",
+          script_model: "gemini-2.5-flash-lite",
+          tts_provider: "openrouter",
+          tts_fallback_provider: "gemini_direct",
+          tts_model: "google/gemini-3.1-flash-tts-preview",
+          language: "id-ID",
+          max_video_seconds: 60,
+          safety_mode: "safe_marketing",
+          concurrency: 1,
+          gender_voices: [
+            { gender: "male", voiceName: "Charon", speechRate: 1 },
+            { gender: "female", voiceName: "Leda", speechRate: 1 }
+          ]
+        }
+      })
+    );
+
+    let openRouterStage = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("generativelanguage.googleapis.com")) {
+        return new Response(JSON.stringify({ error: { message: "Gemini utama gagal" } }), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        });
+      }
+      openRouterStage += 1;
+      return openRouterTextResponse(
+        JSON.stringify(
+          openRouterStage === 1
+            ? {
+                summary: "Ringkasan visual fallback",
+                hook: { startSec: 0, endSec: 2, reason: "Hook awal" },
+                timeline: [
+                  {
+                    startSec: 0,
+                    endSec: 2,
+                    primaryVisual: "Produk terlihat",
+                    action: "Kamera maju",
+                    onScreenText: ["Promo"],
+                    narrationFocus: "Sorot produk",
+                    avoidClaims: ["Klaim palsu"]
+                  }
+                ],
+                mustMention: ["produk"],
+                mustAvoid: ["klaim palsu"],
+                uncertainties: []
+              }
+            : openRouterStage === 2
+              ? { script: "Script fallback dari OpenRouter." }
+              : {
+                  caption: "Caption fallback dari OpenRouter.",
+                  hashtags: ["#fallback", "#voiceshort"]
+                }
+        )
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(
+      new Request("https://voiceshort.example/api/generation-sessions", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token-123",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          title: "Voice Over Produk",
+          description: "Jelaskan produk dengan singkat dan menarik",
+          contentType: "affiliate",
+          socialPlatform: "instagram",
+          voiceGender: "female",
+          tone: "natural",
+          videoDurationSec: 42,
+          frames: [
+            {
+              timestampSec: 0,
+              mimeType: "image/jpeg",
+              base64Data: "frame-one",
+              width: 448,
+              height: 252
+            }
+          ]
+        })
+      }),
+      {
+        GEMINI_API_KEY: "gemini-key",
+        OPENROUTER_API_KEY: "openrouter-key",
+        GENERATE_PRICE_IDR: "2000",
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+      }
+    );
+
+    expect(response.status).toBe(201);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("generativelanguage.googleapis.com"))).toHaveLength(9);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("openrouter.ai/api/v1/chat/completions"))).toHaveLength(3);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
   it("returns TTS audio and moves the session to ready_for_render", async () => {
     const updates: unknown[] = [];
     createClientMock.mockReturnValue(
@@ -468,6 +734,180 @@ describe("handleApiRequest", () => {
     );
     const buffer = Buffer.from(await response.arrayBuffer());
     expect(buffer.byteLength).toBeGreaterThan(0);
+  });
+
+  it("falls back to Gemini direct for voice preview when OpenRouter TTS fails", async () => {
+    createClientMock.mockReturnValue(
+      buildServiceClient({
+        settingsRow: {
+          settings_key: "default",
+          script_provider: "gemini_direct",
+          script_fallback_provider: "openrouter",
+          script_model: "gemini-2.5-flash-lite",
+          tts_provider: "openrouter",
+          tts_fallback_provider: "gemini_direct",
+          tts_model: "google/gemini-3.1-flash-tts-preview",
+          language: "id-ID",
+          max_video_seconds: 60,
+          safety_mode: "safe_marketing",
+          concurrency: 1,
+          gender_voices: [
+            { gender: "male", voiceName: "Charon", speechRate: 1 },
+            { gender: "female", voiceName: "Leda", speechRate: 1 }
+          ]
+        }
+      })
+    );
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "OpenRouter TTS gagal" } }), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "OpenRouter TTS gagal" } }), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "OpenRouter TTS gagal" } }), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        })
+      )
+      .mockResolvedValueOnce(geminiAudioResponse("fallback-audio"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(
+      new Request("https://voiceshort.example/api/tts/preview", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token-123",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          voiceName: "Leda",
+          text: "Halo, ini preview fallback.",
+          speechRate: 1
+        })
+      }),
+      {
+        GEMINI_API_KEY: "gemini-key",
+        OPENROUTER_API_KEY: "openrouter-key",
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("audio/wav");
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("openrouter.ai/api/v1/audio/speech"))).toHaveLength(3);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("generativelanguage.googleapis.com"))).toBe(true);
+    expect(warnSpy).toHaveBeenCalled();
+    const buffer = Buffer.from(await response.arrayBuffer());
+    expect(buffer.byteLength).toBeGreaterThan(0);
+  });
+
+  it("returns a clear provider error when TTS preview primary and fallback both fail", async () => {
+    createClientMock.mockReturnValue(buildServiceClient());
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "OpenRouter TTS gagal" } }), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "OpenRouter TTS gagal" } }), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "OpenRouter TTS gagal" } }), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "Gemini direct TTS gagal" } }), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "Gemini direct TTS gagal" } }), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "Gemini direct TTS gagal" } }), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(
+      new Request("https://voiceshort.example/api/tts/preview", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token-123",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          voiceName: "Leda",
+          text: "Halo, ini preview gagal.",
+          speechRate: 1
+        })
+      }),
+      {
+        GEMINI_API_KEY: "gemini-key",
+        OPENROUTER_API_KEY: "openrouter-key",
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+      }
+    );
+
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as {
+      message: string;
+      error?: Record<string, string>;
+    };
+    expect(body.message).toContain("Voice preview TTS gagal pada provider utama (openrouter) dan fallback (gemini_direct).");
+    expect(body.error).toMatchObject({
+      primaryProvider: "openrouter",
+      fallbackProvider: "gemini_direct"
+    });
   });
 
   it("stores local render metadata when a session is completed", async () => {

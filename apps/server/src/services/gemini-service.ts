@@ -3,6 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { AiService } from "./ai-service.js";
 import { InvalidGeminiStructuredOutputError } from "./ai-service.js";
 import type {
+  AiProvider,
   GenerateCaptionMetadataInput,
   GenerateScriptInput,
   GenerateSpeechInput,
@@ -10,6 +11,7 @@ import type {
   UploadedAiFile
 } from "../types.js";
 import { withRetry } from "../utils/retry.js";
+import { normalizeScriptModel, normalizeTtsModel } from "../constants.js";
 import {
   extractScriptText,
   extractSocialMetadata,
@@ -21,6 +23,7 @@ export { InvalidGeminiStructuredOutputError } from "./ai-service.js";
 const FILE_READY_POLL_INTERVAL_MS = 2000;
 const FILE_READY_MAX_ATTEMPTS = 30;
 const MAX_RETRY_DELAY_MS = 60_000;
+const OPENROUTER_TEXT_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_TTS_ENDPOINT = "https://openrouter.ai/api/v1/audio/speech";
 const DEFAULT_OPENROUTER_TTS_MODEL = "google/gemini-3.1-flash-tts-preview";
 
@@ -137,18 +140,40 @@ function retryDelayMs(error: unknown, _attempt: number, fallbackDelayMs: number)
 }
 
 function normalizeOpenRouterTtsModel(model: string): string {
-  const trimmed = model.trim();
-  if (!trimmed) {
-    return DEFAULT_OPENROUTER_TTS_MODEL;
-  }
-  if (trimmed === "gemini-2.5-flash-preview-tts" || trimmed === "gemini-2.5-pro-preview-tts") {
-    return DEFAULT_OPENROUTER_TTS_MODEL;
-  }
-  return trimmed;
+  return normalizeTtsModel(model, "openrouter") || DEFAULT_OPENROUTER_TTS_MODEL;
 }
 
 function normalizeSpeechText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
+}
+
+function buildGeminiTtsPrompt(input: {
+  text: string;
+  speechRate: number;
+  deliveryHint?: string;
+}): string {
+  const paceInstruction =
+    input.speechRate >= 1.1
+      ? "Pace: sedikit cepat, tetap jelas dan tidak terburu-buru."
+      : input.speechRate <= 0.9
+        ? "Pace: sedikit lebih pelan, tetap natural dan tidak datar."
+        : "Pace: natural untuk voice over video pendek.";
+  const deliveryInstruction = input.deliveryHint?.trim()
+    ? `Nuansa tambahan: ${input.deliveryHint.trim()}.`
+    : "Nuansa tambahan: natural, jelas, dan enak didengar untuk penonton Indonesia.";
+
+  return [
+    "Narator voice over video berbahasa Indonesia.",
+    "Language: Bahasa Indonesia (id-ID).",
+    "Accent: penutur asli Indonesia, natural, jelas, dan tidak kaku.",
+    "Style: realistis, hangat, dan cocok untuk voice over video pendek.",
+    paceInstruction,
+    deliveryInstruction,
+    "Pronunciation: utamakan pelafalan kata Indonesia secara lokal, bukan aksen Inggris atau suara robotik.",
+    "Bacakan teks berikut persis apa adanya tanpa menambah kalimat lain:",
+    "",
+    input.text
+  ].join("\n");
 }
 
 export class GeminiService implements AiService {
@@ -213,6 +238,149 @@ export class GeminiService implements AiService {
     });
   }
 
+  private shouldUseFallbackProvider(
+    primary: AiProvider,
+    fallback: AiProvider | undefined
+  ): fallback is AiProvider {
+    return Boolean(fallback && fallback !== primary);
+  }
+
+  private openRouterPayloadToGeminiLike(payload: Record<string, unknown>): Record<string, unknown> {
+    const choices = Array.isArray(payload.choices) ? payload.choices : [];
+    const first = choices[0] as { message?: { content?: unknown } } | undefined;
+    const rawContent = first?.message?.content;
+    const text =
+      typeof rawContent === "string"
+        ? rawContent
+        : Array.isArray(rawContent)
+          ? rawContent
+              .map((part) => {
+                if (!part || typeof part !== "object" || Array.isArray(part)) {
+                  return "";
+                }
+                const value = (part as { text?: unknown }).text;
+                return typeof value === "string" ? value : "";
+              })
+              .filter(Boolean)
+              .join("\n")
+          : "";
+
+    return {
+      candidates: [
+        {
+          content: {
+            parts: [{ text }]
+          }
+        }
+      ]
+    };
+  }
+
+  private buildOpenRouterMessageContent(prompt: string, video?: UploadedAiFile | UploadedAiFile[]) {
+    const files = Array.isArray(video) ? video : video ? [video] : [];
+    const content: Array<Record<string, unknown>> = [{ type: "text", text: prompt }];
+    for (const file of files) {
+      if (!file.base64Data) {
+        throw new Error("OpenRouter multimodal memerlukan frame base64, bukan fileUri Gemini.");
+      }
+      content.push({
+        type: "image_url",
+        image_url: {
+          url: `data:${file.mimeType};base64,${file.base64Data}`
+        }
+      });
+    }
+    return content;
+  }
+
+  private async generateOpenRouterText(input: {
+    model: string;
+    prompt: string;
+    video?: UploadedAiFile | UploadedAiFile[];
+  }): Promise<Record<string, unknown>> {
+    const response = await fetch(OPENROUTER_TEXT_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.openrouterApiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: normalizeScriptModel(input.model, "openrouter"),
+        messages: [
+          {
+            role: "user",
+            content: this.buildOpenRouterMessageContent(input.prompt, input.video)
+          }
+        ]
+      })
+    });
+
+    const text = await response.text().catch(() => "");
+    let payload: Record<string, unknown> = {};
+    if (text) {
+      try {
+        payload = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        payload = { message: text };
+      }
+    }
+
+    if (!response.ok) {
+      const message =
+        String((payload.error as { message?: unknown } | undefined)?.message || payload.message || "").trim() ||
+        `OpenRouter text request gagal (${response.status}).`;
+      throw Object.assign(new Error(message), {
+        status: response.status === 429 ? 503 : response.status,
+        details: payload
+      });
+    }
+
+    return this.openRouterPayloadToGeminiLike(payload);
+  }
+
+  private async generateTextWithProvider(input: {
+    provider: AiProvider;
+    fallbackProvider?: AiProvider;
+    model: string;
+    prompt: string;
+    video?: UploadedAiFile | UploadedAiFile[];
+  }): Promise<Record<string, unknown>> {
+    const runForProvider = async (provider: AiProvider): Promise<Record<string, unknown>> =>
+      await withRetry(
+        async () =>
+          provider === "openrouter"
+            ? await this.generateOpenRouterText(input)
+            : ((await this.generateUserContent({
+                model: normalizeScriptModel(input.model, "gemini_direct"),
+                prompt: input.prompt,
+                video: input.video
+              })) as unknown as Record<string, unknown>),
+        {
+          attempts: 3,
+          baseDelayMs: 700,
+          shouldRetry: isTransientError,
+          getDelayMs: retryDelayMs
+        }
+      );
+
+    try {
+      return await runForProvider(input.provider);
+    } catch (primaryError) {
+      if (!this.shouldUseFallbackProvider(input.provider, input.fallbackProvider)) {
+        throw primaryError;
+      }
+      this.logger.warn(
+        {
+          err: primaryError,
+          primaryProvider: input.provider,
+          fallbackProvider: input.fallbackProvider
+        },
+        "Provider AI utama gagal, mencoba fallback provider."
+      );
+      return await runForProvider(input.fallbackProvider);
+    }
+  }
+
   private async generateOpenRouterSpeech(
     input: GenerateSpeechInput
   ): Promise<{ data: Buffer; mimeType: string }> {
@@ -257,6 +425,80 @@ export class GeminiService implements AiService {
     };
   }
 
+  private extractGeminiAudioFromResponse(response: unknown): { data: Buffer; mimeType: string } {
+    const parts =
+      ((response as { candidates?: Array<{ content?: { parts?: Array<Record<string, unknown>> } }> })
+        ?.candidates?.[0]?.content?.parts || []) as Array<Record<string, unknown>>;
+
+    for (const part of parts) {
+      const inlineData = part.inlineData as { data?: unknown; mimeType?: unknown } | undefined;
+      const rawData = inlineData?.data;
+      if (rawData instanceof Uint8Array) {
+        return {
+          data: Buffer.from(rawData),
+          mimeType:
+            typeof inlineData?.mimeType === "string" && inlineData.mimeType.trim()
+              ? inlineData.mimeType.trim()
+              : "audio/wav"
+        };
+      }
+      if (typeof rawData === "string" && rawData.trim()) {
+        return {
+          data: Buffer.from(rawData.trim(), "base64"),
+          mimeType:
+            typeof inlineData?.mimeType === "string" && inlineData.mimeType.trim()
+              ? inlineData.mimeType.trim()
+              : "audio/wav"
+        };
+      }
+      if (Array.isArray(rawData) && rawData.length) {
+        return {
+          data: Buffer.from(rawData),
+          mimeType:
+            typeof inlineData?.mimeType === "string" && inlineData.mimeType.trim()
+              ? inlineData.mimeType.trim()
+              : "audio/wav"
+        };
+      }
+    }
+
+    throw new Error("Gemini direct tidak mengembalikan audio.");
+  }
+
+  private async generateGeminiDirectSpeech(
+    input: GenerateSpeechInput
+  ): Promise<{ data: Buffer; mimeType: string }> {
+    const response = await this.client.models.generateContent({
+      model: normalizeTtsModel(input.model, "gemini_direct"),
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: buildGeminiTtsPrompt({
+                text: input.text,
+                speechRate: input.speechRate,
+                deliveryHint: input.deliveryHint
+              })
+            }
+          ]
+        }
+      ],
+      config: {
+        responseModalities: ["AUDIO"],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: input.voiceName
+            }
+          }
+        }
+      }
+    });
+
+    return this.extractGeminiAudioFromResponse(response);
+  }
+
   public async uploadVideo(
     filePath: string,
     mimeType: string
@@ -292,7 +534,9 @@ export class GeminiService implements AiService {
 
   public async generateScript(input: GenerateScriptInput): Promise<string> {
     const run = async (prompt: string): Promise<string> => {
-      const response = await this.generateUserContent({
+      const response = await this.generateTextWithProvider({
+        provider: input.provider,
+        fallbackProvider: input.fallbackProvider,
         model: input.model,
         prompt,
         video: input.video
@@ -322,7 +566,9 @@ export class GeminiService implements AiService {
 
   public async generateVisualBrief(input: GenerateVisualBriefInput) {
     const run = async (prompt: string) => {
-      const response = await this.generateUserContent({
+      const response = await this.generateTextWithProvider({
+        provider: input.provider,
+        fallbackProvider: input.fallbackProvider,
         model: input.model,
         prompt,
         video: input.video
@@ -366,7 +612,9 @@ export class GeminiService implements AiService {
     input: GenerateCaptionMetadataInput
   ): Promise<{ caption: string; hashtags: string[] }> {
     const run = async (prompt: string): Promise<{ caption: string; hashtags: string[] }> => {
-      const response = await this.generateUserContent({
+      const response = await this.generateTextWithProvider({
+        provider: input.provider,
+        fallbackProvider: input.fallbackProvider,
         model: input.model,
         prompt,
         video: input.video
@@ -394,16 +642,36 @@ export class GeminiService implements AiService {
   public async generateSpeech(
     input: GenerateSpeechInput
   ): Promise<{ data: Buffer; mimeType: string }> {
-    const execute = async () => {
-      return await this.generateOpenRouterSpeech(input);
-    };
+    const runForProvider = async (provider: AiProvider) =>
+      await withRetry(
+        async () =>
+          provider === "openrouter"
+            ? await this.generateOpenRouterSpeech(input)
+            : await this.generateGeminiDirectSpeech(input),
+        {
+          attempts: 3,
+          baseDelayMs: 700,
+          shouldRetry: isTransientError,
+          getDelayMs: retryDelayMs
+        }
+      );
 
-    return await withRetry(execute, {
-      attempts: 3,
-      baseDelayMs: 700,
-      shouldRetry: isTransientError,
-      getDelayMs: retryDelayMs
-    });
+    try {
+      return await runForProvider(input.provider);
+    } catch (primaryError) {
+      if (!this.shouldUseFallbackProvider(input.provider, input.fallbackProvider)) {
+        throw primaryError;
+      }
+      this.logger.warn(
+        {
+          err: primaryError,
+          primaryProvider: input.provider,
+          fallbackProvider: input.fallbackProvider
+        },
+        "Provider TTS utama gagal, mencoba fallback provider."
+      );
+      return await runForProvider(input.fallbackProvider);
+    }
   }
 
   private async waitUntilFileActive(fileName: string): Promise<void> {

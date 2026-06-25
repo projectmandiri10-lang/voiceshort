@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { CONTENT_TYPES } from "./content-config.js";
-import { ABSOLUTE_MAX_VIDEO_SECONDS, GENDER_ORDER, isKnownTtsVoiceName } from "./constants.js";
+import {
+  ABSOLUTE_MAX_VIDEO_SECONDS,
+  DEFAULT_SETTINGS,
+  GENDER_ORDER,
+  isKnownTtsVoiceName,
+  normalizeAiProvider,
+  normalizeScriptModel,
+  normalizeTtsModel
+} from "./constants.js";
 import { SOCIAL_PLATFORMS } from "./types.js";
 import type {
   AppSettings,
@@ -22,6 +30,7 @@ const optionalTextSchema = z.union([z.string(), z.undefined(), z.null()]).transf
 });
 const emailSchema = z.string().trim().email().transform((value) => value.toLowerCase());
 const passwordSchema = z.string().min(8).max(100);
+const aiProviderSchema = z.enum(["gemini_direct", "openrouter"]);
 
 const genderVoiceSchema = z.object({
   gender: voiceGenderSchema,
@@ -34,7 +43,11 @@ const genderVoiceSchema = z.object({
 });
 
 export const settingsSchema = z.object({
+  scriptProvider: aiProviderSchema,
+  scriptFallbackProvider: aiProviderSchema,
   scriptModel: z.string().trim().min(1),
+  ttsProvider: aiProviderSchema,
+  ttsFallbackProvider: aiProviderSchema,
   ttsModel: z.string().trim().min(1),
   language: z.literal("id-ID"),
   maxVideoSeconds: z.number().int().min(10).max(ABSOLUTE_MAX_VIDEO_SECONDS),
@@ -115,11 +128,33 @@ const adminPackageGrantSchema = z
 
 export function parseSettings(input: unknown): AppSettings {
   const result = settingsSchema.parse(input);
+  const scriptProvider = normalizeAiProvider(result.scriptProvider, DEFAULT_SETTINGS.scriptProvider);
+  const scriptFallbackProvider = normalizeAiProvider(
+    result.scriptFallbackProvider,
+    DEFAULT_SETTINGS.scriptFallbackProvider
+  );
+  const ttsProvider = normalizeAiProvider(result.ttsProvider, DEFAULT_SETTINGS.ttsProvider);
+  const ttsFallbackProvider = normalizeAiProvider(
+    result.ttsFallbackProvider,
+    DEFAULT_SETTINGS.ttsFallbackProvider
+  );
+  if (scriptProvider === scriptFallbackProvider) {
+    throw new Error("Fallback provider script harus berbeda dari provider utama.");
+  }
+  if (ttsProvider === ttsFallbackProvider) {
+    throw new Error("Fallback provider TTS harus berbeda dari provider utama.");
+  }
   const sorted = [...result.genderVoices].sort(
     (a, b) => GENDER_ORDER.indexOf(a.gender) - GENDER_ORDER.indexOf(b.gender)
   );
   return {
     ...result,
+    scriptProvider,
+    scriptFallbackProvider,
+    scriptModel: normalizeScriptModel(result.scriptModel, scriptProvider),
+    ttsProvider,
+    ttsFallbackProvider,
+    ttsModel: normalizeTtsModel(result.ttsModel, ttsProvider),
     genderVoices: sorted
   };
 }

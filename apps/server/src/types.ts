@@ -25,6 +25,7 @@ export type SubtitleStyle = "short_punchy" | "clear" | "narrative" | "sales";
 
 export type JobVoiceGender = "female" | "male";
 export type VoiceGender = JobVoiceGender | "neutral";
+export type AiProvider = "gemini_direct" | "openrouter";
 
 export type JobStatus = "queued" | "running" | "success" | "failed" | "interrupted";
 export type JobProgressPhase =
@@ -48,7 +49,11 @@ export interface GenderVoiceSettings {
 }
 
 export interface AppSettings {
+  scriptProvider: AiProvider;
+  scriptFallbackProvider: AiProvider;
   scriptModel: string;
+  ttsProvider: AiProvider;
+  ttsFallbackProvider: AiProvider;
   ttsModel: string;
   language: "id-ID";
   maxVideoSeconds: number;
@@ -186,24 +191,32 @@ export interface VisualBrief {
 }
 
 export interface GenerateScriptInput {
+  provider: AiProvider;
+  fallbackProvider?: AiProvider;
   model: string;
   prompt: string;
   video?: UploadedAiFile | UploadedAiFile[];
 }
 
 export interface GenerateCaptionMetadataInput {
+  provider: AiProvider;
+  fallbackProvider?: AiProvider;
   model: string;
   prompt: string;
   video?: UploadedAiFile | UploadedAiFile[];
 }
 
 export interface GenerateVisualBriefInput {
+  provider: AiProvider;
+  fallbackProvider?: AiProvider;
   model: string;
   prompt: string;
   video: UploadedAiFile | UploadedAiFile[];
 }
 
 export interface GenerateSpeechInput {
+  provider: AiProvider;
+  fallbackProvider?: AiProvider;
   model: string;
   text: string;
   voiceName: string;

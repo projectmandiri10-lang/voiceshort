@@ -3,6 +3,7 @@ import {
   ABSOLUTE_MAX_VIDEO_SECONDS,
   DEFAULT_SETTINGS,
   findGenderVoiceSetting,
+  normalizeScriptModel,
   normalizeTtsModel
 } from "../constants.js";
 import { SETTINGS_FILE } from "../utils/paths.js";
@@ -17,28 +18,55 @@ export class SettingsStore {
 
   public constructor(
     private readonly adminClient?: SupabaseClient,
-    private readonly runtimeModelOverrides?: Partial<Pick<AppSettings, "scriptModel" | "ttsModel">>
+    private readonly runtimeModelOverrides?: Partial<
+      Pick<AppSettings, "scriptModel" | "ttsModel" | "scriptProvider" | "ttsProvider">
+    >
   ) {}
 
   private applyRuntimeModelOverrides(settings: AppSettings): AppSettings {
     const scriptModel = this.runtimeModelOverrides?.scriptModel?.trim();
     const ttsModel = this.runtimeModelOverrides?.ttsModel?.trim();
+    const scriptProvider = this.runtimeModelOverrides?.scriptProvider?.trim();
+    const ttsProvider = this.runtimeModelOverrides?.ttsProvider?.trim();
 
-    if (!scriptModel && !ttsModel) {
+    if (!scriptModel && !ttsModel && !scriptProvider && !ttsProvider) {
       return settings;
     }
 
+    const nextScriptProvider =
+      scriptProvider === "openrouter" || scriptProvider === "gemini_direct"
+        ? scriptProvider
+        : settings.scriptProvider;
+    const nextTtsProvider =
+      ttsProvider === "openrouter" || ttsProvider === "gemini_direct"
+        ? ttsProvider
+        : settings.ttsProvider;
+
     return {
       ...settings,
-      scriptModel: scriptModel || settings.scriptModel,
-      ttsModel: normalizeTtsModel(ttsModel || settings.ttsModel)
+      scriptProvider: nextScriptProvider,
+      scriptModel: normalizeScriptModel(scriptModel || settings.scriptModel, nextScriptProvider),
+      ttsProvider: nextTtsProvider,
+      ttsModel: normalizeTtsModel(ttsModel || settings.ttsModel, nextTtsProvider)
     };
   }
 
   private normalizeLegacySettings(settings: AppSettings): AppSettings {
     return {
       ...settings,
-      ttsModel: normalizeTtsModel(settings.ttsModel)
+      scriptProvider: settings.scriptProvider || DEFAULT_SETTINGS.scriptProvider,
+      scriptFallbackProvider:
+        settings.scriptFallbackProvider || DEFAULT_SETTINGS.scriptFallbackProvider,
+      scriptModel: normalizeScriptModel(
+        settings.scriptModel,
+        settings.scriptProvider || DEFAULT_SETTINGS.scriptProvider
+      ),
+      ttsProvider: settings.ttsProvider || DEFAULT_SETTINGS.ttsProvider,
+      ttsFallbackProvider: settings.ttsFallbackProvider || DEFAULT_SETTINGS.ttsFallbackProvider,
+      ttsModel: normalizeTtsModel(
+        settings.ttsModel,
+        settings.ttsProvider || DEFAULT_SETTINGS.ttsProvider
+      )
     };
   }
 

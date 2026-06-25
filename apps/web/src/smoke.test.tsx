@@ -120,7 +120,11 @@ const adminUser: AuthUser = {
 };
 
 const mockSettings = {
+  scriptProvider: "gemini_direct" as const,
+  scriptFallbackProvider: "openrouter" as const,
   scriptModel: "gemini-2.5-flash-lite",
+  ttsProvider: "openrouter" as const,
+  ttsFallbackProvider: "gemini_direct" as const,
   ttsModel: "google/gemini-3.1-flash-tts-preview",
   language: "id-ID" as const,
   maxVideoSeconds: 60,

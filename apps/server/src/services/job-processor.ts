@@ -2,7 +2,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
-import type { GenerationCapacity, JobRecord, UploadedAiFile, VisualBrief } from "../types.js";
+import type {
+  AppSettings,
+  GenerationCapacity,
+  JobRecord,
+  UploadedAiFile,
+  VisualBrief
+} from "../types.js";
 import { SettingsStore } from "../stores/settings-store.js";
 import { JobsStore } from "../stores/jobs-store.js";
 import { JobEvents } from "./job-events.js";
@@ -234,7 +240,11 @@ export class JobProcessor implements IJobProcessor {
     visualBrief?: VisualBrief;
     uploadedVideo?: UploadedAiFile | UploadedAiFile[];
     voicePath: string;
+    scriptProvider: AppSettings["scriptProvider"];
+    scriptFallbackProvider: AppSettings["scriptFallbackProvider"];
     scriptModel: string;
+    ttsProvider: AppSettings["ttsProvider"];
+    ttsFallbackProvider: AppSettings["ttsFallbackProvider"];
     ttsModel: string;
     voiceName: string;
     speechRate: number;
@@ -247,6 +257,8 @@ export class JobProcessor implements IJobProcessor {
 
     for (let attempt = 1; attempt <= MAX_SCRIPT_ALIGNMENT_ATTEMPTS; attempt += 1) {
       const audio = await this.speechService.generateSpeech({
+        provider: input.ttsProvider,
+        fallbackProvider: input.ttsFallbackProvider,
         model: input.ttsModel,
         text: currentScriptText,
         voiceName: input.voiceName,
@@ -342,6 +354,8 @@ export class JobProcessor implements IJobProcessor {
         "Durasi voice over masih meleset, menyusun revisi script yang lebih presisi."
       );
       currentScriptText = await this.aiService.generateScript({
+        provider: input.scriptProvider,
+        fallbackProvider: input.scriptFallbackProvider,
         model: input.scriptModel,
         prompt: retimingPrompt,
         video: input.visualBrief ? undefined : input.uploadedVideo
@@ -593,6 +607,8 @@ export class JobProcessor implements IJobProcessor {
         this.logger.info({ jobId: item.jobId }, "Memulai analisis visual video.");
         const visualBriefPrompt = buildVisualBriefPrompt(promptInput);
         visualBrief = await this.aiService.generateVisualBrief({
+          provider: settings.scriptProvider,
+          fallbackProvider: settings.scriptFallbackProvider,
           model: settings.scriptModel,
           prompt: visualBriefPrompt,
           video: visualSource
@@ -606,6 +622,8 @@ export class JobProcessor implements IJobProcessor {
           visualBrief
         });
         scriptText = await this.aiService.generateScript({
+          provider: settings.scriptProvider,
+          fallbackProvider: settings.scriptFallbackProvider,
           model: settings.scriptModel,
           prompt: scriptPrompt
         });
@@ -624,6 +642,8 @@ export class JobProcessor implements IJobProcessor {
         this.logger.info({ jobId: item.jobId }, "Memulai fallback script multimodal.");
         const scriptPrompt = buildScriptPrompt(promptInput);
         scriptText = await this.aiService.generateScript({
+          provider: settings.scriptProvider,
+          fallbackProvider: settings.scriptFallbackProvider,
           model: settings.scriptModel,
           prompt: scriptPrompt,
           video: visualSource
@@ -641,7 +661,11 @@ export class JobProcessor implements IJobProcessor {
         visualBrief,
         uploadedVideo: visualSource,
         voicePath,
+        scriptProvider: settings.scriptProvider,
+        scriptFallbackProvider: settings.scriptFallbackProvider,
         scriptModel: settings.scriptModel,
+        ttsProvider: settings.ttsProvider,
+        ttsFallbackProvider: settings.ttsFallbackProvider,
         ttsModel: settings.ttsModel,
         voiceName: voiceProfile.voiceName,
         speechRate: voiceProfile.speechRate,
@@ -657,6 +681,8 @@ export class JobProcessor implements IJobProcessor {
         visualBrief
       });
       const rawSocialMetadata = await this.aiService.generateCaptionMetadata({
+        provider: settings.scriptProvider,
+        fallbackProvider: settings.scriptFallbackProvider,
         model: settings.scriptModel,
         prompt: captionPrompt,
         video: visualBrief ? undefined : visualSource

@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Gauge, Mic2, Save } from "lucide-react";
 import { fetchSettings, fetchTtsVoices, previewTtsVoice, updateSettings } from "../api";
-import type { AppSettings, JobVoiceGender, TtsVoiceOption } from "../types";
+import { AI_PROVIDER_LABEL } from "../shared/constants";
+import type { AiProvider, AppSettings, JobVoiceGender, TtsVoiceOption } from "../types";
 
 const GENDER_LABEL: Record<JobVoiceGender, string> = {
   male: "Pria",
@@ -14,6 +15,14 @@ function findVoiceConfig(settings: AppSettings, gender: JobVoiceGender) {
 
 function voiceMatchesGender(voice: TtsVoiceOption, gender: JobVoiceGender): boolean {
   return voice.gender === gender || voice.gender === "neutral";
+}
+
+function setProvider(
+  settings: AppSettings,
+  key: "scriptProvider" | "scriptFallbackProvider" | "ttsProvider" | "ttsFallbackProvider",
+  value: AiProvider
+): AppSettings {
+  return { ...settings, [key]: value };
 }
 
 export function SettingsPage() {
@@ -142,8 +151,8 @@ export function SettingsPage() {
         <span className="eyebrow">Pengaturan Layanan</span>
         <h2>Atur batas durasi dan suara default untuk setiap proses generate.</h2>
         <p className="section-note">
-          Naskah dan caption tetap lewat Gemini, sementara voice over dan preview suara memakai Gemini TTS
-          via OpenRouter.
+          Atur provider utama dan fallback untuk script maupun TTS. Gemini Direct memakai API key
+          Google langsung, sedangkan OpenRouter lewat gateway OpenRouter dan tetap bisa memakai model Gemini.
         </p>
       </div>
 
@@ -154,8 +163,12 @@ export function SettingsPage() {
             <strong>{`${settings.maxVideoSeconds} detik`}</strong>
           </div>
           <div className="meta-card">
-            <span className="small">Mode Bahasa</span>
-            <strong>{settings.language}</strong>
+            <span className="small">Script Provider</span>
+            <strong>{AI_PROVIDER_LABEL[settings.scriptProvider]}</strong>
+          </div>
+          <div className="meta-card">
+            <span className="small">TTS Provider</span>
+            <strong>{AI_PROVIDER_LABEL[settings.ttsProvider]}</strong>
           </div>
         </div>
 
@@ -172,6 +185,116 @@ export function SettingsPage() {
             <Gauge size={18} />
           </div>
         </label>
+
+        <div className="style-grid">
+          <article className="style-card">
+            <div className="row-head">
+              <h3>Provider Script</h3>
+            </div>
+            <div className="grid-form">
+              <label>
+                Provider Utama
+                <select
+                  value={settings.scriptProvider}
+                  onChange={(event) =>
+                    setSettings(setProvider(settings, "scriptProvider", event.target.value as AiProvider))
+                  }
+                >
+                  {(["gemini_direct", "openrouter"] as AiProvider[]).map((provider) => (
+                    <option key={provider} value={provider}>
+                      {AI_PROVIDER_LABEL[provider]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Provider Fallback
+                <select
+                  value={settings.scriptFallbackProvider}
+                  onChange={(event) =>
+                    setSettings(
+                      setProvider(settings, "scriptFallbackProvider", event.target.value as AiProvider)
+                    )
+                  }
+                >
+                  {(["gemini_direct", "openrouter"] as AiProvider[]).map((provider) => (
+                    <option key={provider} value={provider}>
+                      {AI_PROVIDER_LABEL[provider]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Model Script
+                <input
+                  value={settings.scriptModel}
+                  onChange={(event) => setSettings({ ...settings, scriptModel: event.target.value })}
+                />
+              </label>
+
+              <p className="small">
+                Model script dipakai untuk visual brief, naskah, dan caption. Jika provider utama gagal,
+                sistem otomatis mencoba provider fallback.
+              </p>
+            </div>
+          </article>
+
+          <article className="style-card">
+            <div className="row-head">
+              <h3>Provider TTS</h3>
+            </div>
+            <div className="grid-form">
+              <label>
+                Provider Utama
+                <select
+                  value={settings.ttsProvider}
+                  onChange={(event) =>
+                    setSettings(setProvider(settings, "ttsProvider", event.target.value as AiProvider))
+                  }
+                >
+                  {(["gemini_direct", "openrouter"] as AiProvider[]).map((provider) => (
+                    <option key={provider} value={provider}>
+                      {AI_PROVIDER_LABEL[provider]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Provider Fallback
+                <select
+                  value={settings.ttsFallbackProvider}
+                  onChange={(event) =>
+                    setSettings(
+                      setProvider(settings, "ttsFallbackProvider", event.target.value as AiProvider)
+                    )
+                  }
+                >
+                  {(["gemini_direct", "openrouter"] as AiProvider[]).map((provider) => (
+                    <option key={provider} value={provider}>
+                      {AI_PROVIDER_LABEL[provider]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Model TTS
+                <input
+                  value={settings.ttsModel}
+                  onChange={(event) => setSettings({ ...settings, ttsModel: event.target.value })}
+                />
+              </label>
+
+              <p className="small">
+                Preview suara dan audio generate memakai provider TTS aktif, lalu fallback otomatis bila
+                provider utama gagal.
+              </p>
+            </div>
+          </article>
+        </div>
 
         <div className="style-grid">
           {(["male", "female"] as JobVoiceGender[]).map((gender) => {
@@ -228,7 +351,7 @@ export function SettingsPage() {
                   </div>
 
                   <p className="small">
-                    Preview ini memakai jalur TTS OpenRouter yang sama dengan hasil generate.
+                    Preview ini mengikuti provider TTS aktif dan fallback yang sedang tersimpan.
                   </p>
 
                   {previewPaths[gender] ? (

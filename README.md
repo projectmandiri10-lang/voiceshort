@@ -14,8 +14,8 @@ Aplikasi untuk membuat voice over Bahasa Indonesia untuk video pendek sampai `60
   - render `final.mp4` lokal via `ffmpeg.wasm`
 - Worker melakukan:
   - auth/session via Supabase token
-  - generate visual brief, script, caption, dan hashtag via Gemini REST
-  - generate voice over via Gemini TTS through OpenRouter
+  - generate visual brief, script, caption, dan hashtag via provider text yang dipilih (`Gemini Direct` atau `OpenRouter`)
+  - generate voice over via provider TTS yang dipilih (`Gemini Direct` atau `OpenRouter`)
   - billing flat per generate
   - simpan metadata history ke Supabase `generation_sessions`
 - Video asli dan `final.mp4` tidak disimpan permanen di server.
@@ -54,6 +54,10 @@ VITE_API_BASE=http://localhost:8787
 
 Catatan:
 
+- Default aktif tetap kompatibel dengan perilaku lama:
+  - provider script utama: `gemini_direct`
+  - provider TTS utama: `openrouter`
+- Superadmin sekarang dapat memilih provider utama dan fallback terpisah untuk script dan TTS dari halaman `Pengaturan`.
 - `VITE_API_BASE` hanya berguna untuk local dev saat Vite dan Worker berjalan di port berbeda.
 - Di production single-origin, frontend otomatis memakai origin Worker yang sama.
 - `WEBQRIS_*` hanya dibutuhkan jika billing QRIS diaktifkan.
@@ -83,6 +87,17 @@ SUPABASE_ANON_KEY=your_publishable_or_anon_key
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your_publishable_or_anon_key
 VITE_API_BASE=http://localhost:8787
+```
+
+Jika Anda juga menjalankan `apps/server` legacy, tambahkan env berikut:
+
+```env
+SCRIPT_PROVIDER=gemini_direct
+SCRIPT_FALLBACK_PROVIDER=openrouter
+GEMINI_SCRIPT_MODEL=gemini-2.5-flash-lite
+TTS_PROVIDER=openrouter
+TTS_FALLBACK_PROVIDER=gemini_direct
+OPENROUTER_TTS_MODEL=google/gemini-3.1-flash-tts-preview
 ```
 
 4. Jalankan UI Vite:
@@ -148,6 +163,10 @@ Route `/api/jobs*`, SSE progress, server-side download artifact, dan `open-locat
 
 - Hard cap video: `60 detik`
 - Billing default: `Rp2.000/generate`
+- Default provider split:
+  - script/caption/visual brief: `Gemini Direct`
+  - TTS: `OpenRouter`
+- Fallback otomatis tersedia untuk script dan TTS bila provider utama gagal.
 - Frame analisis: JPEG terkompresi, lebar maksimal `448px`
 - Final MP4 hanya tersedia di browser yang sama kecuali user mengunduhnya
 - Retry render lokal memanfaatkan cache IndexedDB agar tidak charge ulang

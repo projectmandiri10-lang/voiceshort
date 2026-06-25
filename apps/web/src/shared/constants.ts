@@ -1,4 +1,5 @@
 import type {
+  AiProvider,
   AppSettings,
   ExcitedVoicePreset,
   GenderVoiceSettings,
@@ -16,10 +17,22 @@ export const FINAL_VIDEO_MAX_DIMENSION = 1280;
 export const FINAL_AUDIO_BITRATE = "64k";
 export const FINAL_AUDIO_SAMPLE_RATE = 24000;
 export const FINAL_VOICE_LOUDNORM = "loudnorm=I=-14:TP=-1.0:LRA=11";
+export const AI_PROVIDER_LABEL: Record<AiProvider, string> = {
+  gemini_direct: "Gemini Direct",
+  openrouter: "OpenRouter"
+};
+export const DEFAULT_GEMINI_SCRIPT_MODEL = "gemini-2.5-flash-lite";
+export const DEFAULT_OPENROUTER_SCRIPT_MODEL = "google/gemini-2.5-flash-lite";
+export const DEFAULT_GEMINI_TTS_MODEL = "gemini-3.1-flash-tts-preview";
+export const DEFAULT_OPENROUTER_TTS_MODEL = "google/gemini-3.1-flash-tts-preview";
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  scriptModel: "gemini-2.5-flash-lite",
-  ttsModel: "google/gemini-3.1-flash-tts-preview",
+  scriptProvider: "gemini_direct",
+  scriptFallbackProvider: "openrouter",
+  scriptModel: DEFAULT_GEMINI_SCRIPT_MODEL,
+  ttsProvider: "openrouter",
+  ttsFallbackProvider: "gemini_direct",
+  ttsModel: DEFAULT_OPENROUTER_TTS_MODEL,
   language: "id-ID",
   maxVideoSeconds: ABSOLUTE_MAX_VIDEO_SECONDS,
   safetyMode: "safe_marketing",
@@ -39,16 +52,44 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 
 const LEGACY_GEMINI_TTS_ALIASES = new Map<string, string>([
-  ["gemini-2.5-flash-preview-tts", DEFAULT_SETTINGS.ttsModel],
-  ["gemini-2.5-pro-preview-tts", DEFAULT_SETTINGS.ttsModel]
+  ["gemini-2.5-flash-preview-tts", DEFAULT_GEMINI_TTS_MODEL],
+  ["gemini-2.5-pro-preview-tts", DEFAULT_GEMINI_TTS_MODEL]
 ]);
 
-export function normalizeTtsModel(model: string): string {
+export function normalizeAiProvider(model: string | undefined, fallback: AiProvider): AiProvider {
+  return model === "openrouter" || model === "gemini_direct" ? model : fallback;
+}
+
+function stripGoogleGeminiPrefix(model: string): string {
+  return model.startsWith("google/gemini-") ? model.slice("google/".length) : model;
+}
+
+function ensureOpenRouterGeminiPrefix(model: string): string {
+  if (model.includes("/")) {
+    return model;
+  }
+  return model.startsWith("gemini-") ? `google/${model}` : model;
+}
+
+export function normalizeScriptModel(model: string, provider = DEFAULT_SETTINGS.scriptProvider): string {
   const trimmed = model.trim();
   if (!trimmed) {
-    return DEFAULT_SETTINGS.ttsModel;
+    return provider === "openrouter" ? DEFAULT_OPENROUTER_SCRIPT_MODEL : DEFAULT_GEMINI_SCRIPT_MODEL;
   }
-  return LEGACY_GEMINI_TTS_ALIASES.get(trimmed) || trimmed;
+  return provider === "openrouter"
+    ? ensureOpenRouterGeminiPrefix(trimmed)
+    : stripGoogleGeminiPrefix(trimmed);
+}
+
+export function normalizeTtsModel(model: string, provider = DEFAULT_SETTINGS.ttsProvider): string {
+  const trimmed = model.trim();
+  const normalized = LEGACY_GEMINI_TTS_ALIASES.get(trimmed) || trimmed;
+  if (!normalized) {
+    return provider === "openrouter" ? DEFAULT_OPENROUTER_TTS_MODEL : DEFAULT_GEMINI_TTS_MODEL;
+  }
+  return provider === "openrouter"
+    ? ensureOpenRouterGeminiPrefix(normalized)
+    : stripGoogleGeminiPrefix(normalized);
 }
 
 export const GEMINI_TTS_VOICES: TtsVoiceOption[] = [

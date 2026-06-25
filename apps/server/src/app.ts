@@ -785,6 +785,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         payload.text ||
         "Ini contoh voice over general untuk video sampai 60 detik dengan delivery natural dan jelas.";
       const audio = await options.speechGenerator.generateSpeech({
+        provider: settings.ttsProvider,
+        fallbackProvider: settings.ttsFallbackProvider,
         model: settings.ttsModel,
         text: sampleText,
         voiceName: voice.voiceName,

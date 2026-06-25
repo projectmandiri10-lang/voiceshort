@@ -27,6 +27,8 @@ export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 export const VOICE_GENDERS = ["male", "female"] as const;
 export type JobVoiceGender = (typeof VOICE_GENDERS)[number];
 export type VoiceGender = JobVoiceGender | "neutral";
+export const AI_PROVIDERS = ["gemini_direct", "openrouter"] as const;
+export type AiProvider = (typeof AI_PROVIDERS)[number];
 
 export type UserRole = "user" | "superadmin";
 export type SubscriptionStatus = "active" | "inactive";
@@ -39,7 +41,11 @@ export interface GenderVoiceSettings {
 }
 
 export interface AppSettings {
+  scriptProvider: AiProvider;
+  scriptFallbackProvider: AiProvider;
   scriptModel: string;
+  ttsProvider: AiProvider;
+  ttsFallbackProvider: AiProvider;
   ttsModel: string;
   language: "id-ID";
   maxVideoSeconds: number;

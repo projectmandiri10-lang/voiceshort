@@ -12,7 +12,11 @@ function applyBaseEnv() {
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
   process.env.GENERATE_PRICE_IDR = "2000";
   process.env.GEMINI_API_KEY = "test-gemini-key";
+  process.env.SCRIPT_PROVIDER = "gemini_direct";
+  process.env.SCRIPT_FALLBACK_PROVIDER = "openrouter";
   process.env.GEMINI_SCRIPT_MODEL = "gemini-2.5-flash-lite";
+  process.env.TTS_PROVIDER = "openrouter";
+  process.env.TTS_FALLBACK_PROVIDER = "gemini_direct";
   process.env.OPENROUTER_API_KEY = "test-openrouter-key";
   process.env.OPENROUTER_TTS_MODEL = "google/gemini-3.1-flash-tts-preview";
 }
@@ -31,6 +35,8 @@ describe("env config", () => {
     const env = loadEnv();
     expect(env.aiProvider).toBe("gemini");
     expect(env.geminiApiKey).toBe("test-gemini-key");
+    expect(env.scriptProvider).toBe("gemini_direct");
+    expect(env.ttsProvider).toBe("openrouter");
   });
 
   it("loads model envs", () => {
@@ -63,6 +69,13 @@ describe("env config", () => {
     process.env.OPENROUTER_API_KEY = "";
 
     expect(() => loadEnv()).toThrow("OPENROUTER_API_KEY wajib diisi");
+  });
+
+  it("throws a clear error when fallback providers match the primary", () => {
+    applyBaseEnv();
+    process.env.SCRIPT_FALLBACK_PROVIDER = "gemini_direct";
+
+    expect(() => loadEnv()).toThrow("SCRIPT_FALLBACK_PROVIDER wajib berbeda dari SCRIPT_PROVIDER");
   });
 
   it("loads custom success output retention hours", () => {

@@ -19,7 +19,9 @@ async function bootstrap(): Promise<void> {
   await ensureAppDirs();
   const env = loadEnv();
   const runtimeModelOverrides = {
+    scriptProvider: env.scriptProvider,
     scriptModel: env.geminiScriptModel,
+    ttsProvider: env.ttsProvider,
     ttsModel: env.openrouterTtsModel
   };
   const adminDb = createSupabaseClient({
@@ -103,12 +105,18 @@ async function bootstrap(): Promise<void> {
   logger.info(
     {
       aiProvider: env.aiProvider,
+      scriptProvider: env.scriptProvider,
+      scriptFallbackProvider: env.scriptFallbackProvider,
       scriptModel: env.geminiScriptModel,
+      ttsProvider: env.ttsProvider,
+      ttsFallbackProvider: env.ttsFallbackProvider,
       ttsModel: env.openrouterTtsModel,
-      nonTtsProvider: "gemini",
-      ttsProvider: "openrouter"
+      nonTtsProvider: env.scriptProvider,
+      nonTtsFallbackProvider: env.scriptFallbackProvider,
+      ttsActiveProvider: env.ttsProvider,
+      ttsActiveFallbackProvider: env.ttsFallbackProvider
     },
-    "Routing AI aktif: upload, naskah, dan caption via Gemini API native; suara via OpenRouter Gemini TTS."
+    "Routing AI aktif mengikuti provider script/TTS dan fallback dari konfigurasi runtime."
   );
   logger.info(`Server berjalan di http://localhost:${env.port}`);
 }

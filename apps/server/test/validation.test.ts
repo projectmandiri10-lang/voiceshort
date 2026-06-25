@@ -13,6 +13,31 @@ describe("validation", () => {
     expect(parsed.genderVoices[1]?.gender).toBe("female");
   });
 
+  it("normalizes provider-aware models for openrouter and gemini direct", () => {
+    const parsed = parseSettings({
+      ...DEFAULT_SETTINGS,
+      scriptProvider: "openrouter",
+      scriptFallbackProvider: "gemini_direct",
+      scriptModel: "gemini-2.5-flash-lite",
+      ttsProvider: "gemini_direct",
+      ttsFallbackProvider: "openrouter",
+      ttsModel: "google/gemini-3.1-flash-tts-preview"
+    });
+
+    expect(parsed.scriptModel).toBe("google/gemini-2.5-flash-lite");
+    expect(parsed.ttsModel).toBe("gemini-3.1-flash-tts-preview");
+  });
+
+  it("rejects identical primary and fallback providers", () => {
+    expect(() =>
+      parseSettings({
+        ...DEFAULT_SETTINGS,
+        scriptProvider: "gemini_direct",
+        scriptFallbackProvider: "gemini_direct"
+      })
+    ).toThrow(/fallback provider script/i);
+  });
+
   it("rejects settings above hard max 60 seconds", () => {
     expect(() =>
       parseSettings({

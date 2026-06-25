@@ -1,7 +1,12 @@
 import type { AppSettings, AssignedPackageCode, AuthSessionUser, JobRecord, UserRecord } from "../types.js";
 import { buildProgressFromStatus } from "../utils/job-progress.js";
 import { GENERATE_PRICE_IDR_DEFAULT, normalizeGeneratePriceIdr } from "../utils/billing.js";
-import { normalizeTtsModel } from "../constants.js";
+import {
+  DEFAULT_SETTINGS,
+  normalizeAiProvider,
+  normalizeScriptModel,
+  normalizeTtsModel
+} from "../constants.js";
 
 export const SUPERADMIN_WHITELIST_EMAIL = "jho.j80@gmail.com";
 
@@ -26,7 +31,11 @@ export interface ProfileRow {
 
 export interface AppSettingsRow {
   settings_key: "default";
+  script_provider?: AppSettings["scriptProvider"];
+  script_fallback_provider?: AppSettings["scriptFallbackProvider"];
   script_model: string;
+  tts_provider?: AppSettings["ttsProvider"];
+  tts_fallback_provider?: AppSettings["ttsFallbackProvider"];
   tts_model: string;
   language: "id-ID";
   max_video_seconds: number;
@@ -134,9 +143,21 @@ export function userRecordToSessionUser(
 }
 
 export function appSettingsRowToSettings(row: AppSettingsRow): AppSettings {
+  const scriptProvider = normalizeAiProvider(row.script_provider, DEFAULT_SETTINGS.scriptProvider);
+  const ttsProvider = normalizeAiProvider(row.tts_provider, DEFAULT_SETTINGS.ttsProvider);
   return {
-    scriptModel: row.script_model,
-    ttsModel: normalizeTtsModel(row.tts_model),
+    scriptProvider,
+    scriptFallbackProvider: normalizeAiProvider(
+      row.script_fallback_provider,
+      DEFAULT_SETTINGS.scriptFallbackProvider
+    ),
+    scriptModel: normalizeScriptModel(row.script_model, scriptProvider),
+    ttsProvider,
+    ttsFallbackProvider: normalizeAiProvider(
+      row.tts_fallback_provider,
+      DEFAULT_SETTINGS.ttsFallbackProvider
+    ),
+    ttsModel: normalizeTtsModel(row.tts_model, ttsProvider),
     language: row.language,
     maxVideoSeconds: row.max_video_seconds,
     safetyMode: row.safety_mode,
@@ -149,7 +170,11 @@ export function appSettingsToRow(settings: AppSettings): AppSettingsRow {
   const now = new Date().toISOString();
   return {
     settings_key: "default",
+    script_provider: settings.scriptProvider,
+    script_fallback_provider: settings.scriptFallbackProvider,
     script_model: settings.scriptModel,
+    tts_provider: settings.ttsProvider,
+    tts_fallback_provider: settings.ttsFallbackProvider,
     tts_model: settings.ttsModel,
     language: settings.language,
     max_video_seconds: settings.maxVideoSeconds,
