@@ -120,9 +120,9 @@ const adminUser: AuthUser = {
 };
 
 const mockSettings = {
-  scriptProvider: "gemini_direct" as const,
+  scriptProvider: "litellm" as const,
   scriptFallbackProvider: "openrouter" as const,
-  scriptModel: "gemini-2.5-flash-lite",
+  scriptModel: "gemini/gemini-2.5-flash-lite",
   ttsProvider: "openrouter" as const,
   ttsFallbackProvider: "gemini_direct" as const,
   ttsModel: "google/gemini-3.1-flash-tts-preview",
@@ -415,6 +415,7 @@ describe("web smoke", () => {
     render(<SettingsPage />);
 
     expect(await screen.findByRole("heading", { name: /Pengaturan Layanan/i })).toBeTruthy();
+    expect(screen.getAllByRole("option", { name: /LiteLLM/i }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getAllByRole("button", { name: /Preview Suara/i })[0]!);
 
     await waitFor(() => {

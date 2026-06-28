@@ -258,6 +258,27 @@ function openRouterTextResponse(text: string): Response {
   );
 }
 
+function liteLlmTextResponse(text: string): Response {
+  return new Response(
+    JSON.stringify({
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: text
+          }
+        }
+      ]
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json"
+      }
+    }
+  );
+}
+
 function geminiAudioResponse(audioText: string, mimeType = "audio/wav"): Response {
   return new Response(
     JSON.stringify({
@@ -367,7 +388,7 @@ describe("handleApiRequest", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        geminiTextResponse(
+        liteLlmTextResponse(
           JSON.stringify({
             summary: "Ringkasan video",
             hook: {
@@ -393,10 +414,10 @@ describe("handleApiRequest", () => {
         )
       )
       .mockResolvedValueOnce(
-        geminiTextResponse(JSON.stringify({ script: "Ini naskah singkat untuk video." }))
+        liteLlmTextResponse(JSON.stringify({ script: "Ini naskah singkat untuk video." }))
       )
       .mockResolvedValueOnce(
-        geminiTextResponse(
+        liteLlmTextResponse(
           JSON.stringify({
             caption: "Caption singkat untuk posting.",
             hashtags: ["#produk", "#promo"]
@@ -434,6 +455,8 @@ describe("handleApiRequest", () => {
       }),
       {
         GEMINI_API_KEY: "gemini-key",
+        LITELLM_BASE_URL: "https://litellm.example/v1",
+        LITELLM_API_KEY: "litellm-key",
         OPENROUTER_API_KEY: "openrouter-key",
         GENERATE_PRICE_IDR: "2500",
         SUPABASE_URL: "https://project.supabase.co",
@@ -562,6 +585,341 @@ describe("handleApiRequest", () => {
     for (const call of fetchMock.mock.calls) {
       expect(call[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
     }
+  });
+
+  it("supports LiteLLM as the script provider for visual brief, script, and caption", async () => {
+    const rpcMock = vi.fn(async () => ({ data: {}, error: null }));
+    createClientMock.mockReturnValue(
+      buildServiceClient({
+        rpcMock,
+        settingsRow: {
+          settings_key: "default",
+          script_provider: "litellm",
+          script_fallback_provider: "openrouter",
+          script_model: "gemini-2.5-flash-lite",
+          tts_provider: "openrouter",
+          tts_fallback_provider: "gemini_direct",
+          tts_model: "google/gemini-3.1-flash-tts-preview",
+          language: "id-ID",
+          max_video_seconds: 60,
+          safety_mode: "safe_marketing",
+          concurrency: 1,
+          gender_voices: [
+            { gender: "male", voiceName: "Charon", speechRate: 1 },
+            { gender: "female", voiceName: "Leda", speechRate: 1 }
+          ]
+        }
+      })
+    );
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        liteLlmTextResponse(
+          JSON.stringify({
+            summary: "Ringkasan visual LiteLLM",
+            hook: { startSec: 0, endSec: 2, reason: "Hook awal" },
+            timeline: [
+              {
+                startSec: 0,
+                endSec: 2,
+                primaryVisual: "Produk terlihat",
+                action: "Kamera maju",
+                onScreenText: ["Promo"],
+                narrationFocus: "Sorot produk",
+                avoidClaims: ["Klaim palsu"]
+              }
+            ],
+            mustMention: ["produk"],
+            mustAvoid: ["klaim palsu"],
+            uncertainties: []
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        liteLlmTextResponse(JSON.stringify({ script: "Ini script dari LiteLLM." }))
+      )
+      .mockResolvedValueOnce(
+        liteLlmTextResponse(
+          JSON.stringify({
+            caption: "Caption dari LiteLLM.",
+            hashtags: ["#litellm", "#voiceshort"]
+          })
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(
+      new Request("https://voiceshort.example/api/generation-sessions", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token-123",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          title: "Voice Over Produk",
+          description: "Jelaskan produk dengan singkat dan menarik",
+          contentType: "affiliate",
+          socialPlatform: "instagram",
+          voiceGender: "female",
+          tone: "natural",
+          videoDurationSec: 42,
+          frames: [
+            {
+              timestampSec: 0,
+              mimeType: "image/jpeg",
+              base64Data: "frame-one",
+              width: 448,
+              height: 252
+            }
+          ]
+        })
+      }),
+      {
+        GEMINI_API_KEY: "gemini-key",
+        LITELLM_BASE_URL: "https://litellm.example/v1",
+        LITELLM_API_KEY: "litellm-key",
+        OPENROUTER_API_KEY: "openrouter-key",
+        GENERATE_PRICE_IDR: "2000",
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+      }
+    );
+
+    expect(response.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const [, init] of fetchMock.mock.calls as Array<[string, RequestInit]>) {
+      expect(init.headers).toMatchObject({
+        Authorization: "Bearer litellm-key"
+      });
+      const payload = JSON.parse(String(init.body));
+      expect(payload.model).toBe("gemini/gemini-2.5-flash-lite");
+    }
+    const firstPayload = JSON.parse(
+      String(((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1] || {}).body)
+    );
+    expect(firstPayload.messages[0].content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "text" }),
+        expect.objectContaining({
+          type: "image_url",
+          image_url: expect.objectContaining({
+            url: expect.stringContaining("data:image/jpeg;base64,frame-one")
+          })
+        })
+      ])
+    );
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://litellm.example/v1/chat/completions",
+      "https://litellm.example/v1/chat/completions",
+      "https://litellm.example/v1/chat/completions"
+    ]);
+  });
+
+  it("falls back to OpenRouter text generation when LiteLLM script calls fail", async () => {
+    const rpcMock = vi.fn(async () => ({ data: {}, error: null }));
+    createClientMock.mockReturnValue(
+      buildServiceClient({
+        rpcMock,
+        settingsRow: {
+          settings_key: "default",
+          script_provider: "litellm",
+          script_fallback_provider: "openrouter",
+          script_model: "gemini-2.5-flash-lite",
+          tts_provider: "openrouter",
+          tts_fallback_provider: "gemini_direct",
+          tts_model: "google/gemini-3.1-flash-tts-preview",
+          language: "id-ID",
+          max_video_seconds: 60,
+          safety_mode: "safe_marketing",
+          concurrency: 1,
+          gender_voices: [
+            { gender: "male", voiceName: "Charon", speechRate: 1 },
+            { gender: "female", voiceName: "Leda", speechRate: 1 }
+          ]
+        }
+      })
+    );
+
+    let openRouterStage = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("litellm.example")) {
+        return new Response(JSON.stringify({ error: { message: "LiteLLM utama gagal" } }), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        });
+      }
+      openRouterStage += 1;
+      return openRouterTextResponse(
+        JSON.stringify(
+          openRouterStage === 1
+            ? {
+                summary: "Ringkasan visual fallback",
+                hook: { startSec: 0, endSec: 2, reason: "Hook awal" },
+                timeline: [
+                  {
+                    startSec: 0,
+                    endSec: 2,
+                    primaryVisual: "Produk terlihat",
+                    action: "Kamera maju",
+                    onScreenText: ["Promo"],
+                    narrationFocus: "Sorot produk",
+                    avoidClaims: ["Klaim palsu"]
+                  }
+                ],
+                mustMention: ["produk"],
+                mustAvoid: ["klaim palsu"],
+                uncertainties: []
+              }
+            : openRouterStage === 2
+              ? { script: "Script fallback dari OpenRouter." }
+              : {
+                  caption: "Caption fallback dari OpenRouter.",
+                  hashtags: ["#fallback", "#voiceshort"]
+                }
+        )
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(
+      new Request("https://voiceshort.example/api/generation-sessions", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token-123",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          title: "Voice Over Produk",
+          description: "Jelaskan produk dengan singkat dan menarik",
+          contentType: "affiliate",
+          socialPlatform: "instagram",
+          voiceGender: "female",
+          tone: "natural",
+          videoDurationSec: 42,
+          frames: [
+            {
+              timestampSec: 0,
+              mimeType: "image/jpeg",
+              base64Data: "frame-one",
+              width: 448,
+              height: 252
+            }
+          ]
+        })
+      }),
+      {
+        GEMINI_API_KEY: "gemini-key",
+        LITELLM_BASE_URL: "https://litellm.example/v1",
+        LITELLM_API_KEY: "litellm-key",
+        OPENROUTER_API_KEY: "openrouter-key",
+        GENERATE_PRICE_IDR: "2000",
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+      }
+    );
+
+    expect(response.status).toBe(201);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("litellm.example"))).toHaveLength(9);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("openrouter.ai/api/v1/chat/completions"))).toHaveLength(3);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("returns a clear provider error when LiteLLM script primary and OpenRouter fallback both fail", async () => {
+    const rpcMock = vi.fn(async () => ({ data: {}, error: null }));
+    createClientMock.mockReturnValue(
+      buildServiceClient({
+        rpcMock,
+        settingsRow: {
+          settings_key: "default",
+          script_provider: "litellm",
+          script_fallback_provider: "openrouter",
+          script_model: "gemini-2.5-flash-lite",
+          tts_provider: "openrouter",
+          tts_fallback_provider: "gemini_direct",
+          tts_model: "google/gemini-3.1-flash-tts-preview",
+          language: "id-ID",
+          max_video_seconds: 60,
+          safety_mode: "safe_marketing",
+          concurrency: 1,
+          gender_voices: [
+            { gender: "male", voiceName: "Charon", speechRate: 1 },
+            { gender: "female", voiceName: "Leda", speechRate: 1 }
+          ]
+        }
+      })
+    );
+
+    const fetchMock = vi.fn(async (url: string) => {
+      const message = url.includes("litellm.example")
+        ? "LiteLLM script gagal"
+        : "OpenRouter script gagal";
+      return new Response(JSON.stringify({ error: { message } }), {
+        status: 503,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(
+      new Request("https://voiceshort.example/api/generation-sessions", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token-123",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          title: "Voice Over Produk",
+          description: "Jelaskan produk dengan singkat dan menarik",
+          contentType: "affiliate",
+          socialPlatform: "instagram",
+          voiceGender: "female",
+          tone: "natural",
+          videoDurationSec: 42,
+          frames: [
+            {
+              timestampSec: 0,
+              mimeType: "image/jpeg",
+              base64Data: "frame-one",
+              width: 448,
+              height: 252
+            }
+          ]
+        })
+      }),
+      {
+        GEMINI_API_KEY: "gemini-key",
+        LITELLM_BASE_URL: "https://litellm.example/v1",
+        LITELLM_API_KEY: "litellm-key",
+        OPENROUTER_API_KEY: "openrouter-key",
+        GENERATE_PRICE_IDR: "2000",
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+      }
+    );
+
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as {
+      message: string;
+      error?: Record<string, string>;
+    };
+    expect(body.message).toContain(
+      "Visual brief gagal pada provider utama (litellm) dan fallback (openrouter)."
+    );
+    expect(body.error).toMatchObject({
+      primaryProvider: "litellm",
+      fallbackProvider: "openrouter"
+    });
   });
 
   it("falls back to OpenRouter text generation when Gemini direct script calls fail", async () => {

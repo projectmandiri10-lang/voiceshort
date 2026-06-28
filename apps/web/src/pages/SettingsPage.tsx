@@ -2,7 +2,15 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Gauge, Mic2, Save } from "lucide-react";
 import { fetchSettings, fetchTtsVoices, previewTtsVoice, updateSettings } from "../api";
 import { AI_PROVIDER_LABEL } from "../shared/constants";
-import type { AiProvider, AppSettings, JobVoiceGender, TtsVoiceOption } from "../types";
+import {
+  SCRIPT_AI_PROVIDERS,
+  TTS_AI_PROVIDERS,
+  type AppSettings,
+  type JobVoiceGender,
+  type ScriptAiProvider,
+  type TtsAiProvider,
+  type TtsVoiceOption
+} from "../types";
 
 const GENDER_LABEL: Record<JobVoiceGender, string> = {
   male: "Pria",
@@ -19,8 +27,16 @@ function voiceMatchesGender(voice: TtsVoiceOption, gender: JobVoiceGender): bool
 
 function setProvider(
   settings: AppSettings,
-  key: "scriptProvider" | "scriptFallbackProvider" | "ttsProvider" | "ttsFallbackProvider",
-  value: AiProvider
+  key: "scriptProvider" | "scriptFallbackProvider",
+  value: ScriptAiProvider
+): AppSettings {
+  return { ...settings, [key]: value };
+}
+
+function setTtsProvider(
+  settings: AppSettings,
+  key: "ttsProvider" | "ttsFallbackProvider",
+  value: TtsAiProvider
 ): AppSettings {
   return { ...settings, [key]: value };
 }
@@ -152,7 +168,8 @@ export function SettingsPage() {
         <h2>Atur batas durasi dan suara default untuk setiap proses generate.</h2>
         <p className="section-note">
           Atur provider utama dan fallback untuk script maupun TTS. Gemini Direct memakai API key
-          Google langsung, sedangkan OpenRouter lewat gateway OpenRouter dan tetap bisa memakai model Gemini.
+          Google langsung, OpenRouter memakai gateway OpenRouter, dan LiteLLM memakai proxy OpenAI-style
+          untuk akses model Gemini di jalur script.
         </p>
       </div>
 
@@ -197,10 +214,12 @@ export function SettingsPage() {
                 <select
                   value={settings.scriptProvider}
                   onChange={(event) =>
-                    setSettings(setProvider(settings, "scriptProvider", event.target.value as AiProvider))
+                    setSettings(
+                      setProvider(settings, "scriptProvider", event.target.value as ScriptAiProvider)
+                    )
                   }
                 >
-                  {(["gemini_direct", "openrouter"] as AiProvider[]).map((provider) => (
+                  {SCRIPT_AI_PROVIDERS.map((provider) => (
                     <option key={provider} value={provider}>
                       {AI_PROVIDER_LABEL[provider]}
                     </option>
@@ -214,11 +233,15 @@ export function SettingsPage() {
                   value={settings.scriptFallbackProvider}
                   onChange={(event) =>
                     setSettings(
-                      setProvider(settings, "scriptFallbackProvider", event.target.value as AiProvider)
+                      setProvider(
+                        settings,
+                        "scriptFallbackProvider",
+                        event.target.value as ScriptAiProvider
+                      )
                     )
                   }
                 >
-                  {(["gemini_direct", "openrouter"] as AiProvider[]).map((provider) => (
+                  {SCRIPT_AI_PROVIDERS.map((provider) => (
                     <option key={provider} value={provider}>
                       {AI_PROVIDER_LABEL[provider]}
                     </option>
@@ -251,10 +274,12 @@ export function SettingsPage() {
                 <select
                   value={settings.ttsProvider}
                   onChange={(event) =>
-                    setSettings(setProvider(settings, "ttsProvider", event.target.value as AiProvider))
+                    setSettings(
+                      setTtsProvider(settings, "ttsProvider", event.target.value as TtsAiProvider)
+                    )
                   }
                 >
-                  {(["gemini_direct", "openrouter"] as AiProvider[]).map((provider) => (
+                  {TTS_AI_PROVIDERS.map((provider) => (
                     <option key={provider} value={provider}>
                       {AI_PROVIDER_LABEL[provider]}
                     </option>
@@ -268,11 +293,15 @@ export function SettingsPage() {
                   value={settings.ttsFallbackProvider}
                   onChange={(event) =>
                     setSettings(
-                      setProvider(settings, "ttsFallbackProvider", event.target.value as AiProvider)
+                      setTtsProvider(
+                        settings,
+                        "ttsFallbackProvider",
+                        event.target.value as TtsAiProvider
+                      )
                     )
                   }
                 >
-                  {(["gemini_direct", "openrouter"] as AiProvider[]).map((provider) => (
+                  {TTS_AI_PROVIDERS.map((provider) => (
                     <option key={provider} value={provider}>
                       {AI_PROVIDER_LABEL[provider]}
                     </option>

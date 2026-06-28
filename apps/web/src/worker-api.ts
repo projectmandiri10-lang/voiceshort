@@ -7,8 +7,9 @@ import {
   findGenderVoiceSetting,
   findTtsVoiceByName,
   isKnownTtsVoiceName,
-  normalizeAiProvider,
   normalizeScriptModel,
+  normalizeScriptProvider,
+  normalizeTtsProvider,
   normalizeTtsModel
 } from "./shared/constants";
 import {
@@ -37,7 +38,9 @@ import {
   type GenerationSessionRecord,
   type GenerationSessionStatus,
   type JobVoiceGender,
+  type ScriptAiProvider,
   type SocialPlatform,
+  type TtsAiProvider,
   type TtsVoiceOption,
   type UserRole
 } from "./types";
@@ -77,6 +80,9 @@ interface WorkerAssetBinding {
 export interface WorkerEnv {
   GEMINI_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
+  LITELLM_BASE_URL?: string;
+  LITELLM_API_KEY?: string;
+  LITELLM_SECRET_KEY?: string;
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
@@ -246,6 +252,25 @@ function getRequiredEnv(env: WorkerEnv, key: keyof WorkerEnv): string {
   return value;
 }
 
+function getLiteLlmApiKey(env: WorkerEnv): string {
+  const value = String(env.LITELLM_API_KEY || env.LITELLM_SECRET_KEY || "").trim();
+  if (!value) {
+    throw createHttpError(500, "LITELLM_API_KEY belum dikonfigurasi di sistem backend.");
+  }
+  return value;
+}
+
+function resolveLiteLlmChatUrl(baseUrl: string): string {
+  const normalized = trimTrailingSlash(baseUrl);
+  if (normalized.endsWith("/chat/completions")) {
+    return normalized;
+  }
+  if (normalized.endsWith("/v1")) {
+    return `${normalized}/chat/completions`;
+  }
+  return `${normalized}/v1/chat/completions`;
+}
+
 function getGeneratePriceIdr(env: WorkerEnv): number {
   const raw = String(env.GENERATE_PRICE_IDR || "").trim();
   const parsed = raw ? Number(raw) : DEFAULT_GENERATE_PRICE_IDR;
@@ -335,14 +360,14 @@ function mapProfileToAdminUser(profile: ProfileRow, generatePriceIdr: number): A
 function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
   const source = row
     ? {
-        scriptProvider: normalizeAiProvider(row.script_provider, DEFAULT_SETTINGS.scriptProvider),
-        scriptFallbackProvider: normalizeAiProvider(
+        scriptProvider: normalizeScriptProvider(row.script_provider, DEFAULT_SETTINGS.scriptProvider),
+        scriptFallbackProvider: normalizeScriptProvider(
           row.script_fallback_provider,
           DEFAULT_SETTINGS.scriptFallbackProvider
         ),
         scriptModel: row.script_model,
-        ttsProvider: normalizeAiProvider(row.tts_provider, DEFAULT_SETTINGS.ttsProvider),
-        ttsFallbackProvider: normalizeAiProvider(
+        ttsProvider: normalizeTtsProvider(row.tts_provider, DEFAULT_SETTINGS.ttsProvider),
+        ttsFallbackProvider: normalizeTtsProvider(
           row.tts_fallback_provider,
           DEFAULT_SETTINGS.ttsFallbackProvider
         ),
@@ -356,23 +381,23 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
     : DEFAULT_SETTINGS;
 
   return {
-    scriptProvider: normalizeAiProvider(source.scriptProvider, DEFAULT_SETTINGS.scriptProvider),
-    scriptFallbackProvider: normalizeAiProvider(
+    scriptProvider: normalizeScriptProvider(source.scriptProvider, DEFAULT_SETTINGS.scriptProvider),
+    scriptFallbackProvider: normalizeScriptProvider(
       source.scriptFallbackProvider,
       DEFAULT_SETTINGS.scriptFallbackProvider
     ),
     scriptModel: normalizeScriptModel(
       String(source.scriptModel || DEFAULT_SETTINGS.scriptModel).trim() || DEFAULT_SETTINGS.scriptModel,
-      normalizeAiProvider(source.scriptProvider, DEFAULT_SETTINGS.scriptProvider)
+      normalizeScriptProvider(source.scriptProvider, DEFAULT_SETTINGS.scriptProvider)
     ),
-    ttsProvider: normalizeAiProvider(source.ttsProvider, DEFAULT_SETTINGS.ttsProvider),
-    ttsFallbackProvider: normalizeAiProvider(
+    ttsProvider: normalizeTtsProvider(source.ttsProvider, DEFAULT_SETTINGS.ttsProvider),
+    ttsFallbackProvider: normalizeTtsProvider(
       source.ttsFallbackProvider,
       DEFAULT_SETTINGS.ttsFallbackProvider
     ),
     ttsModel: normalizeTtsModel(
       String(source.ttsModel || DEFAULT_SETTINGS.ttsModel).trim() || DEFAULT_SETTINGS.ttsModel,
-      normalizeAiProvider(source.ttsProvider, DEFAULT_SETTINGS.ttsProvider)
+      normalizeTtsProvider(source.ttsProvider, DEFAULT_SETTINGS.ttsProvider)
     ),
     language: "id-ID",
     maxVideoSeconds: Math.max(10, Math.min(ABSOLUTE_MAX_VIDEO_SECONDS, Math.trunc(source.maxVideoSeconds || DEFAULT_SETTINGS.maxVideoSeconds))),
@@ -573,19 +598,19 @@ function parseSettingsInput(input: unknown): AppSettings {
     };
   });
 
-  const scriptProvider = normalizeAiProvider(
+  const scriptProvider = normalizeScriptProvider(
     String(body.scriptProvider || "").trim(),
     DEFAULT_SETTINGS.scriptProvider
   );
-  const scriptFallbackProvider = normalizeAiProvider(
+  const scriptFallbackProvider = normalizeScriptProvider(
     String(body.scriptFallbackProvider || "").trim(),
     DEFAULT_SETTINGS.scriptFallbackProvider
   );
-  const ttsProvider = normalizeAiProvider(
+  const ttsProvider = normalizeTtsProvider(
     String(body.ttsProvider || "").trim(),
     DEFAULT_SETTINGS.ttsProvider
   );
-  const ttsFallbackProvider = normalizeAiProvider(
+  const ttsFallbackProvider = normalizeTtsProvider(
     String(body.ttsFallbackProvider || "").trim(),
     DEFAULT_SETTINGS.ttsFallbackProvider
   );
@@ -776,6 +801,33 @@ async function callOpenRouterText(
   return payload;
 }
 
+async function callLiteLlmText(
+  env: WorkerEnv,
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const response = await fetch(resolveLiteLlmChatUrl(getRequiredEnv(env, "LITELLM_BASE_URL")), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getLiteLlmApiKey(env)}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    const message =
+      typeof (payload.error as { message?: unknown } | undefined)?.message === "string"
+        ? String((payload.error as { message?: unknown }).message)
+        : typeof payload.message === "string"
+          ? payload.message
+          : `LiteLLM text request gagal (${response.status}).`;
+    throw createHttpError(response.status === 429 ? 503 : response.status, message, payload);
+  }
+
+  return payload;
+}
+
 async function callOpenRouterTts(
   env: WorkerEnv,
   body: Record<string, unknown>
@@ -850,11 +902,14 @@ function buildOpenRouterFrameParts(
   }));
 }
 
-function shouldUseFallbackProvider(primary: AiProvider, fallback: AiProvider | undefined): fallback is AiProvider {
+function shouldUseFallbackProvider<TProvider extends string>(
+  primary: TProvider,
+  fallback: TProvider | undefined
+): fallback is TProvider {
   return Boolean(fallback && fallback !== primary);
 }
 
-function openRouterPayloadToGeminiLike(payload: Record<string, unknown>): Record<string, unknown> {
+function chatPayloadToGeminiLike(payload: Record<string, unknown>): Record<string, unknown> {
   const choices = Array.isArray(payload.choices) ? payload.choices : [];
   const first = choices[0] as { message?: { content?: unknown } } | undefined;
   const rawContent = first?.message?.content;
@@ -918,11 +973,11 @@ function extractGeminiAudio(response: Record<string, unknown>): GeminiAudio {
   throw createHttpError(502, "Gemini direct tidak mengembalikan audio.");
 }
 
-async function runWithProviderFallback<T>(input: {
+async function runWithProviderFallback<T, TProvider extends string>(input: {
   stage: string;
-  primaryProvider: AiProvider;
-  fallbackProvider?: AiProvider;
-  task: (provider: AiProvider) => Promise<T>;
+  primaryProvider: TProvider;
+  fallbackProvider?: TProvider;
+  task: (provider: TProvider) => Promise<T>;
 }): Promise<T> {
   try {
     return await input.task(input.primaryProvider);
@@ -952,7 +1007,7 @@ async function runWithProviderFallback<T>(input: {
 
 async function generateTextWithProvider(
   env: WorkerEnv,
-  provider: AiProvider,
+  provider: ScriptAiProvider,
   model: string,
   input: {
     prompt: string;
@@ -972,7 +1027,23 @@ async function generateTextWithProvider(
         }
       ]
     });
-    return openRouterPayloadToGeminiLike(payload);
+    return chatPayloadToGeminiLike(payload);
+  }
+
+  if (provider === "litellm") {
+    const payload = await callLiteLlmText(env, {
+      model: normalizeScriptModel(model, provider),
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: input.prompt },
+            ...buildOpenRouterFrameParts(input.frames || [])
+          ]
+        }
+      ]
+    });
+    return chatPayloadToGeminiLike(payload);
   }
 
   const parts = [
@@ -991,7 +1062,7 @@ async function generateTextWithProvider(
 
 async function generateAudioWithProvider(
   env: WorkerEnv,
-  provider: AiProvider,
+  provider: TtsAiProvider,
   settings: AppSettings,
   input: {
     text: string;

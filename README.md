@@ -14,7 +14,7 @@ Aplikasi untuk membuat voice over Bahasa Indonesia untuk video pendek sampai `60
   - render `final.mp4` lokal via `ffmpeg.wasm`
 - Worker melakukan:
   - auth/session via Supabase token
-  - generate visual brief, script, caption, dan hashtag via provider text yang dipilih (`Gemini Direct` atau `OpenRouter`)
+  - generate visual brief, script, caption, dan hashtag via provider text yang dipilih (`LiteLLM`, `Gemini Direct`, atau `OpenRouter`)
   - generate voice over via provider TTS yang dipilih (`Gemini Direct` atau `OpenRouter`)
   - billing flat per generate
   - simpan metadata history ke Supabase `generation_sessions`
@@ -38,6 +38,8 @@ Untuk Worker / `wrangler`:
 ```env
 GEMINI_API_KEY=your_gemini_api_key
 OPENROUTER_API_KEY=your_openrouter_api_key
+LITELLM_BASE_URL=https://your-litellm-host
+LITELLM_API_KEY=your_litellm_secret_key
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 SUPABASE_ANON_KEY=your_publishable_or_anon_key
@@ -55,7 +57,7 @@ VITE_API_BASE=http://localhost:8787
 Catatan:
 
 - Default aktif tetap kompatibel dengan perilaku lama:
-  - provider script utama: `gemini_direct`
+  - provider script utama: `litellm`
   - provider TTS utama: `openrouter`
 - Superadmin sekarang dapat memilih provider utama dan fallback terpisah untuk script dan TTS dari halaman `Pengaturan`.
 - `VITE_API_BASE` hanya berguna untuk local dev saat Vite dan Worker berjalan di port berbeda.
@@ -81,6 +83,8 @@ copy .env.example .env
 ```env
 GEMINI_API_KEY=your_gemini_api_key
 OPENROUTER_API_KEY=your_openrouter_api_key
+LITELLM_BASE_URL=https://your-litellm-host
+LITELLM_API_KEY=your_litellm_secret_key
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 SUPABASE_ANON_KEY=your_publishable_or_anon_key
@@ -164,7 +168,7 @@ Route `/api/jobs*`, SSE progress, server-side download artifact, dan `open-locat
 - Hard cap video: `60 detik`
 - Billing default: `Rp2.000/generate`
 - Default provider split:
-  - script/caption/visual brief: `Gemini Direct`
+  - script/caption/visual brief: `LiteLLM`
   - TTS: `OpenRouter`
 - Fallback otomatis tersedia untuk script dan TTS bila provider utama gagal.
 - Frame analisis: JPEG terkompresi, lebar maksimal `448px`
