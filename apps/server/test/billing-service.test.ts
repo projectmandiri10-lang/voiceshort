@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { BillingService } from "../src/services/billing-service.js";
 import type { AuthSessionUser } from "../src/types.js";
 
-type TableName = "profiles" | "payment_orders" | "wallet_ledger" | "webhook_events";
+type TableName = "profiles" | "payment_orders" | "wallet_ledger" | "webhook_events" | "app_settings";
 type Row = Record<string, any>;
 
 interface FakeDbState {
@@ -12,6 +12,7 @@ interface FakeDbState {
   payment_orders: Row[];
   wallet_ledger: Row[];
   webhook_events: Row[];
+  app_settings: Row[];
   rpcCalls: Array<{ name: string; args: Record<string, unknown> }>;
 }
 
@@ -124,6 +125,7 @@ function createFakeDb(initial?: Partial<FakeDbState>) {
     payment_orders: [],
     wallet_ledger: [],
     webhook_events: [],
+    app_settings: [{ settings_key: "default", tax_rate_percent: 0 }],
     rpcCalls: [],
     ...initial
   };
@@ -134,6 +136,90 @@ function createFakeDb(initial?: Partial<FakeDbState>) {
     },
     async rpc(name: string, args: Record<string, unknown>) {
       state.rpcCalls.push({ name, args });
+      if (name === "admin_transaction_feed") {
+        const limit = Number(args.row_limit ?? 50);
+        const cursorOccurredAt = typeof args.cursor_occurred_at === "string" ? args.cursor_occurred_at : null;
+        const cursorTransactionId =
+          typeof args.cursor_transaction_id === "string" ? args.cursor_transaction_id : null;
+        const paymentRows = state.payment_orders.map((order) => {
+          const ledger = state.wallet_ledger.find(
+            (entry) =>
+              entry.entry_type === "deposit_credit" &&
+              entry.source_type === "payment_order" &&
+              entry.source_id === order.id
+          );
+          return {
+            transaction_id: `payment_order:${order.id}`,
+            kind: "payment",
+            status: order.status,
+            occurred_at: order.status === "paid" ? order.paid_at || order.updated_at || order.created_at : order.created_at,
+            owner_user_id: order.owner_user_id,
+            owner_email: order.owner_email,
+            gross_amount_idr: order.pay_amount_idr,
+            wallet_impact_idr: order.status === "paid" ? order.credit_amount_idr : 0,
+            balance_after_idr: order.status === "paid" ? ledger?.balance_after_idr ?? null : null,
+            tax_rate_percent: order.tax_rate_percent ?? 0,
+            tax_amount_idr: order.tax_amount_idr ?? 0,
+            net_amount_idr: order.pay_amount_idr - (order.tax_amount_idr ?? 0),
+            entry_type: order.status === "paid" ? ledger?.entry_type ?? null : null,
+            source_type: order.status === "paid" ? ledger?.source_type ?? "payment_order" : "payment_order",
+            description:
+              ledger?.description ??
+              (order.status === "pending" ? "Invoice top up menunggu pembayaran" : "Top up QRIS"),
+            payment_method: order.payment_method ?? null,
+            merchant_order_id: order.merchant_order_id,
+            invoice_id: order.webqris_invoice_id ?? null
+          };
+        });
+        const ledgerRows = state.wallet_ledger
+          .filter(
+            (entry) => !(entry.entry_type === "deposit_credit" && entry.source_type === "payment_order")
+          )
+          .map((entry) => ({
+            transaction_id: `wallet_ledger:${entry.id}`,
+            kind:
+              entry.entry_type === "generate_debit"
+                ? "generate"
+                : entry.entry_type === "generate_refund"
+                  ? "refund"
+                  : "admin",
+            status: "posted",
+            occurred_at: entry.created_at,
+            owner_user_id: entry.owner_user_id,
+            owner_email: entry.owner_email,
+            gross_amount_idr: Math.abs(entry.amount_idr),
+            wallet_impact_idr: entry.amount_idr,
+            balance_after_idr: entry.balance_after_idr,
+            tax_rate_percent: 0,
+            tax_amount_idr: 0,
+            net_amount_idr: Math.abs(entry.amount_idr),
+            entry_type: entry.entry_type,
+            source_type: entry.source_type,
+            description: entry.description,
+            payment_method: null,
+            merchant_order_id: null,
+            invoice_id: null
+          }));
+        const data = [...paymentRows, ...ledgerRows]
+          .filter((row) => {
+            if (!cursorOccurredAt) {
+              return true;
+            }
+            if (row.occurred_at < cursorOccurredAt) {
+              return true;
+            }
+            return row.occurred_at === cursorOccurredAt && row.transaction_id < (cursorTransactionId || "");
+          })
+          .sort((left, right) => {
+            if (left.occurred_at === right.occurred_at) {
+              return right.transaction_id.localeCompare(left.transaction_id);
+            }
+            return right.occurred_at.localeCompare(left.occurred_at);
+          })
+          .slice(0, limit);
+        return { data, error: null };
+      }
+
       if (name !== "credit_wallet_from_payment") {
         return { data: null, error: new Error(`Unexpected RPC ${name}`) };
       }
@@ -165,7 +251,10 @@ function createFakeDb(initial?: Partial<FakeDbState>) {
         source_type: "payment_order",
         source_id: order.id,
         description: "Deposit WebQRIS berhasil",
-        metadata: {},
+        metadata: {
+          taxRatePercent: order.tax_rate_percent ?? 0,
+          taxAmountIdr: order.tax_amount_idr ?? 0
+        },
         created_at: nowIso()
       });
       return { data: order, error: null };
@@ -219,7 +308,9 @@ afterEach(() => {
 
 describe("BillingService", () => {
   it("creates a WebQRIS topup invoice with package amount", async () => {
-    const { service, state } = buildService();
+    const { service, state } = buildService({
+      app_settings: [{ settings_key: "default", tax_rate_percent: 11 }]
+    });
     const fetchMock = vi.fn(async () =>
       new Response(
         JSON.stringify({
@@ -254,11 +345,44 @@ describe("BillingService", () => {
       webqrisInvoiceId: "INV-TEST-1",
       qrisPayload: "00020101021226680016ID.CO.QRIS.WWW",
       totalAmountIdr: 20_042,
-      status: "pending"
+      status: "pending",
+      taxRatePercent: 11,
+      taxAmountIdr: 2_200,
+      netAmountIdr: 17_800
     });
     expect(state.payment_orders[0]).toMatchObject({
       pay_amount_idr: 20_000,
-      credit_amount_idr: 20_000
+      credit_amount_idr: 20_000,
+      tax_rate_percent: 11,
+      tax_amount_idr: 2_200
+    });
+  });
+
+  it("freezes tax snapshot on the created topup even if settings change later", async () => {
+    const { service, state } = buildService({
+      app_settings: [{ settings_key: "default", tax_rate_percent: 12 }]
+    });
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          invoice_id: "INV-SNAPSHOT-1",
+          qris_payload: "000201",
+          amount: 20_000,
+          total_amount: 20_111,
+          expired_at: "2026-04-28T12:00:00.000Z"
+        }),
+        { status: 201, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await service.createTopup(buildUser(), "10_video");
+    state.app_settings[0]!.tax_rate_percent = 0;
+
+    expect(state.payment_orders[0]).toMatchObject({
+      tax_rate_percent: 12,
+      tax_amount_idr: 2_400
     });
   });
 
@@ -289,6 +413,8 @@ describe("BillingService", () => {
       qris_payload: "000201",
       unique_code: 42,
       total_amount_idr: 90_042,
+      tax_rate_percent: 11,
+      tax_amount_idr: 9900,
       status: "pending",
       expired_at: null,
       paid_at: null,
@@ -318,6 +444,10 @@ describe("BillingService", () => {
 
     expect(state.profiles[0]?.wallet_balance_idr).toBe(100_000);
     expect(state.wallet_ledger).toHaveLength(1);
+    expect(state.wallet_ledger[0]?.metadata).toMatchObject({
+      taxRatePercent: 11,
+      taxAmountIdr: 9900
+    });
     expect(state.rpcCalls).toHaveLength(2);
     expect(state.payment_orders[0]).toMatchObject({ status: "paid" });
   });
@@ -383,5 +513,166 @@ describe("BillingService", () => {
       generateCreditsRemaining: null,
       isUnlimited: true
     });
+  });
+
+  it("returns a merged paid topup row and excludes duplicate deposit ledger rows from admin feed", async () => {
+    const createdAt = "2026-07-03T09:00:00.000Z";
+    const paidAt = "2026-07-03T10:00:00.000Z";
+    const { service } = buildService({
+      payment_orders: [
+        {
+          id: "order-paid-1",
+          owner_user_id: "user-creator",
+          owner_email: "creator@test.dev",
+          package_code: "50_video",
+          pay_amount_idr: 90_000,
+          credit_amount_idr: 100_000,
+          merchant_order_id: "VS-PAID-1",
+          webqris_invoice_id: "INV-PAID-1",
+          qris_payload: "000201",
+          unique_code: 12,
+          total_amount_idr: 90_012,
+          tax_rate_percent: 11,
+          tax_amount_idr: 9_900,
+          status: "paid",
+          expired_at: null,
+          paid_at: paidAt,
+          payment_method: "qris",
+          created_at: createdAt,
+          updated_at: paidAt
+        }
+      ],
+      wallet_ledger: [
+        {
+          id: "ledger-paid-1",
+          owner_user_id: "user-creator",
+          owner_email: "creator@test.dev",
+          amount_idr: 100_000,
+          balance_after_idr: 100_000,
+          entry_type: "deposit_credit",
+          source_type: "payment_order",
+          source_id: "order-paid-1",
+          description: "Deposit WebQRIS berhasil",
+          metadata: {
+            taxRatePercent: 11,
+            taxAmountIdr: 9_900
+          },
+          created_at: paidAt
+        }
+      ]
+    });
+
+    const result = await service.getAdminTransactions();
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      transactionId: "payment_order:order-paid-1",
+      kind: "payment",
+      status: "paid",
+      grossAmountIdr: 90_000,
+      walletImpactIdr: 100_000,
+      balanceAfterIdr: 100_000,
+      taxRatePercent: 11,
+      taxAmountIdr: 9_900,
+      netAmountIdr: 80_100
+    });
+  });
+
+  it("returns pending payments and non-payment ledger rows in the admin feed", async () => {
+    const { service } = buildService({
+      payment_orders: [
+        {
+          id: "order-pending-1",
+          owner_user_id: "user-creator",
+          owner_email: "creator@test.dev",
+          package_code: "10_video",
+          pay_amount_idr: 20_000,
+          credit_amount_idr: 20_000,
+          merchant_order_id: "VS-PENDING-1",
+          webqris_invoice_id: "INV-PENDING-1",
+          qris_payload: "000201",
+          unique_code: 21,
+          total_amount_idr: 20_021,
+          tax_rate_percent: 0,
+          tax_amount_idr: 0,
+          status: "pending",
+          expired_at: null,
+          paid_at: null,
+          payment_method: null,
+          created_at: "2026-07-03T08:00:00.000Z",
+          updated_at: "2026-07-03T08:00:00.000Z"
+        }
+      ],
+      wallet_ledger: [
+        {
+          id: "ledger-generate-1",
+          owner_user_id: "user-creator",
+          owner_email: "creator@test.dev",
+          amount_idr: -2_000,
+          balance_after_idr: 18_000,
+          entry_type: "generate_debit",
+          source_type: "job",
+          source_id: "job-1",
+          description: "Biaya generate voice over",
+          metadata: {},
+          created_at: "2026-07-03T09:00:00.000Z"
+        },
+        {
+          id: "ledger-refund-1",
+          owner_user_id: "user-creator",
+          owner_email: "creator@test.dev",
+          amount_idr: 2_000,
+          balance_after_idr: 20_000,
+          entry_type: "generate_refund",
+          source_type: "job",
+          source_id: "job-1",
+          description: "Refund generate voice over",
+          metadata: {},
+          created_at: "2026-07-03T09:30:00.000Z"
+        },
+        {
+          id: "ledger-admin-1",
+          owner_user_id: "user-creator",
+          owner_email: "creator@test.dev",
+          amount_idr: 10_000,
+          balance_after_idr: 30_000,
+          entry_type: "admin_adjustment",
+          source_type: "admin",
+          source_id: "manual",
+          description: "Penyesuaian saldo custom oleh admin",
+          metadata: {},
+          created_at: "2026-07-03T10:00:00.000Z"
+        }
+      ]
+    });
+
+    const result = await service.getAdminTransactions();
+
+    expect(result.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          transactionId: "payment_order:order-pending-1",
+          kind: "payment",
+          status: "pending",
+          walletImpactIdr: 0,
+          taxAmountIdr: 0
+        }),
+        expect.objectContaining({
+          transactionId: "wallet_ledger:ledger-generate-1",
+          kind: "generate",
+          taxAmountIdr: 0
+        }),
+        expect.objectContaining({
+          transactionId: "wallet_ledger:ledger-refund-1",
+          kind: "refund",
+          taxAmountIdr: 0
+        }),
+        expect.objectContaining({
+          transactionId: "wallet_ledger:ledger-admin-1",
+          kind: "admin",
+          taxAmountIdr: 0
+        })
+      ])
+    );
   });
 });

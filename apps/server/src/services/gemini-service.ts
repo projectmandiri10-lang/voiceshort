@@ -150,8 +150,35 @@ function normalizeSpeechText(text: string): string {
 function buildGeminiTtsPrompt(input: {
   text: string;
   speechRate: number;
+  contentLanguage?: "id-ID" | "en-US";
   deliveryHint?: string;
 }): string {
+  const contentLanguage = input.contentLanguage === "en-US" ? "en-US" : "id-ID";
+  if (contentLanguage === "en-US") {
+    const paceInstruction =
+      input.speechRate >= 1.1
+        ? "Pace: slightly faster, still clear and never rushed."
+        : input.speechRate <= 0.9
+          ? "Pace: slightly slower, still natural and not flat."
+          : "Pace: natural for short-form voice over.";
+    const deliveryInstruction = input.deliveryHint?.trim()
+      ? `Additional nuance: ${input.deliveryHint.trim()}.`
+      : "Additional nuance: natural, clear, warm, and comfortable for English-speaking short-form viewers.";
+
+    return [
+      "You are a short-form video voice over narrator.",
+      "Language: English (en-US).",
+      "Accent: neutral, natural, and easy to understand.",
+      "Style: realistic, warm, and suitable for social video voice over.",
+      paceInstruction,
+      deliveryInstruction,
+      "Pronunciation: prioritize natural spoken English instead of robotic delivery.",
+      "Read the following text exactly as written without adding extra words:",
+      "",
+      input.text
+    ].join("\n");
+  }
+
   const paceInstruction =
     input.speechRate >= 1.1
       ? "Pace: sedikit cepat, tetap jelas dan tidak terburu-buru."
@@ -478,6 +505,7 @@ export class GeminiService implements AiService {
               text: buildGeminiTtsPrompt({
                 text: input.text,
                 speechRate: input.speechRate,
+                contentLanguage: input.contentLanguage,
                 deliveryHint: input.deliveryHint
               })
             }

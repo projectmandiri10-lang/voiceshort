@@ -37,6 +37,7 @@ export interface AppSettingsRow {
   tts_provider?: AppSettings["ttsProvider"];
   tts_fallback_provider?: AppSettings["ttsFallbackProvider"];
   tts_model: string;
+  tax_rate_percent?: number | string;
   language: "id-ID";
   max_video_seconds: number;
   safety_mode: "safe_marketing";
@@ -145,6 +146,7 @@ export function userRecordToSessionUser(
 export function appSettingsRowToSettings(row: AppSettingsRow): AppSettings {
   const scriptProvider = normalizeAiProvider(row.script_provider, DEFAULT_SETTINGS.scriptProvider);
   const ttsProvider = normalizeAiProvider(row.tts_provider, DEFAULT_SETTINGS.ttsProvider);
+  const taxRatePercent = Number(row.tax_rate_percent ?? DEFAULT_SETTINGS.taxRatePercent);
   return {
     scriptProvider,
     scriptFallbackProvider: normalizeAiProvider(
@@ -158,6 +160,10 @@ export function appSettingsRowToSettings(row: AppSettingsRow): AppSettings {
       DEFAULT_SETTINGS.ttsFallbackProvider
     ),
     ttsModel: normalizeTtsModel(row.tts_model, ttsProvider),
+    taxRatePercent:
+      Number.isFinite(taxRatePercent) && taxRatePercent >= 0 && taxRatePercent <= 100
+        ? Math.round(taxRatePercent * 100) / 100
+        : DEFAULT_SETTINGS.taxRatePercent,
     language: row.language,
     maxVideoSeconds: row.max_video_seconds,
     safetyMode: row.safety_mode,
@@ -176,6 +182,7 @@ export function appSettingsToRow(settings: AppSettings): AppSettingsRow {
     tts_provider: settings.ttsProvider,
     tts_fallback_provider: settings.ttsFallbackProvider,
     tts_model: settings.ttsModel,
+    tax_rate_percent: settings.taxRatePercent,
     language: settings.language,
     max_video_seconds: settings.maxVideoSeconds,
     safety_mode: settings.safetyMode,

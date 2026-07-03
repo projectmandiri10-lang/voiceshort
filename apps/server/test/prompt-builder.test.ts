@@ -136,4 +136,23 @@ describe("prompt builder", () => {
     expect(prompt).toContain("Naskah saat ini:");
     expect(prompt).toContain("organizer ini bikin semuanya lebih rapi");
   });
+
+  it("builds English prompts when content language is en-US", () => {
+    const prompt = buildScriptPrompt({
+      settings: DEFAULT_SETTINGS,
+      title: "Desk Organizer",
+      description: "Show the desk getting cleaner over time.",
+      contentType: "affiliate",
+      socialPlatform: "instagram",
+      contentLanguage: "en-US",
+      voiceGender: "female",
+      tone: "natural",
+      videoDurationSec: 30,
+      visualBrief
+    });
+
+    expect(prompt).toContain("Use natural English");
+    expect(prompt).toContain("Output language: English (en-US).");
+    expect(prompt).not.toContain("Gunakan Bahasa Indonesia");
+  });
 });

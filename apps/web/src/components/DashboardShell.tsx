@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { type LucideIcon, LogOut, Shield, Sparkles, Wallet } from "lucide-react";
-import type { AuthUser } from "../types";
+import type { AuthUser, ContentLanguage } from "../types";
+import { formatCompactIdr } from "../user-locale";
+import { getUserCopy } from "../user-copy";
 
 export interface DashboardTabDefinition<TView extends string> {
   id: TView;
@@ -10,16 +12,13 @@ export interface DashboardTabDefinition<TView extends string> {
 
 interface DashboardShellProps<TView extends string> {
   user: AuthUser;
+  locale: ContentLanguage;
   activeView: TView;
   tabs: DashboardTabDefinition<TView>[];
   sessionError?: string;
   onNavigate: (view: TView) => void;
   onLogout: () => void | Promise<void>;
   children: ReactNode;
-}
-
-function formatRupiah(value: number): string {
-  return `Rp${value.toLocaleString("id-ID")}`;
 }
 
 function getInitials(name: string): string {
@@ -40,6 +39,7 @@ function getInitials(name: string): string {
 
 export function DashboardShell<TView extends string>({
   user,
+  locale,
   activeView,
   tabs,
   sessionError,
@@ -47,12 +47,15 @@ export function DashboardShell<TView extends string>({
   onLogout,
   children,
 }: DashboardShellProps<TView>) {
+  const copy = getUserCopy(locale);
   const activeTab = tabs.find((tab) => tab.id === activeView);
-  const balanceLabel = user.isUnlimited ? "Unlimited" : formatRupiah(user.walletBalanceIdr);
+  const balanceLabel = user.isUnlimited
+    ? copy.dashboard.unlimited
+    : formatCompactIdr(user.walletBalanceIdr, locale);
   const balanceNote = user.isUnlimited
-    ? "Akun tanpa batas"
-    : `${user.generateCreditsRemaining ?? 0} generate tersisa`;
-  const accessLabel = user.role === "superadmin" ? "Admin" : "Pengguna";
+    ? copy.dashboard.unlimitedNote
+    : copy.dashboard.remainingGenerates(user.generateCreditsRemaining ?? 0);
+  const accessLabel = user.role === "superadmin" ? copy.dashboard.admin : copy.dashboard.user;
 
   return (
     <main className="dashboard-shell">
@@ -64,7 +67,7 @@ export function DashboardShell<TView extends string>({
           <button
             type="button"
             className="dashboard-rail-brand"
-            aria-label="Workspace utama"
+            aria-label={copy.dashboard.mainWorkspace}
             onClick={() => onNavigate(tabs[0]?.id ?? activeView)}
           >
             <div className="brand-mark brand-mark-compact">
@@ -75,7 +78,7 @@ export function DashboardShell<TView extends string>({
             <span className="sr-only">VoiceOver Shorts 60</span>
           </button>
 
-          <nav className="dashboard-rail-nav" aria-label="Dashboard navigation">
+          <nav className="dashboard-rail-nav" aria-label={copy.dashboard.navigation}>
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
@@ -106,11 +109,11 @@ export function DashboardShell<TView extends string>({
               type="button"
               className="dashboard-rail-button dashboard-rail-button-danger"
               onClick={() => void onLogout()}
-              aria-label="Logout"
-              title="Logout"
+              aria-label={copy.app.logout}
+              title={copy.app.logout}
             >
               <LogOut size={18} strokeWidth={2} />
-              <span className="sr-only">Logout</span>
+              <span className="sr-only">{copy.app.logout}</span>
             </button>
           </div>
         </aside>
@@ -118,7 +121,7 @@ export function DashboardShell<TView extends string>({
         <div className="dashboard-concise-main">
           <header className="dashboard-topbar">
             <div className="dashboard-topbar-copy">
-              <h1>{activeTab?.label ?? "Halaman"}</h1>
+              <h1>{activeTab?.label ?? copy.dashboard.defaultPage}</h1>
             </div>
 
             <div className="dashboard-topbar-meta">
@@ -127,7 +130,7 @@ export function DashboardShell<TView extends string>({
                   <Wallet size={16} strokeWidth={2} />
                 </div>
                 <div className="dashboard-balance-copy">
-                  <span>Saldo</span>
+                  <span>{copy.dashboard.balance}</span>
                   <strong>{balanceLabel}</strong>
                   <p>{balanceNote}</p>
                 </div>

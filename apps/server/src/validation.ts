@@ -13,6 +13,7 @@ import { SOCIAL_PLATFORMS } from "./types.js";
 import type {
   AppSettings,
   AssignedPackageCode,
+  ContentLanguage,
   ContentType,
   JobVoiceGender,
   SocialPlatform,
@@ -31,6 +32,7 @@ const optionalTextSchema = z.union([z.string(), z.undefined(), z.null()]).transf
 const emailSchema = z.string().trim().email().transform((value) => value.toLowerCase());
 const passwordSchema = z.string().min(8).max(100);
 const aiProviderSchema = z.enum(["gemini_direct", "openrouter"]);
+const contentLanguageSchema = z.enum(["id-ID", "en-US"]);
 
 const genderVoiceSchema = z.object({
   gender: voiceGenderSchema,
@@ -49,6 +51,7 @@ export const settingsSchema = z.object({
   ttsProvider: aiProviderSchema,
   ttsFallbackProvider: aiProviderSchema,
   ttsModel: z.string().trim().min(1),
+  taxRatePercent: z.number().min(0).max(100).default(DEFAULT_SETTINGS.taxRatePercent),
   language: z.literal("id-ID"),
   maxVideoSeconds: z.number().int().min(10).max(ABSOLUTE_MAX_VIDEO_SECONDS),
   safetyMode: z.literal("safe_marketing"),
@@ -80,7 +83,8 @@ const ttsPreviewSchema = z.object({
     .min(1)
     .refine((value) => isKnownTtsVoiceName(value), "Voice tidak tersedia."),
   speechRate: speechRateSchema.optional(),
-  text: z.string().trim().min(1).max(220).optional()
+  text: z.string().trim().min(1).max(220).optional(),
+  contentLanguage: contentLanguageSchema.optional()
 });
 
 const authRegisterSchema = z.object({
@@ -155,6 +159,7 @@ export function parseSettings(input: unknown): AppSettings {
     ttsProvider,
     ttsFallbackProvider,
     ttsModel: normalizeTtsModel(result.ttsModel, ttsProvider),
+    taxRatePercent: Math.round(result.taxRatePercent * 100) / 100,
     genderVoices: sorted
   };
 }
@@ -194,12 +199,14 @@ export function parseTtsPreviewInput(input: unknown): {
   voiceName: string;
   speechRate: number;
   text?: string;
+  contentLanguage?: ContentLanguage;
 } {
   const parsed = ttsPreviewSchema.parse(input);
   return {
     voiceName: parsed.voiceName,
     speechRate: parsed.speechRate ?? 1,
-    text: parsed.text
+    text: parsed.text,
+    contentLanguage: parsed.contentLanguage
   };
 }
 

@@ -26,31 +26,40 @@ import {
 import { extractFramesFromVideo } from "../frame-extractor";
 import { getCachedSessionAssets, upsertCachedSessionAssets } from "../generation-cache";
 import {
-  CONTENT_LABEL,
-  GENDER_LABEL,
-  PLATFORM_LABEL,
+  getContentLabel,
+  getGenderLabel,
+  getPlatformLabel,
+  getScriptModeLabel,
+  getToneLabel,
   PLATFORM_OPTIONS,
+  SCRIPT_MODE_OPTIONS,
   TONE_OPTIONS
 } from "../job-form-options";
 import { renderFinalVideoLocally } from "../local-render";
 import { listCachedSessionIds } from "../generation-cache";
 import type {
   AuthUser,
+  ContentLanguage,
   ContentType,
   GenerationSessionRecord,
   JobVoiceGender,
+  ScriptMode,
   SocialPlatform
 } from "../types";
 import { CONTENT_TYPES } from "../types";
+import { formatIdrCurrency } from "../user-locale";
+import { getUserCopy } from "../user-copy";
 import { readVideoDuration } from "../video-duration";
 import { calculateEstimatedChargeIdr, formatVideoDuration } from "../utils/billing";
 
 const DEFAULT_CONTENT_TYPE: ContentType = "affiliate";
 const DEFAULT_SOCIAL_PLATFORM: SocialPlatform = "instagram";
 const DEFAULT_VOICE_GENDER: JobVoiceGender = "female";
+const DEFAULT_SCRIPT_MODE: ScriptMode = "auto_analysis";
 const DEFAULT_TONE = "natural";
 
 interface GeneratePageProps {
+  locale: ContentLanguage;
   currentUser: AuthUser;
   onRefreshSession: () => Promise<void>;
   onViewJobs: (jobId?: string) => void;
@@ -66,6 +75,8 @@ interface GenerateFormState {
   description: string;
   contentType: ContentType;
   socialPlatform: SocialPlatform;
+  scriptMode: ScriptMode;
+  manualScriptText: string;
   voiceGender: JobVoiceGender;
   tone: string;
   ctaText: string;
@@ -85,10 +96,6 @@ interface FlowState {
   percent: number;
 }
 
-function formatRupiah(value: number): string {
-  return `Rp${value.toLocaleString("id-ID")}`;
-}
-
 function createInitialFormState(): GenerateFormState {
   return {
     video: null,
@@ -99,6 +106,8 @@ function createInitialFormState(): GenerateFormState {
     description: "",
     contentType: DEFAULT_CONTENT_TYPE,
     socialPlatform: DEFAULT_SOCIAL_PLATFORM,
+    scriptMode: DEFAULT_SCRIPT_MODE,
+    manualScriptText: "",
     voiceGender: DEFAULT_VOICE_GENDER,
     tone: DEFAULT_TONE,
     ctaText: "",
@@ -107,23 +116,24 @@ function createInitialFormState(): GenerateFormState {
   };
 }
 
-function createIdleFlowState(): FlowState {
+function createIdleFlowState(label: string): FlowState {
   return {
     phase: "idle",
-    label: "Siap mulai generate",
+    label,
     percent: 0
   };
 }
 
 function isFormReady(form: GenerateFormState): boolean {
+  const usesManualScript = form.scriptMode === "manual_script";
   return Boolean(
     form.video &&
       form.videoDurationSec &&
       !form.durationPending &&
       !form.durationError &&
       form.title.trim() &&
-      form.description.trim() &&
       form.socialPlatform.trim() &&
+      (usesManualScript ? form.manualScriptText.trim() : form.description.trim()) &&
       form.tone.trim()
   );
 }
@@ -141,13 +151,15 @@ function downloadBlob(blob: Blob, fileName: string): void {
 }
 
 export function GeneratePage({
+  locale,
   currentUser,
   onRefreshSession,
   onViewJobs,
   resumeSessionId
 }: GeneratePageProps) {
+  const copy = getUserCopy(locale);
   const [form, setForm] = useState<GenerateFormState>(() => createInitialFormState());
-  const [flowState, setFlowState] = useState<FlowState>(() => createIdleFlowState());
+  const [flowState, setFlowState] = useState<FlowState>(() => createIdleFlowState(copy.generate.idleLabel));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [activeSession, setActiveSession] = useState<GenerationSessionRecord | null>(null);
@@ -167,6 +179,7 @@ export function GeneratePage({
     : Math.max(0, currentUser.walletBalanceIdr - estimatedChargeIdr);
   const formDisabled = loading || !hasEnoughBalance;
   const currentCacheReady = activeSession ? cachedSessionIds.includes(activeSession.sessionId) : false;
+  const usesManualScript = form.scriptMode === "manual_script";
 
   useEffect(() => {
     void listCachedSessionIds()
@@ -193,14 +206,14 @@ export function GeneratePage({
         if (cache?.renderedVideoBlob) {
           setFinalVideoBlob(cache.renderedVideoBlob);
           setFinalVideoName(cache.renderFileName || `${session.title || "voiceover"}.mp4`);
-          setResumeHint("Draft final untuk session ini ditemukan. Anda bisa unduh ulang atau buat ulang.");
+          setResumeHint(copy.generate.localDraftFound);
           return;
         }
         if (cache?.sourceVideoBlob) {
-          setResumeHint("Draft lokal untuk session ini ditemukan. Anda bisa melanjutkan finalisasi tanpa generate ulang.");
+          setResumeHint(copy.generate.localDraftMissing);
           return;
         }
-        setResumeHint("Session AI tersimpan, tetapi media lokal belum ada di perangkat ini.");
+        setResumeHint(copy.generate.localSessionOnly);
       })
       .catch(() => {
         if (!cancelled) {
@@ -211,7 +224,7 @@ export function GeneratePage({
     return () => {
       cancelled = true;
     };
-  }, [resumeSessionId]);
+  }, [copy.generate.localDraftFound, copy.generate.localDraftMissing, copy.generate.localSessionOnly, resumeSessionId]);
 
   const updateForm = (updater: (current: GenerateFormState) => GenerateFormState) => {
     setForm((current) => updater(current));
@@ -243,7 +256,7 @@ export function GeneratePage({
               ...current,
               durationPending: false,
               videoDurationSec: durationSec,
-              durationError: "Durasi video melebihi batas 60 detik. Pilih video yang lebih singkat."
+              durationError: copy.generate.durationTooLong
             };
           }
           return {
@@ -263,7 +276,7 @@ export function GeneratePage({
             ...current,
             durationPending: false,
             durationError:
-              (durationErrorValue as Error).message || "Durasi video tidak bisa dibaca."
+              (durationErrorValue as Error).message || copy.generate.durationUnreadable
           };
         });
       });
@@ -277,7 +290,7 @@ export function GeneratePage({
   ) => {
     setFlowState({
       phase: "rendering",
-      label: "Menyusun file final",
+      label: copy.generate.rendering,
       percent: 72
     });
     const renderedVideoBlob = await renderFinalVideoLocally({
@@ -287,7 +300,7 @@ export function GeneratePage({
       onProgress: (ratio) => {
         setFlowState({
           phase: "rendering",
-          label: "Menyusun file final",
+          label: copy.generate.renderingProgress,
           percent: 72 + Math.round(ratio * 28)
         });
       }
@@ -318,7 +331,7 @@ export function GeneratePage({
     setFinalVideoName(nextFileName);
     setFlowState({
       phase: "completed",
-      label: "Final video siap diunduh",
+      label: copy.generate.finalReadyTitle,
       percent: 100
     });
     try {
@@ -338,7 +351,7 @@ export function GeneratePage({
     if (!audioBlob) {
       setFlowState({
         phase: "synthesizing",
-        label: "Mengambil ulang audio utama",
+        label: copy.generate.fetchingAudio,
         percent: 54
       });
       audioBlob = await fetchGenerationSessionAudio(session.sessionId);
@@ -358,15 +371,15 @@ export function GeneratePage({
     setError("");
 
     if (!hasEnoughBalance) {
-      setError("Saldo belum cukup. Isi saldo dulu sebelum mulai generate.");
+      setError(copy.generate.validateTopup);
       return;
     }
     if (!form.video) {
-      setError("File video wajib diisi.");
+      setError(copy.generate.validateFile);
       return;
     }
     if (form.durationPending) {
-      setError("Durasi video masih dibaca. Tunggu sebentar lalu coba lagi.");
+      setError(copy.generate.validateDurationPending);
       return;
     }
     if (form.durationError) {
@@ -374,41 +387,55 @@ export function GeneratePage({
       return;
     }
     if (!form.videoDurationSec || form.videoDurationSec > 60) {
-      setError("Durasi video belum valid. Maksimum 60 detik.");
+      setError(copy.generate.validateDurationInvalid);
       return;
     }
     if (!isFormReady(form)) {
       setError(
-        "Form belum lengkap. Pastikan video, judul, brief, kategori, platform, gender, dan tone sudah siap."
+        usesManualScript
+          ? copy.generate.validateFormManual
+          : copy.generate.validateFormAuto
       );
       return;
     }
 
     setLoading(true);
     setFinalVideoBlob(null);
-    setFlowState({
-      phase: "extracting",
-      label: "Menganalisis video",
-      percent: 8
-    });
+    setFlowState(
+      usesManualScript
+        ? {
+            phase: "generating",
+            label: copy.generate.preparingManual,
+            percent: 18
+          }
+        : {
+            phase: "extracting",
+            label: copy.generate.analyzingVideo,
+            percent: 8
+          }
+    );
 
     let createdSession: GenerationSessionRecord | null = null;
     try {
-      const frames = await extractFramesFromVideo(form.video, {
-        durationSec: form.videoDurationSec,
-        onProgress: (progress) => {
-          setFlowState({
-            phase: "extracting",
-            label: `Menganalisis video (${progress}%)`,
-            percent: Math.max(8, Math.round(progress * 0.22))
+      const frames = usesManualScript
+        ? []
+        : await extractFramesFromVideo(form.video, {
+            durationSec: form.videoDurationSec,
+            onProgress: (progress) => {
+              setFlowState({
+                phase: "extracting",
+                label: `${copy.generate.analyzingVideo} (${progress}%)`,
+                percent: Math.max(8, Math.round(progress * 0.22))
+              });
+            }
           });
-        }
-      });
 
       setFlowState({
         phase: "generating",
-        label: "Menyusun naskah, caption, dan rencana suara",
-        percent: 34
+        label: usesManualScript
+          ? copy.generate.generatingManual
+          : copy.generate.generatingAuto,
+        percent: usesManualScript ? 34 : 34
       });
 
       const generated = await createGenerationSession({
@@ -416,6 +443,9 @@ export function GeneratePage({
         description: form.description.trim(),
         contentType: form.contentType,
         socialPlatform: form.socialPlatform,
+        contentLanguage: locale,
+        scriptMode: form.scriptMode,
+        manualScriptText: usesManualScript ? form.manualScriptText.trim() : undefined,
         voiceGender: form.voiceGender,
         tone: form.tone.trim(),
         ctaText: form.ctaText.trim() || undefined,
@@ -448,7 +478,7 @@ export function GeneratePage({
 
       setFlowState({
         phase: "synthesizing",
-        label: "Mengambil audio utama",
+        label: copy.generate.fetchingAudio,
         percent: 54
       });
       const audioBlob = await fetchGenerationSessionAudio(session.sessionId);
@@ -476,11 +506,11 @@ export function GeneratePage({
         }).catch(() => undefined);
       }
       if (submitError instanceof ApiError && submitError.status === 402) {
-        setError(submitError.message || "Saldo belum cukup untuk generate.");
+        setError(submitError.message || copy.generate.validateTopup);
       } else {
         setError((submitError as Error).message);
       }
-      setFlowState(createIdleFlowState());
+      setFlowState(createIdleFlowState(copy.generate.idleLabel));
     } finally {
       setLoading(false);
     }
@@ -506,21 +536,21 @@ export function GeneratePage({
   };
 
   const telemetryStatusLabel = flowState.phase === "completed"
-    ? "Final siap"
+    ? copy.generate.flowCompleted
     : loading
-      ? "Sedang diproses"
+      ? copy.generate.flowProcessing
       : !hasEnoughBalance
-        ? "Saldo belum cukup"
+        ? copy.generate.insufficientBalance
         : isFormReady(form)
-          ? "Siap proses"
-          : "Lengkapi form";
+          ? copy.generate.readyProcess
+          : copy.generate.completeForm;
   const telemetryStatusDescription = flowState.phase === "completed"
-    ? "Naskah, audio, dan final video sudah selesai dirakit."
+    ? copy.generate.finalReadyTitle
     : loading
       ? flowState.label
       : !hasEnoughBalance
-        ? "Top up saldo dulu untuk memulai generate berikutnya."
-        : "Video lokal akan dianalisis otomatis lalu hasil final dirakit tanpa detail teknis yang ditampilkan.";
+        ? copy.generate.validateTopup
+        : copy.generate.flowIdleLead;
 
   return (
     <section className="generate-concise-shell">
@@ -529,19 +559,19 @@ export function GeneratePage({
           {resumeHint ? (
             <section className="workspace-inline-card">
               <div className="workspace-inline-card-head">
-                <strong>Session tersambung</strong>
-                <span className="small">Lanjut lokal</span>
+                <strong>{copy.generate.connectedSession}</strong>
+                <span className="small">{copy.generate.continueLocal}</span>
               </div>
               <p className="section-note">{resumeHint}</p>
               <div className="form-actions">
                 <button type="button" onClick={() => onViewJobs(activeSession?.sessionId)}>
                   <FolderClock size={16} />
-                  <span>Buka Riwayat Session</span>
+                  <span>{copy.generate.openHistory}</span>
                 </button>
                 {currentCacheReady && activeSession && activeSession.status !== "completed" ? (
                   <button type="button" onClick={() => void onResumeRender()} disabled={loading}>
                     <Video size={16} />
-                    <span>{loading ? "Melanjutkan..." : "Lanjutkan Finalisasi"}</span>
+                    <span>{loading ? copy.generate.continuing : copy.generate.continueFinalize}</span>
                   </button>
                 ) : null}
               </div>
@@ -552,9 +582,9 @@ export function GeneratePage({
             <section className="generate-upload-card" role="region" aria-label="slot video 1">
               <div className="generate-section-head">
                 <div>
-                  <span className="generate-section-label">Upload Video</span>
-                  <h3>Video Utama</h3>
-                  <p className="small">Video tetap di perangkat Anda dan hanya dipakai untuk analisis lokal.</p>
+                  <span className="generate-section-label">{copy.generate.uploadSection}</span>
+                  <h3>{copy.generate.mainVideo}</h3>
+                  <p className="small">{copy.generate.uploadLead}</p>
                 </div>
                 <span
                   className={
@@ -563,13 +593,13 @@ export function GeneratePage({
                       : "batch-slot-status batch-slot-status-empty"
                   }
                 >
-                  {isFormReady(form) ? "Siap" : "Belum Lengkap"}
+                  {isFormReady(form) ? copy.generate.slotReady : copy.generate.incomplete}
                 </span>
               </div>
 
               <label className="generate-upload-label">
                 <span className="generate-field-label">
-                  Video <span className="required-mark">*</span>
+                  {copy.generate.video} <span className="required-mark">*</span>
                 </span>
                 <input
                   key={form.fileInputKey}
@@ -585,16 +615,16 @@ export function GeneratePage({
                       <UploadCloud size={30} strokeWidth={2} />
                     </div>
                     <div className="generate-upload-copy">
-                      <h4>{form.video ? form.video.name : "Pilih video (.mp4 / .mov)"}</h4>
-                      <p>Maksimal 60 detik. Video akan dianalisis otomatis untuk mengambil cuplikan penting.</p>
+                      <h4>{form.video ? form.video.name : copy.generate.chooseVideo}</h4>
+                      <p>{copy.generate.uploadHint}</p>
                     </div>
                   </div>
                   <div className="generate-upload-side">
                     <div className="generate-ready-indicator">
                       <span className="generate-ready-dot" aria-hidden="true" />
-                      <span>{formDisabled ? "Belum siap" : "Siap"}</span>
+                      <span>{formDisabled ? copy.generate.incomplete : copy.generate.slotReady}</span>
                     </div>
-                    <span className="generate-upload-trigger">Pilih File</span>
+                    <span className="generate-upload-trigger">{copy.generate.chooseFile}</span>
                   </div>
                 </div>
               </label>
@@ -603,10 +633,10 @@ export function GeneratePage({
                 <div className="generate-meta-item">
                   <Gauge size={15} strokeWidth={2} />
                   <div>
-                    <span className="generate-meta-label">Durasi</span>
+                    <span className="generate-meta-label">{copy.generate.duration}</span>
                     <strong className="generate-meta-value">
                       {form.durationPending
-                        ? "Membaca..."
+                        ? copy.generate.reading
                         : form.videoDurationSec
                           ? formatVideoDuration(form.videoDurationSec)
                           : "00:00"}
@@ -617,9 +647,9 @@ export function GeneratePage({
                 <div className="generate-meta-item">
                   <CircleDollarSign size={15} strokeWidth={2} />
                   <div>
-                    <span className="generate-meta-label">Biaya</span>
+                    <span className="generate-meta-label">{copy.generate.cost}</span>
                     <strong className="generate-meta-value">
-                      {currentUser.isUnlimited ? "Unlimited" : formatRupiah(estimatedChargeIdr)}
+                      {currentUser.isUnlimited ? copy.dashboard.unlimited : formatIdrCurrency(estimatedChargeIdr, locale)}
                     </strong>
                   </div>
                 </div>
@@ -627,8 +657,8 @@ export function GeneratePage({
                 <div className="generate-meta-item">
                   <Mic2 size={15} strokeWidth={2} />
                   <div>
-                    <span className="generate-meta-label">Mode</span>
-                    <strong className="generate-meta-value">Flat per proses</strong>
+                    <span className="generate-meta-label">{copy.generate.mode}</span>
+                    <strong className="generate-meta-value">{copy.generate.flatPerProcess}</strong>
                   </div>
                 </div>
               </div>
@@ -639,16 +669,46 @@ export function GeneratePage({
             <section className="generate-fields-card">
               <div className="generate-section-head">
                 <div>
-                  <span className="generate-section-label">Isi Detail</span>
-                  <h3>Detail Voice Over</h3>
-                  <p className="small">Lengkapi arahan utama agar naskah dan audio lebih akurat.</p>
+                  <span className="generate-section-label">{copy.generate.detailsSection}</span>
+                  <h3>{copy.generate.detailsTitle}</h3>
+                  <p className="small">{copy.generate.detailsLead}</p>
                 </div>
               </div>
 
-              <div className="generate-field-grid">
-                <label className="generate-field">
-                  <span className="generate-field-label">
-                    Judul <span className="required-mark">*</span>
+                <div className="generate-field-grid">
+                  <label className="generate-field">
+                    <span className="generate-field-label">
+                      {copy.generate.generateMode} <span className="required-mark">*</span>
+                    </span>
+                    <div className="generate-input-wrap">
+                      <select
+                        value={form.scriptMode}
+                        onChange={(event) =>
+                          updateForm((current) => ({
+                            ...current,
+                            scriptMode: event.target.value as ScriptMode
+                          }))
+                        }
+                        disabled={formDisabled}
+                      >
+                        {SCRIPT_MODE_OPTIONS.map((item) => (
+                          <option key={item} value={item}>
+                            {getScriptModeLabel(locale, item)}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="generate-input-icon" aria-hidden="true">
+                        <Sparkles size={16} strokeWidth={2} />
+                      </span>
+                    </div>
+                    <p className="small generate-field-hint">
+                      {copy.generate.generateModeHint}
+                    </p>
+                  </label>
+
+                  <label className="generate-field">
+                    <span className="generate-field-label">
+                      {copy.generate.title} <span className="required-mark">*</span>
                   </span>
                   <div className="generate-input-wrap">
                     <input
@@ -660,7 +720,7 @@ export function GeneratePage({
                         }))
                       }
                       disabled={formDisabled}
-                      placeholder="Judul singkat untuk hasil voice over"
+                      placeholder={copy.generate.titlePlaceholder}
                     />
                     <span className="generate-input-icon" aria-hidden="true">
                       <PenSquare size={16} strokeWidth={2} />
@@ -668,28 +728,51 @@ export function GeneratePage({
                   </div>
                 </label>
 
-                <label className="generate-field">
-                  <span className="generate-field-label">
-                    Brief / Deskripsi <span className="required-mark">*</span>
-                  </span>
-                  <textarea
-                    rows={5}
-                    value={form.description}
-                    onChange={(event) =>
-                      updateForm((current) => ({
-                        ...current,
-                        description: event.target.value
-                      }))
-                    }
-                    disabled={formDisabled}
-                    placeholder="Tulis arahan utama, angle promosi, atau narasi yang diinginkan"
-                  />
-                </label>
+                {usesManualScript ? (
+                  <label className="generate-field">
+                    <span className="generate-field-label">
+                      {copy.generate.manualScript} <span className="required-mark">*</span>
+                    </span>
+                    <textarea
+                      rows={7}
+                      value={form.manualScriptText}
+                      onChange={(event) =>
+                        updateForm((current) => ({
+                          ...current,
+                          manualScriptText: event.target.value
+                        }))
+                      }
+                      disabled={formDisabled}
+                      placeholder={copy.generate.manualScriptPlaceholder}
+                    />
+                    <p className="small generate-field-hint">
+                      {copy.generate.manualScriptHint}
+                    </p>
+                  </label>
+                ) : (
+                  <label className="generate-field">
+                    <span className="generate-field-label">
+                      {copy.generate.description} <span className="required-mark">*</span>
+                    </span>
+                    <textarea
+                      rows={5}
+                      value={form.description}
+                      onChange={(event) =>
+                        updateForm((current) => ({
+                          ...current,
+                          description: event.target.value
+                        }))
+                      }
+                      disabled={formDisabled}
+                      placeholder={copy.generate.descriptionPlaceholder}
+                    />
+                  </label>
+                )}
 
                 <div className="generate-field-row">
                   <label className="generate-field">
                     <span className="generate-field-label">
-                      Kategori Konten <span className="required-mark">*</span>
+                      {copy.generate.contentCategory} <span className="required-mark">*</span>
                     </span>
                     <div className="generate-input-wrap">
                       <select
@@ -704,7 +787,7 @@ export function GeneratePage({
                       >
                         {CONTENT_TYPES.map((item) => (
                           <option key={item} value={item}>
-                            {CONTENT_LABEL[item]}
+                            {getContentLabel(locale, item)}
                           </option>
                         ))}
                       </select>
@@ -716,7 +799,7 @@ export function GeneratePage({
 
                   <label className="generate-field">
                     <span className="generate-field-label">
-                      Platform Medsos <span className="required-mark">*</span>
+                      {copy.generate.socialPlatform} <span className="required-mark">*</span>
                     </span>
                     <div className="generate-input-wrap">
                       <select
@@ -731,7 +814,7 @@ export function GeneratePage({
                       >
                         {PLATFORM_OPTIONS.map((item) => (
                           <option key={item} value={item}>
-                            {PLATFORM_LABEL[item]}
+                            {getPlatformLabel(locale, item)}
                           </option>
                         ))}
                       </select>
@@ -745,7 +828,7 @@ export function GeneratePage({
                 <div className="generate-field-row">
                   <label className="generate-field">
                     <span className="generate-field-label">
-                      Gender Suara <span className="required-mark">*</span>
+                      {copy.generate.voiceGender} <span className="required-mark">*</span>
                     </span>
                     <div className="generate-input-wrap">
                       <select
@@ -758,9 +841,9 @@ export function GeneratePage({
                         }
                         disabled={formDisabled}
                       >
-                        {(Object.keys(GENDER_LABEL) as JobVoiceGender[]).map((gender) => (
+                        {(["male", "female"] as JobVoiceGender[]).map((gender) => (
                           <option key={gender} value={gender}>
-                            {GENDER_LABEL[gender]}
+                            {getGenderLabel(locale, gender)}
                           </option>
                         ))}
                       </select>
@@ -772,7 +855,7 @@ export function GeneratePage({
 
                   <label className="generate-field">
                     <span className="generate-field-label">
-                      Tone <span className="required-mark">*</span>
+                      {copy.generate.tone} <span className="required-mark">*</span>
                     </span>
                     <div className="generate-input-wrap">
                       <select
@@ -787,7 +870,7 @@ export function GeneratePage({
                       >
                         {TONE_OPTIONS.map((item) => (
                           <option key={item} value={item}>
-                            {item}
+                            {getToneLabel(locale, item)}
                           </option>
                         ))}
                       </select>
@@ -800,11 +883,11 @@ export function GeneratePage({
 
                 <div className="generate-field-row">
                   <label className="generate-field">
-                    <span className="generate-field-label">CTA Opsional</span>
+                    <span className="generate-field-label">{copy.generate.optionalCta}</span>
                     <div className="generate-input-wrap">
                       <input
                         value={form.ctaText}
-                        placeholder="Contoh: cek detailnya sekarang"
+                        placeholder={copy.generate.optionalCtaPlaceholder}
                         onChange={(event) =>
                           updateForm((current) => ({
                             ...current,
@@ -820,7 +903,7 @@ export function GeneratePage({
                   </label>
 
                   <label className="generate-field">
-                    <span className="generate-field-label">Link Referensi Opsional</span>
+                    <span className="generate-field-label">{copy.generate.optionalReference}</span>
                     <div className="generate-input-wrap">
                       <input
                         value={form.referenceLink}
@@ -847,13 +930,13 @@ export function GeneratePage({
             <div className="generate-floating-dock">
               <p className="generate-action-note small">
                 {currentUser.isUnlimited
-                  ? "Akun ini dapat memproses video tanpa potong saldo."
-                  : `Biaya per proses ${formatRupiah(estimatedChargeIdr)}. Riwayat tersedia di tab Riwayat.`}
+                  ? copy.generate.actionNoteUnlimited
+                  : copy.generate.actionNoteMetered(formatIdrCurrency(estimatedChargeIdr, locale))}
               </p>
 
               <button type="submit" className="generate-submit-button" disabled={formDisabled}>
                 <Sparkles size={17} strokeWidth={2} />
-                <span>{loading ? flowState.label : "Proses Video"}</span>
+                <span>{loading ? flowState.label : copy.generate.processVideo}</span>
               </button>
             </div>
           </form>
@@ -862,13 +945,13 @@ export function GeneratePage({
 
       <aside className="generate-side-panel">
         <div className="generate-side-head">
-          <h3>Ringkasan</h3>
+          <h3>{copy.generate.summary}</h3>
         </div>
 
         <section className="generate-side-card generate-compute-card">
           <div className="generate-compute-head">
             <div>
-              <span className="generate-section-label">Status Workflow</span>
+              <span className="generate-section-label">{copy.generate.workflowStatus}</span>
               <h4>
                 {flowState.percent}
                 <span>%</span>
@@ -883,13 +966,13 @@ export function GeneratePage({
                     : "status status-queued"
               }
             >
-              {flowState.phase === "completed" ? "Selesai" : loading ? "Memproses" : "Menunggu"}
+              {flowState.phase === "completed" ? copy.generate.flowRenderReady : loading ? copy.generate.flowProcessing : copy.generate.flowWaiting}
             </span>
           </div>
 
           <div className="generate-progress-stack">
             <div className="generate-progress-head">
-              <span>Langkah aktif</span>
+              <span>{copy.generate.activeStep}</span>
               <strong>{flowState.label}</strong>
             </div>
             <div className="generate-progress-track">
@@ -900,55 +983,55 @@ export function GeneratePage({
           <div className="generate-compute-metrics">
             <div className="generate-compute-metric">
               <Gauge size={15} strokeWidth={2} />
-              <span>Cuplikan visual</span>
-              <strong>Otomatis</strong>
+              <span>{copy.generate.visualClips}</span>
+              <strong>{copy.generate.automatic}</strong>
             </div>
             <div className="generate-compute-metric">
               <Video size={15} strokeWidth={2} />
-              <span>Finalisasi</span>
-              <strong>Siap</strong>
+              <span>{copy.generate.finalization}</span>
+              <strong>{copy.generate.slotReady}</strong>
             </div>
           </div>
         </section>
 
         <section className="generate-side-card">
-          <span className="generate-section-label">Biaya & Saldo</span>
+          <span className="generate-section-label">{copy.generate.costBalance}</span>
           <div className="generate-stat-list">
             <div className="generate-stat-row">
-              <span>Biaya session ini</span>
+              <span>{copy.generate.sessionCost}</span>
               <strong>
-                {currentUser.isUnlimited ? "Unlimited" : formatRupiah(estimatedChargeIdr)}
+                {currentUser.isUnlimited ? copy.dashboard.unlimited : formatIdrCurrency(estimatedChargeIdr, locale)}
               </strong>
             </div>
             <div className="generate-stat-row">
-              <span>Sisa saldo</span>
+              <span>{copy.generate.remainingBalance}</span>
               <strong>
                 {currentUser.isUnlimited
-                  ? "Saldo Unlimited"
-                  : formatRupiah(projectedBalanceIdr ?? currentUser.walletBalanceIdr)}
+                  ? copy.generate.unlimitedBalance
+                  : formatIdrCurrency(projectedBalanceIdr ?? currentUser.walletBalanceIdr, locale)}
               </strong>
             </div>
             <div className="generate-stat-row">
-              <span>Status saldo</span>
-              <strong>{hasEnoughBalance ? "Siap diproses" : "Perlu isi saldo"}</strong>
+              <span>{copy.generate.balanceStatus}</span>
+              <strong>{hasEnoughBalance ? copy.generate.balanceReady : copy.generate.needTopup}</strong>
             </div>
             <p className="small">
               {currentUser.isUnlimited
-                ? "Akun ini dapat generate tanpa pengurangan saldo."
-                : `Harga flat per generate: ${formatRupiah(currentUser.generatePriceIdr)}.`}
+                ? copy.generate.unlimitedLead
+                : copy.generate.flatGeneratePrice(formatIdrCurrency(currentUser.generatePriceIdr, locale))}
             </p>
           </div>
         </section>
 
         {activeSession ? (
           <section className="generate-side-card">
-            <span className="generate-section-label">Session AI</span>
+            <span className="generate-section-label">{copy.generate.aiSession}</span>
             <div className="generate-pipeline-item">
               <div className="generate-pipeline-icon">
                 <Sparkles size={18} strokeWidth={2} />
               </div>
               <div>
-                <p className="generate-pipeline-title">Status</p>
+                <p className="generate-pipeline-title">{copy.generate.pipelineStatus}</p>
                 <strong>{activeSession.status}</strong>
               </div>
             </div>
@@ -957,8 +1040,17 @@ export function GeneratePage({
                 <Mic2 size={18} strokeWidth={2} />
               </div>
               <div>
-                <p className="generate-pipeline-title">Voice</p>
-                <strong>{activeSession.voiceName || "Default"}</strong>
+                <p className="generate-pipeline-title">{copy.generate.voice}</p>
+                <strong>{activeSession.voiceName || copy.generate.defaultVoice}</strong>
+              </div>
+            </div>
+            <div className="generate-pipeline-item">
+              <div className="generate-pipeline-icon">
+                <PenSquare size={18} strokeWidth={2} />
+              </div>
+              <div>
+                <p className="generate-pipeline-title">{copy.generate.generateMode}</p>
+                <strong>{getScriptModeLabel(locale, activeSession.scriptMode)}</strong>
               </div>
             </div>
             <div className="generate-pipeline-item">
@@ -966,8 +1058,16 @@ export function GeneratePage({
                 <Layers3 size={18} strokeWidth={2} />
               </div>
               <div>
-                <p className="generate-pipeline-title">Cuplikan visual dianalisis</p>
-                <strong>{activeSession.frameCount} cuplikan</strong>
+                <p className="generate-pipeline-title">
+                  {activeSession.scriptMode === "manual_script"
+                    ? copy.generate.sourceScript
+                    : copy.generate.analyzedClips}
+                </p>
+                <strong>
+                  {activeSession.scriptMode === "manual_script"
+                    ? copy.jobs.manualScript
+                    : copy.jobs.clips(activeSession.frameCount)}
+                </strong>
               </div>
             </div>
             <div className="generate-pipeline-item">
@@ -975,8 +1075,8 @@ export function GeneratePage({
                 <Globe size={18} strokeWidth={2} />
               </div>
               <div>
-                <p className="generate-pipeline-title">Platform target</p>
-                <strong>{PLATFORM_LABEL[activeSession.socialPlatform]}</strong>
+                <p className="generate-pipeline-title">{copy.generate.targetPlatform}</p>
+                <strong>{getPlatformLabel(locale, activeSession.socialPlatform)}</strong>
               </div>
             </div>
             {activeSession.scriptText ? (
@@ -984,7 +1084,7 @@ export function GeneratePage({
             ) : null}
             {activeSession.captionText ? (
               <p className="small break-anywhere">
-                Caption: {activeSession.captionText}
+                {copy.generate.captionPrefix}: {activeSession.captionText}
                 {activeSession.hashtags.length ? ` ${activeSession.hashtags.join(" ")}` : ""}
               </p>
             ) : null}
@@ -997,20 +1097,21 @@ export function GeneratePage({
               <CheckCircle2 size={22} strokeWidth={2} />
             </div>
             <div>
-              <h4>Final video siap</h4>
+              <h4>{copy.generate.finalReadyTitle}</h4>
               <p>
-                File MP4 sudah dirakit di perangkat ini. Ukuran saat ini{" "}
-                <strong>{(finalVideoBlob.size / (1024 * 1024)).toFixed(2)} MB</strong>.
+                {copy.generate.finalReadyLead(
+                  `${(finalVideoBlob.size / (1024 * 1024)).toFixed(2)} MB`
+                )}
               </p>
             </div>
             <div className="form-actions">
               <button type="button" onClick={() => downloadBlob(finalVideoBlob, finalVideoName)}>
                 <Download size={16} />
-                <span>Unduh Final MP4</span>
+                <span>{copy.generate.downloadFinal}</span>
               </button>
               <button type="button" onClick={() => onViewJobs(activeSession?.sessionId)}>
                 <FolderClock size={16} />
-                <span>Buka Riwayat</span>
+                <span>{copy.generate.openHistoryShort}</span>
               </button>
             </div>
           </section>

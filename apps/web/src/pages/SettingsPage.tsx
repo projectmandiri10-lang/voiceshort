@@ -168,8 +168,9 @@ export function SettingsPage() {
         <h2>Atur batas durasi dan suara default untuk setiap proses generate.</h2>
         <p className="section-note">
           Atur provider utama dan fallback untuk script maupun TTS. Gemini Direct memakai API key
-          Google langsung, OpenRouter memakai gateway OpenRouter, dan LiteLLM memakai proxy OpenAI-style
-          untuk akses model Gemini di jalur script.
+          Google langsung, OpenRouter memakai gateway OpenRouter, LiteLLM memakai proxy OpenAI-style
+          untuk akses model Gemini di jalur script, dan pajak transaksi dipakai sebagai snapshot
+          pelaporan untuk top up baru.
         </p>
       </div>
 
@@ -187,6 +188,10 @@ export function SettingsPage() {
             <span className="small">TTS Provider</span>
             <strong>{AI_PROVIDER_LABEL[settings.ttsProvider]}</strong>
           </div>
+          <div className="meta-card">
+            <span className="small">Pajak Transaksi</span>
+            <strong>{`${settings.taxRatePercent.toFixed(2)}%`}</strong>
+          </div>
         </div>
 
         <label>
@@ -201,6 +206,20 @@ export function SettingsPage() {
             />
             <Gauge size={18} />
           </div>
+        </label>
+
+        <label>
+          Pajak Transaksi (%)
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step="0.01"
+            value={settings.taxRatePercent}
+            onChange={(event) =>
+              setSettings({ ...settings, taxRatePercent: Number(event.target.value) })
+            }
+          />
         </label>
 
         <div className="style-grid">

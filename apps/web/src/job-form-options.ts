@@ -1,36 +1,105 @@
-import { SOCIAL_PLATFORMS } from "./types";
-import type { ContentType, JobVoiceGender, SocialPlatform } from "./types";
+import { SCRIPT_MODES, SOCIAL_PLATFORMS } from "./types";
+import type {
+  ContentLanguage,
+  ContentType,
+  JobVoiceGender,
+  ScriptMode,
+  SocialPlatform
+} from "./types";
 
-export const CONTENT_LABEL: Record<ContentType, string> = {
-  affiliate: "Affiliate",
-  "video-marketing": "Video Marketing",
-  komedi: "Komedi",
-  informasi: "Informasi",
-  hiburan: "Hiburan",
-  gaul: "Gaul",
-  cerita: "Cerita",
-  "review-produk": "Review Produk",
-  edukasi: "Edukasi",
-  motivasi: "Motivasi",
-  "promosi-event": "Promosi Event"
+const CONTENT_LABELS: Record<ContentLanguage, Record<ContentType, string>> = {
+  "id-ID": {
+    affiliate: "Affiliate",
+    "video-marketing": "Video Marketing",
+    komedi: "Komedi",
+    informasi: "Informasi",
+    hiburan: "Hiburan",
+    gaul: "Gaul",
+    cerita: "Cerita",
+    "review-produk": "Review Produk",
+    edukasi: "Edukasi",
+    motivasi: "Motivasi",
+    "promosi-event": "Promosi Event"
+  },
+  "en-US": {
+    affiliate: "Affiliate",
+    "video-marketing": "Video Marketing",
+    komedi: "Comedy",
+    informasi: "Informational",
+    hiburan: "Entertainment",
+    gaul: "Casual",
+    cerita: "Storytelling",
+    "review-produk": "Product Review",
+    edukasi: "Educational",
+    motivasi: "Motivational",
+    "promosi-event": "Event Promotion"
+  }
 };
 
-export const PLATFORM_LABEL: Record<SocialPlatform, string> = {
-  facebook: "Facebook",
-  tiktok: "TikTok",
-  youtube: "YouTube",
-  shopee: "Shopee",
-  instagram: "Instagram",
-  lainnya: "Lainnya"
+const PLATFORM_LABELS: Record<ContentLanguage, Record<SocialPlatform, string>> = {
+  "id-ID": {
+    facebook: "Facebook",
+    tiktok: "TikTok",
+    youtube: "YouTube",
+    shopee: "Shopee",
+    instagram: "Instagram",
+    lainnya: "Lainnya"
+  },
+  "en-US": {
+    facebook: "Facebook",
+    tiktok: "TikTok",
+    youtube: "YouTube",
+    shopee: "Shopee",
+    instagram: "Instagram",
+    lainnya: "Other"
+  }
+};
+
+const SCRIPT_MODE_LABELS: Record<ContentLanguage, Record<ScriptMode, string>> = {
+  "id-ID": {
+    auto_analysis: "Analisa Otomatis",
+    manual_script: "Script Manual"
+  },
+  "en-US": {
+    auto_analysis: "Auto Analysis",
+    manual_script: "Manual Script"
+  }
+};
+
+const GENDER_LABELS: Record<ContentLanguage, Record<JobVoiceGender, string>> = {
+  "id-ID": {
+    male: "Pria",
+    female: "Wanita"
+  },
+  "en-US": {
+    male: "Male",
+    female: "Female"
+  }
+};
+
+const TONE_LABELS: Record<ContentLanguage, Record<string, string>> = {
+  "id-ID": {
+    natural: "Natural",
+    enerjik: "Enerjik",
+    friendly: "Friendly",
+    informatif: "Informatif",
+    fun: "Fun",
+    hangat: "Hangat",
+    tegas: "Tegas"
+  },
+  "en-US": {
+    natural: "Natural",
+    enerjik: "Energetic",
+    friendly: "Friendly",
+    informatif: "Informative",
+    fun: "Fun",
+    hangat: "Warm",
+    tegas: "Assertive"
+  }
 };
 
 export const PLATFORM_OPTIONS: SocialPlatform[] = [...SOCIAL_PLATFORMS];
-
-export const GENDER_LABEL: Record<JobVoiceGender, string> = {
-  male: "Pria",
-  female: "Wanita"
-};
-
+export const SCRIPT_MODE_OPTIONS: ScriptMode[] = [...SCRIPT_MODES];
 export const TONE_OPTIONS = [
   "natural",
   "enerjik",
@@ -40,3 +109,23 @@ export const TONE_OPTIONS = [
   "hangat",
   "tegas"
 ] as const;
+
+export function getContentLabel(locale: ContentLanguage, value: ContentType): string {
+  return CONTENT_LABELS[locale][value];
+}
+
+export function getPlatformLabel(locale: ContentLanguage, value: SocialPlatform): string {
+  return PLATFORM_LABELS[locale][value];
+}
+
+export function getScriptModeLabel(locale: ContentLanguage, value: ScriptMode): string {
+  return SCRIPT_MODE_LABELS[locale][value];
+}
+
+export function getGenderLabel(locale: ContentLanguage, value: JobVoiceGender): string {
+  return GENDER_LABELS[locale][value];
+}
+
+export function getToneLabel(locale: ContentLanguage, value: string): string {
+  return TONE_LABELS[locale][value] || value;
+}

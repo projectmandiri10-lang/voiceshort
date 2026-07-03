@@ -25,13 +25,17 @@ import {
   extractVisualBrief
 } from "./shared/model-output";
 import {
+  CONTENT_LANGUAGES,
   CONTENT_TYPES,
+  SCRIPT_MODES,
   SOCIAL_PLATFORMS,
+  type AdminTransactionRecord,
   type AdminUserRecord,
   type AiProvider,
   type AppSettings,
   type AssignedPackageCode,
   type AuthUser,
+  type ContentLanguage,
   type ContentType,
   type GenerationSessionCompleteInput,
   type GenerationSessionCreateInput,
@@ -39,9 +43,11 @@ import {
   type GenerationSessionStatus,
   type JobVoiceGender,
   type ScriptAiProvider,
+  type ScriptMode,
   type SocialPlatform,
   type TtsAiProvider,
   type TtsVoiceOption,
+  type VisualBrief,
   type UserRole
 } from "./types";
 
@@ -120,6 +126,7 @@ interface AppSettingsRow {
   tts_provider?: AppSettings["ttsProvider"];
   tts_fallback_provider?: AppSettings["ttsFallbackProvider"];
   tts_model: string;
+  tax_rate_percent?: number | string | null;
   language: "id-ID";
   max_video_seconds: number;
   safety_mode: "safe_marketing";
@@ -135,6 +142,8 @@ interface GenerationSessionRow {
   description: string;
   content_type: ContentType;
   social_platform: SocialPlatform;
+  content_language?: ContentLanguage | null;
+  script_mode?: ScriptMode | null;
   voice_gender: JobVoiceGender;
   tone: string;
   cta_text: string | null;
@@ -167,12 +176,35 @@ interface PaymentOrderRow {
   qris_payload: string | null;
   unique_code: number | null;
   total_amount_idr: number | null;
+  tax_rate_percent?: number | string | null;
+  tax_amount_idr?: number | null;
   status: "pending" | "paid" | "expired" | "failed" | "canceled";
   expired_at: string | null;
   paid_at: string | null;
   payment_method: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface AdminTransactionFeedRow {
+  transaction_id: string;
+  kind: AdminTransactionRecord["kind"];
+  status: string;
+  occurred_at: string;
+  owner_user_id: string;
+  owner_email: string;
+  gross_amount_idr: number;
+  wallet_impact_idr: number;
+  balance_after_idr: number | null;
+  tax_rate_percent?: number | string | null;
+  tax_amount_idr: number;
+  net_amount_idr: number;
+  entry_type: string | null;
+  source_type: string | null;
+  description: string | null;
+  payment_method: string | null;
+  merchant_order_id: string | null;
+  invoice_id: string | null;
 }
 
 interface WalletLedgerRow {
@@ -277,6 +309,26 @@ function getGeneratePriceIdr(env: WorkerEnv): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : DEFAULT_GENERATE_PRICE_IDR;
 }
 
+function normalizeTaxRatePercent(value: unknown): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Math.round(numeric * 100) / 100));
+}
+
+function assertTaxRatePercent(value: unknown): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0 || numeric > 100) {
+    throw createHttpError(400, "Pajak transaksi harus berada di rentang 0 sampai 100 persen.");
+  }
+  return Math.round(numeric * 100) / 100;
+}
+
+function calculateTaxAmountIdr(payAmountIdr: number, taxRatePercent: number): number {
+  return Math.max(0, Math.round(payAmountIdr * (taxRatePercent / 100)));
+}
+
 function getDepositPackage(code: string) {
   return DEPOSIT_PACKAGES.find((item) => item.code === code);
 }
@@ -372,6 +424,7 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
           DEFAULT_SETTINGS.ttsFallbackProvider
         ),
         ttsModel: row.tts_model,
+        taxRatePercent: normalizeTaxRatePercent(row.tax_rate_percent),
         language: row.language,
         maxVideoSeconds: row.max_video_seconds,
         safetyMode: row.safety_mode,
@@ -399,6 +452,7 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
       String(source.ttsModel || DEFAULT_SETTINGS.ttsModel).trim() || DEFAULT_SETTINGS.ttsModel,
       normalizeTtsProvider(source.ttsProvider, DEFAULT_SETTINGS.ttsProvider)
     ),
+    taxRatePercent: normalizeTaxRatePercent(source.taxRatePercent ?? DEFAULT_SETTINGS.taxRatePercent),
     language: "id-ID",
     maxVideoSeconds: Math.max(10, Math.min(ABSOLUTE_MAX_VIDEO_SECONDS, Math.trunc(source.maxVideoSeconds || DEFAULT_SETTINGS.maxVideoSeconds))),
     safetyMode: "safe_marketing",
@@ -435,6 +489,8 @@ function mapGenerationSession(row: GenerationSessionRow): GenerationSessionRecor
     description: row.description,
     contentType: row.content_type,
     socialPlatform: row.social_platform,
+    contentLanguage: row.content_language === "en-US" ? "en-US" : "id-ID",
+    scriptMode: row.script_mode === "manual_script" ? "manual_script" : "auto_analysis",
     voiceGender: row.voice_gender,
     tone: row.tone,
     ctaText: row.cta_text || undefined,
@@ -542,6 +598,23 @@ function assertSocialPlatform(value: unknown): SocialPlatform {
   return socialPlatform;
 }
 
+function assertContentLanguage(value: unknown): ContentLanguage {
+  const contentLanguage = String(value || "").trim() as ContentLanguage;
+  if (!CONTENT_LANGUAGES.includes(contentLanguage)) {
+    throw createHttpError(400, "Bahasa output tidak valid.");
+  }
+  return contentLanguage;
+}
+
+function assertScriptMode(value: unknown): ScriptMode {
+  const fallbackMode: ScriptMode = "auto_analysis";
+  const scriptMode = String(value ?? fallbackMode).trim() as ScriptMode;
+  if (!SCRIPT_MODES.includes(scriptMode)) {
+    throw createHttpError(400, "Mode script tidak valid.");
+  }
+  return scriptMode;
+}
+
 function assertVoiceGender(value: unknown): JobVoiceGender {
   const voiceGender = String(value ?? "").trim() as JobVoiceGender;
   if (voiceGender !== "male" && voiceGender !== "female") {
@@ -634,6 +707,7 @@ function parseSettingsInput(input: unknown): AppSettings {
       assertString(body.ttsModel, "TTS model") || DEFAULT_SETTINGS.ttsModel,
       ttsProvider
     ),
+    taxRatePercent: assertTaxRatePercent(body.taxRatePercent ?? DEFAULT_SETTINGS.taxRatePercent),
     language: "id-ID",
     maxVideoSeconds: Math.max(
       10,
@@ -659,22 +733,34 @@ function parseGenerationSessionCreateInput(input: unknown): GenerationSessionCre
   }
 
   const frames = Array.isArray(body.frames) ? body.frames : [];
-  if (!frames.length) {
-    throw createHttpError(400, "Cuplikan video wajib dikirim untuk analisis.");
-  }
+  const scriptMode = assertScriptMode(body.scriptMode);
   if (frames.length > 24) {
     throw createHttpError(400, "Jumlah cuplikan melebihi batas aman.");
   }
+  if (!frames.length && scriptMode !== "manual_script") {
+    throw createHttpError(400, "Cuplikan video wajib dikirim untuk analisis.");
+  }
+  const manualScriptText =
+    scriptMode === "manual_script"
+      ? assertString(body.manualScriptText, "Script manual", { max: 12000 }) || ""
+      : assertString(body.manualScriptText, "Script manual", { required: false, max: 12000 });
 
   return {
     title: assertString(body.title, "Judul", { max: 160 }) || "",
-    description: assertString(body.description, "Brief / deskripsi", { max: 3000 }) || "",
+    description:
+      assertString(body.description, "Brief / deskripsi", {
+        max: 3000,
+        required: scriptMode !== "manual_script"
+      }) || "",
     contentType: assertContentType(body.contentType),
     socialPlatform: assertSocialPlatform(body.socialPlatform),
+    contentLanguage: assertContentLanguage(body.contentLanguage),
+    scriptMode,
     voiceGender: assertVoiceGender(body.voiceGender),
     tone: assertString(body.tone, "Tone", { max: 80 }) || "",
     ctaText: assertString(body.ctaText, "CTA", { required: false, max: 200 }),
     referenceLink: assertUrl(body.referenceLink),
+    manualScriptText,
     videoDurationSec,
     frames: frames.map((frame, index) => {
       if (!frame || typeof frame !== "object" || Array.isArray(frame)) {
@@ -1068,6 +1154,7 @@ async function generateAudioWithProvider(
     text: string;
     voiceName: string;
     speechRate: number;
+    contentLanguage: ContentLanguage;
     deliveryHint?: string;
   }
 ): Promise<GeminiAudio> {
@@ -1096,6 +1183,7 @@ async function generateAudioWithProvider(
               text: buildGeminiTtsPrompt({
                 text: input.text,
                 speechRate: input.speechRate,
+                contentLanguage: input.contentLanguage,
                 deliveryHint: input.deliveryHint
               })
             }
@@ -1141,6 +1229,7 @@ async function createGenerationSession(
     description: input.description,
     contentType: input.contentType,
     socialPlatform: input.socialPlatform,
+    contentLanguage: input.contentLanguage,
     voiceGender: input.voiceGender,
     tone: input.tone,
     videoDurationSec: input.videoDurationSec,
@@ -1149,37 +1238,42 @@ async function createGenerationSession(
     referenceLink: input.referenceLink
   } as const;
 
-  const visualBriefPrompt = buildVisualBriefPrompt(promptBase);
-  const visualBrief = await runWithProviderFallback({
-    stage: "Visual brief",
-    primaryProvider: settings.scriptProvider,
-    fallbackProvider: settings.scriptFallbackProvider,
-    task: (provider) =>
-      withRetry(() =>
-        generateTextWithProvider(env, provider, settings.scriptModel, {
-          prompt: visualBriefPrompt,
-          frames: input.frames
-        }).then((response) => extractVisualBrief(response))
-      )
-  });
+  let visualBrief: VisualBrief | undefined;
+  let scriptText = input.manualScriptText?.trim() || "";
 
-  const scriptText = await runWithProviderFallback({
-    stage: "Script generation",
-    primaryProvider: settings.scriptProvider,
-    fallbackProvider: settings.scriptFallbackProvider,
-    task: (provider) =>
-      withRetry(() =>
-        generateTextWithProvider(env, provider, settings.scriptModel, {
-          prompt: buildScriptPrompt({ ...promptBase, visualBrief })
-        }).then((response) => {
-          const script = extractScriptText(response);
-          if (!script) {
-            throw createHttpError(502, "Provider AI mengembalikan naskah kosong.");
-          }
-          return script;
-        })
-      )
-  });
+  if (input.scriptMode !== "manual_script") {
+    const visualBriefPrompt = buildVisualBriefPrompt(promptBase);
+    visualBrief = await runWithProviderFallback({
+      stage: "Visual brief",
+      primaryProvider: settings.scriptProvider,
+      fallbackProvider: settings.scriptFallbackProvider,
+      task: (provider) =>
+        withRetry(() =>
+          generateTextWithProvider(env, provider, settings.scriptModel, {
+            prompt: visualBriefPrompt,
+            frames: input.frames
+          }).then((response) => extractVisualBrief(response))
+        )
+    });
+
+    scriptText = await runWithProviderFallback({
+      stage: "Script generation",
+      primaryProvider: settings.scriptProvider,
+      fallbackProvider: settings.scriptFallbackProvider,
+      task: (provider) =>
+        withRetry(() =>
+          generateTextWithProvider(env, provider, settings.scriptModel, {
+            prompt: buildScriptPrompt({ ...promptBase, visualBrief })
+          }).then((response) => {
+            const script = extractScriptText(response);
+            if (!script) {
+              throw createHttpError(502, "Provider AI mengembalikan naskah kosong.");
+            }
+            return script;
+          })
+        )
+    });
+  }
 
   const social = await runWithProviderFallback({
     stage: "Caption generation",
@@ -1190,6 +1284,7 @@ async function createGenerationSession(
         generateTextWithProvider(env, provider, settings.scriptModel, {
           prompt: buildCaptionPrompt({
             ...promptBase,
+            scriptMode: input.scriptMode,
             visualBrief,
             scriptText
           })
@@ -1218,6 +1313,8 @@ async function createGenerationSession(
     description: input.description,
     content_type: input.contentType,
     social_platform: input.socialPlatform,
+    content_language: input.contentLanguage,
+    script_mode: input.scriptMode,
     voice_gender: input.voiceGender,
     tone: input.tone,
     cta_text: input.ctaText ?? null,
@@ -1374,7 +1471,11 @@ async function synthesizeGenerationSessionTts(
         text: scriptText,
         voiceName,
         speechRate,
-        deliveryHint: `${session.tone} dan ${voice?.tone?.toLowerCase() || "natural"} untuk video pendek Indonesia`
+        contentLanguage: session.content_language === "en-US" ? "en-US" : "id-ID",
+        deliveryHint:
+          session.content_language === "en-US"
+            ? `${session.tone} with a ${voice?.tone?.toLowerCase() || "natural"} short-form English delivery`
+            : `${session.tone} dan ${voice?.tone?.toLowerCase() || "natural"} untuk video pendek Indonesia`
       })
   });
 
@@ -1404,6 +1505,8 @@ async function synthesizeGenerationSessionTts(
 
 async function previewVoice(env: WorkerEnv, context: AuthContext, payload: Record<string, unknown>): Promise<Response> {
   const settings = await getSettings(context.serviceDb);
+  const contentLanguage =
+    payload.contentLanguage === undefined ? "id-ID" : assertContentLanguage(payload.contentLanguage);
   const voiceName = assertString(payload.voiceName, "Voice name") || "";
   const voice = findTtsVoiceByName(voiceName);
   if (!voice) {
@@ -1418,10 +1521,16 @@ async function previewVoice(env: WorkerEnv, context: AuthContext, payload: Recor
       generateAudioWithProvider(env, provider, settings, {
         text:
           assertString(payload.text, "Teks preview", { required: false, max: 220 }) ||
-          "Halo, ini contoh voice over Bahasa Indonesia untuk video pendek yang natural dan jelas.",
+          (contentLanguage === "en-US"
+            ? "Hello, this is a natural and clear English voice over sample for a short video."
+            : "Halo, ini contoh voice over Bahasa Indonesia untuk video pendek yang natural dan jelas."),
         voiceName: voice.voiceName,
         speechRate: assertSpeechRate(payload.speechRate ?? 1),
-        deliveryHint: `${voice.tone.toLowerCase()} dan natural untuk voice over video Indonesia`
+        contentLanguage,
+        deliveryHint:
+          contentLanguage === "en-US"
+            ? `${voice.tone.toLowerCase()} and natural for English short-form voice over`
+            : `${voice.tone.toLowerCase()} dan natural untuk voice over video Indonesia`
       })
   });
 
@@ -1468,6 +1577,12 @@ function walletSummaryToApi(input: {
       packageCode: entry.package_code,
       payAmountIdr: entry.pay_amount_idr,
       creditAmountIdr: entry.credit_amount_idr,
+      taxRatePercent: normalizeTaxRatePercent(entry.tax_rate_percent),
+      taxAmountIdr: Math.max(0, Math.trunc(entry.tax_amount_idr || 0)),
+      netAmountIdr: Math.max(
+        0,
+        Math.trunc(entry.pay_amount_idr || 0) - Math.max(0, Math.trunc(entry.tax_amount_idr || 0))
+      ),
       merchantOrderId: entry.merchant_order_id,
       webqrisInvoiceId: entry.webqris_invoice_id,
       qrisPayload: entry.qris_payload,
@@ -1522,6 +1637,16 @@ async function createTopup(context: AuthContext, env: WorkerEnv, packageCode: st
   if (!apiToken) {
     throw createHttpError(503, "WEBQRIS_API_TOKEN belum dikonfigurasi.");
   }
+  const settingsResult = await context.serviceDb
+    .from("app_settings")
+    .select("tax_rate_percent")
+    .eq("settings_key", "default")
+    .maybeSingle<{ tax_rate_percent?: number | string | null }>();
+  if (settingsResult.error) {
+    throw settingsResult.error;
+  }
+  const taxRatePercent = normalizeTaxRatePercent(settingsResult.data?.tax_rate_percent);
+  const taxAmountIdr = calculateTaxAmountIdr(selectedPackage.payAmountIdr, taxRatePercent);
 
   const merchantOrderId = `VS-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
   const inserted = await context.serviceDb
@@ -1532,6 +1657,8 @@ async function createTopup(context: AuthContext, env: WorkerEnv, packageCode: st
       package_code: selectedPackage.code,
       pay_amount_idr: selectedPackage.payAmountIdr,
       credit_amount_idr: selectedPackage.creditAmountIdr,
+      tax_rate_percent: taxRatePercent,
+      tax_amount_idr: taxAmountIdr,
       merchant_order_id: merchantOrderId
     })
     .select("*")
@@ -1592,11 +1719,22 @@ async function createTopup(context: AuthContext, env: WorkerEnv, packageCode: st
 }
 
 function walletSummaryToApiTopup(entry: PaymentOrderRow) {
+  const taxRatePercent = normalizeTaxRatePercent(entry.tax_rate_percent);
+  const taxAmountIdr = Math.max(
+    0,
+    Math.trunc(
+      entry.tax_amount_idr ??
+        calculateTaxAmountIdr(Math.max(0, Math.trunc(entry.pay_amount_idr || 0)), taxRatePercent)
+    )
+  );
   return {
     id: entry.id,
     packageCode: entry.package_code,
     payAmountIdr: entry.pay_amount_idr,
     creditAmountIdr: entry.credit_amount_idr,
+    taxRatePercent,
+    taxAmountIdr,
+    netAmountIdr: Math.max(0, Math.trunc(entry.pay_amount_idr || 0) - taxAmountIdr),
     merchantOrderId: entry.merchant_order_id,
     webqrisInvoiceId: entry.webqris_invoice_id,
     qrisPayload: entry.qris_payload,
@@ -1672,6 +1810,96 @@ async function getTopupStatus(context: AuthContext, env: WorkerEnv, orderId: str
     throw refreshed.error || createHttpError(500, "Status top up tidak bisa dimuat.");
   }
   return walletSummaryToApiTopup(refreshed.data);
+}
+
+function encodeAdminTransactionCursor(cursor: { occurredAt: string; transactionId: string } | null): string | null {
+  if (!cursor) {
+    return null;
+  }
+  return btoa(JSON.stringify(cursor));
+}
+
+function decodeAdminTransactionCursor(cursor: string | null): { occurredAt: string; transactionId: string } | null {
+  const raw = String(cursor || "").trim();
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(atob(raw)) as {
+      occurredAt?: unknown;
+      transactionId?: unknown;
+    };
+    const occurredAt = String(parsed.occurredAt || "").trim();
+    const transactionId = String(parsed.transactionId || "").trim();
+    if (!occurredAt || !transactionId) {
+      throw new Error("invalid");
+    }
+    return { occurredAt, transactionId };
+  } catch {
+    throw createHttpError(400, "Cursor transaksi tidak valid.");
+  }
+}
+
+function parseAdminTransactionLimit(value: string | null): number {
+  const numeric = Number(value || "");
+  if (!Number.isFinite(numeric)) {
+    return 50;
+  }
+  return Math.max(1, Math.min(100, Math.trunc(numeric)));
+}
+
+function mapAdminTransactionRow(row: AdminTransactionFeedRow): AdminTransactionRecord {
+  return {
+    transactionId: row.transaction_id,
+    kind: row.kind,
+    status: row.status,
+    occurredAt: row.occurred_at,
+    ownerUserId: row.owner_user_id,
+    ownerEmail: row.owner_email,
+    grossAmountIdr: Math.max(0, Math.trunc(row.gross_amount_idr || 0)),
+    walletImpactIdr: Math.trunc(row.wallet_impact_idr || 0),
+    balanceAfterIdr:
+      row.balance_after_idr === null || row.balance_after_idr === undefined
+        ? null
+        : Math.trunc(row.balance_after_idr),
+    taxRatePercent: normalizeTaxRatePercent(row.tax_rate_percent),
+    taxAmountIdr: Math.max(0, Math.trunc(row.tax_amount_idr || 0)),
+    netAmountIdr: Math.max(0, Math.trunc(row.net_amount_idr || 0)),
+    entryType: row.entry_type,
+    sourceType: row.source_type,
+    description: row.description || "-",
+    paymentMethod: row.payment_method,
+    merchantOrderId: row.merchant_order_id,
+    invoiceId: row.invoice_id
+  };
+}
+
+async function getAdminTransactions(context: AuthContext, limit: number, cursor: string | null) {
+  requireSuperadmin(context);
+  const decodedCursor = decodeAdminTransactionCursor(cursor);
+  const rpcResult = await context.serviceDb.rpc("admin_transaction_feed", {
+    row_limit: limit + 1,
+    cursor_occurred_at: decodedCursor?.occurredAt ?? null,
+    cursor_transaction_id: decodedCursor?.transactionId ?? null
+  });
+  if (rpcResult.error) {
+    throw rpcResult.error;
+  }
+  const rows = ((rpcResult.data || []) as AdminTransactionFeedRow[]).map(mapAdminTransactionRow);
+  const hasMore = rows.length > limit;
+  const items = hasMore ? rows.slice(0, limit) : rows;
+  const last = hasMore ? items[items.length - 1] : null;
+  return {
+    items,
+    nextCursor: encodeAdminTransactionCursor(
+      last
+        ? {
+            occurredAt: last.occurredAt,
+            transactionId: last.transactionId
+          }
+        : null
+    )
+  };
 }
 
 async function listAdminUsers(context: AuthContext, env: WorkerEnv) {
@@ -1938,6 +2166,14 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
       return jsonResponse(await listAdminUsers(context, env), { headers: buildCorsHeaders(request) });
     }
 
+    if (route.path === "/api/admin/transactions" && request.method === "GET") {
+      const limit = parseAdminTransactionLimit(url.searchParams.get("limit"));
+      const cursor = url.searchParams.get("cursor");
+      return jsonResponse(await getAdminTransactions(context, limit, cursor), {
+        headers: buildCorsHeaders(request)
+      });
+    }
+
     if (route.path === "/api/admin/users" && request.method === "POST") {
       const payload = (await parseJsonRequest(request)) as Record<string, unknown>;
       return jsonResponse(await createAdminUser(context, env, payload), {
@@ -1996,6 +2232,7 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
           tts_provider: nextSettings.ttsProvider,
           tts_fallback_provider: nextSettings.ttsFallbackProvider,
           tts_model: nextSettings.ttsModel,
+          tax_rate_percent: nextSettings.taxRatePercent,
           language: nextSettings.language,
           max_video_seconds: nextSettings.maxVideoSeconds,
           safety_mode: nextSettings.safetyMode,

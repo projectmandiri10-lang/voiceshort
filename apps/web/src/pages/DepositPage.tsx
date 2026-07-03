@@ -9,27 +9,13 @@ import {
   type PaymentOrder,
   type WalletSummary,
 } from "../api";
+import type { ContentLanguage } from "../types";
+import { formatDateTime, formatIdrCurrency } from "../user-locale";
+import { getUserCopy } from "../user-copy";
 
 interface DepositPageProps {
+  locale: ContentLanguage;
   onRefreshSession: () => Promise<void>;
-}
-
-function formatRupiah(value: number | null | undefined): string {
-  return new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: "IDR",
-    maximumFractionDigits: 0,
-  }).format(value || 0);
-}
-
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) {
-    return "-";
-  }
-  return new Intl.DateTimeFormat("id-ID", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
 }
 
 function getPackageAccent(packageCode: DepositPackage["code"]): string {
@@ -43,7 +29,8 @@ function getPackageAccent(packageCode: DepositPackage["code"]): string {
   }
 }
 
-export function DepositPage({ onRefreshSession }: DepositPageProps) {
+export function DepositPage({ locale, onRefreshSession }: DepositPageProps) {
+  const copy = getUserCopy(locale);
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [selectedPackageCode, setSelectedPackageCode] = useState<DepositPackage["code"]>("10_video");
   const [activeOrder, setActiveOrder] = useState<PaymentOrder | null>(null);
@@ -127,11 +114,10 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
   return (
     <section className="card app-page-card">
       <div className="section-heading compact">
-        <span className="eyebrow">Isi Saldo</span>
-        <h2>Isi saldo lewat QRIS dengan pembayaran otomatis.</h2>
+        <span className="eyebrow">{copy.deposit.eyebrow}</span>
+        <h2>{copy.deposit.title}</h2>
         <p className="section-note">
-          Biaya pembuatan voice over saat ini {formatRupiah(wallet?.generatePriceIdr ?? 2000)} per
-          generate. Satu generate mencakup satu alur AI + render lokal.
+          {copy.deposit.lead(formatIdrCurrency(wallet?.generatePriceIdr ?? 2000, locale))}
         </p>
       </div>
 
@@ -139,18 +125,18 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
         <div>
           <strong>
             {loadingWallet
-              ? "Memuat saldo..."
+              ? copy.deposit.loadingBalance
               : wallet?.isUnlimited
-                ? "Saldo Unlimited"
-                : formatRupiah(wallet?.walletBalanceIdr)}
+                ? copy.deposit.unlimitedBalance
+                : formatIdrCurrency(wallet?.walletBalanceIdr, locale)}
           </strong>
           <p className="small">
             {wallet?.isUnlimited
-              ? "Akun whitelist dapat memproses video tanpa batas saldo."
-              : `Estimasi sisa generate: ${wallet?.generateCreditsRemaining ?? 0} kali.`}
+              ? copy.deposit.unlimitedNote
+              : copy.deposit.remainingEstimate(wallet?.generateCreditsRemaining ?? 0)}
           </p>
         </div>
-        <span className="status status-success">Saldo aktif</span>
+        <span className="status status-success">{copy.deposit.activeBalance}</span>
       </div>
 
       {wallet ? (
@@ -159,11 +145,8 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
             <div className="section-card">
               <div className="row-head">
                 <div>
-                  <strong>Pilih paket saldo</strong>
-                  <p className="small">
-                    Semua paket langsung menambah kredit ke akun yang sedang aktif untuk billing flat
-                    per generate.
-                  </p>
+                  <strong>{copy.deposit.selectPackage}</strong>
+                  <p className="small">{copy.deposit.selectPackageLead}</p>
                 </div>
                 <WalletMinimal size={18} />
               </div>
@@ -180,10 +163,12 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
                   onClick={() => setSelectedPackageCode(item.code)}
                 >
                   <span className="small">{item.label}</span>
-                  <strong>{formatRupiah(item.payAmountIdr)}</strong>
-                <span className="small">
-                  Saldo {formatRupiah(item.creditAmountIdr)}
-                  {item.bonusAmountIdr ? `, bonus ${formatRupiah(item.bonusAmountIdr)}` : ""}
+                  <strong>{formatIdrCurrency(item.payAmountIdr, locale)}</strong>
+                  <span className="small">
+                    {copy.deposit.creditPrefix} {formatIdrCurrency(item.creditAmountIdr, locale)}
+                    {item.bonusAmountIdr
+                      ? `, ${copy.deposit.bonusPrefix} ${formatIdrCurrency(item.bonusAmountIdr, locale)}`
+                      : ""}
                   </span>
                 </button>
               ))}
@@ -192,14 +177,14 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
             {wallet.recentLedger.length ? (
               <div className="notice-box">
                 <div className="row-head">
-                  <strong>Riwayat saldo</strong>
-                  <span className="small">{wallet.recentLedger.length} transaksi terakhir</span>
+                  <strong>{copy.deposit.balanceHistory}</strong>
+                  <span className="small">{copy.deposit.latestTransactions(wallet.recentLedger.length)}</span>
                 </div>
                 <ul className="summary-list">
                   {wallet.recentLedger.slice(0, 8).map((entry) => (
                     <li key={entry.id}>
-                      {entry.description}: <strong>{formatRupiah(entry.amountIdr)}</strong> | saldo{" "}
-                      {formatRupiah(entry.balanceAfterIdr)}
+                      {entry.description}: <strong>{formatIdrCurrency(entry.amountIdr, locale)}</strong> | saldo{" "}
+                      {formatIdrCurrency(entry.balanceAfterIdr, locale)}
                     </li>
                   ))}
                 </ul>
@@ -210,16 +195,18 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
           <div className="deposit-checkout">
             <div className="row-head">
               <div>
-                <span className="eyebrow">Checkout QRIS</span>
-                <h3>{selectedPackage?.label ?? "Paket saldo"}</h3>
+                <span className="eyebrow">{copy.deposit.checkoutEyebrow}</span>
+                <h3>{selectedPackage?.label ?? copy.deposit.defaultPackage}</h3>
                 <p className="small">
-                  Kredit saldo {formatRupiah(selectedPackage?.creditAmountIdr)} untuk estimasi{" "}
-                  {selectedPackage?.generateCredits ?? 0} generate.
+                  {copy.deposit.checkoutLead(
+                    formatIdrCurrency(selectedPackage?.creditAmountIdr, locale),
+                    selectedPackage?.generateCredits ?? 0
+                  )}
                 </p>
               </div>
               <button type="button" className="primary-button" onClick={onCreateTopup} disabled={creatingOrder}>
                 <QrCode size={16} />
-                <span>{creatingOrder ? "Menyiapkan QRIS..." : "Tampilkan QRIS"}</span>
+                <span>{creatingOrder ? copy.deposit.preparingQris : copy.deposit.showQris}</span>
               </button>
             </div>
 
@@ -229,37 +216,37 @@ export function DepositPage({ onRefreshSession }: DepositPageProps) {
                   {activeOrder.qrisPayload ? (
                     <QRCodeSVG value={activeOrder.qrisPayload} size={220} level="M" includeMargin />
                   ) : (
-                    <p className="small">QRIS belum tersedia.</p>
+                    <p className="small">{copy.deposit.qrisUnavailable}</p>
                   )}
                 </div>
                 <div className="meta-grid">
                   <div className="meta-card">
-                    <span className="small">Nominal Bayar</span>
-                    <strong>{formatRupiah(activeOrder.totalAmountIdr ?? activeOrder.payAmountIdr)}</strong>
+                    <span className="small">{copy.deposit.payAmount}</span>
+                    <strong>{formatIdrCurrency(activeOrder.totalAmountIdr ?? activeOrder.payAmountIdr, locale)}</strong>
                   </div>
                   <div className="meta-card">
-                    <span className="small">Status</span>
+                    <span className="small">{copy.deposit.status}</span>
                     <strong>{activeOrder.status}</strong>
                   </div>
                   <div className="meta-card">
-                    <span className="small">Expired</span>
-                    <strong>{formatDateTime(activeOrder.expiredAt)}</strong>
+                    <span className="small">{copy.deposit.expired}</span>
+                    <strong>{formatDateTime(activeOrder.expiredAt, locale)}</strong>
                   </div>
                 </div>
-                <p className="small break-anywhere">No. invoice: {activeOrder.webqrisInvoiceId || activeOrder.id}</p>
+                <p className="small break-anywhere">
+                  {copy.deposit.invoiceNumber}: {activeOrder.webqrisInvoiceId || activeOrder.id}
+                </p>
                 {activeOrder.status === "paid" ? (
-                  <p className="ok-text">Pembayaran diterima. Saldo sudah ditambahkan.</p>
+                  <p className="ok-text">{copy.deposit.paymentReceived}</p>
                 ) : null}
               </div>
             ) : (
               <div className="notice-box">
                 <div className="row-head">
-                  <strong>Belum ada invoice aktif</strong>
+                  <strong>{copy.deposit.noInvoice}</strong>
                   <History size={16} />
                 </div>
-                <p className="section-note">
-                  Pilih paket di kiri lalu tekan tombol QRIS untuk membuat invoice pembayaran baru.
-                </p>
+                <p className="section-note">{copy.deposit.noInvoiceLead}</p>
               </div>
             )}
           </div>

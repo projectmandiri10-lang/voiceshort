@@ -2,29 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, FolderClock, RefreshCw, Sparkles, Video } from "lucide-react";
 import { fetchGenerationSession, fetchGenerationSessions } from "../api";
 import { listCachedSessionIds, getCachedSessionAssets } from "../generation-cache";
-import { CONTENT_LABEL, GENDER_LABEL, PLATFORM_LABEL } from "../job-form-options";
-import type { AuthUser, GenerationSessionRecord } from "../types";
+import {
+  getContentLabel,
+  getGenderLabel,
+  getPlatformLabel,
+  getScriptModeLabel
+} from "../job-form-options";
+import type { AuthUser, ContentLanguage, GenerationSessionRecord } from "../types";
+import { formatDateTime, formatDurationSeconds, formatIdrCurrency } from "../user-locale";
+import { getUserCopy } from "../user-copy";
 
 interface JobsPageProps {
+  locale: ContentLanguage;
   currentUser: AuthUser;
   selectedJobId?: string;
   onSelectJob: (jobId: string) => void;
   onResumeSession: (jobId: string) => void;
-}
-
-function formatDateTime(value: string): string {
-  return new Intl.DateTimeFormat("id-ID", {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(new Date(value));
-}
-
-function formatRupiah(value: number): string {
-  return new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: "IDR",
-    maximumFractionDigits: 0
-  }).format(value);
 }
 
 function downloadBlob(blob: Blob, fileName: string): void {
@@ -40,11 +33,13 @@ function downloadBlob(blob: Blob, fileName: string): void {
 }
 
 export function JobsPage({
+  locale,
   currentUser,
   selectedJobId,
   onSelectJob,
   onResumeSession
 }: JobsPageProps) {
+  const copy = getUserCopy(locale);
   const [sessions, setSessions] = useState<GenerationSessionRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionMessage, setActionMessage] = useState("");
@@ -113,13 +108,13 @@ export function JobsPage({
     try {
       const cache = await getCachedSessionAssets(selected.sessionId);
       if (!cache?.renderedVideoBlob) {
-        throw new Error("Final video lokal belum ada di perangkat ini.");
+        throw new Error(locale === "id-ID" ? "Final video lokal belum ada di perangkat ini." : "The final local video is not available on this device yet.");
       }
       downloadBlob(
         cache.renderedVideoBlob,
         cache.renderFileName || `${selected.title || "voiceover"}-final.mp4`
       );
-      setActionMessage("Final video berhasil diunduh ulang.");
+      setActionMessage(locale === "id-ID" ? "Final video berhasil diunduh ulang." : "The final video was downloaded again successfully.");
     } catch (downloadError) {
       setActionError((downloadError as Error).message);
     }
@@ -142,34 +137,28 @@ export function JobsPage({
   if (loading) {
     return (
       <section className="card app-page-card">
-        <h2>Riwayat Session</h2>
-        <p>Memuat riwayat session...</p>
+        <h2>{copy.jobs.loadingTitle}</h2>
+        <p>{copy.jobs.loadingLead}</p>
       </section>
     );
   }
 
   const hasLocalCache = selected ? cachedSessionIds.includes(selected.sessionId) : false;
-  const canResumeLocally = Boolean(
-    selected && hasLocalCache && selected.status !== "completed"
-  );
-  const hasLocalFinalVideo = Boolean(
-    selected && selected.status === "completed" && hasLocalCache
-  );
+  const canResumeLocally = Boolean(selected && hasLocalCache && selected.status !== "completed");
+  const hasLocalFinalVideo = Boolean(selected && selected.status === "completed" && hasLocalCache);
 
   return (
     <section className="card app-page-card">
       <div className="job-toolbar">
         <div>
-          <span className="eyebrow">Riwayat Session</span>
-          <h2>Riwayat Generate</h2>
-          <p className="section-note">
-            Lihat hasil AI, status proses, dan lanjutkan session dari perangkat yang sama.
-          </p>
+          <span className="eyebrow">{copy.jobs.eyebrow}</span>
+          <h2>{copy.jobs.title}</h2>
+          <p className="section-note">{copy.jobs.lead}</p>
         </div>
         <div className="form-actions">
           <button type="button" onClick={() => void onRefresh()}>
             <RefreshCw size={16} />
-            <span>Muat Ulang</span>
+            <span>{copy.jobs.refresh}</span>
           </button>
         </div>
       </div>
@@ -179,8 +168,8 @@ export function JobsPage({
           <section className="section-card">
             <div className="row-head">
               <div>
-                <h4>Daftar Session</h4>
-                <p className="small">{sessions.length} item</p>
+                <h4>{copy.jobs.listTitle}</h4>
+                <p className="small">{copy.jobs.items(sessions.length)}</p>
               </div>
             </div>
 
@@ -211,18 +200,19 @@ export function JobsPage({
                             {session.status}
                           </span>
                         </div>
-                        <span className="small">{CONTENT_LABEL[session.contentType]}</span>
-                        <span className="small">{PLATFORM_LABEL[session.socialPlatform]}</span>
-                        <span className="small">{formatDateTime(session.updatedAt)}</span>
-                        <span className="small">
-                          {isCached ? "Draft lokal tersedia" : "Tanpa cache lokal"}
+                        <span className="session-mode-badge">
+                          {getScriptModeLabel(locale, session.scriptMode)}
                         </span>
+                        <span className="small">{getContentLabel(locale, session.contentType)}</span>
+                        <span className="small">{getPlatformLabel(locale, session.socialPlatform)}</span>
+                        <span className="small">{formatDateTime(session.updatedAt, locale)}</span>
+                        <span className="small">{isCached ? copy.jobs.cachedDraft : copy.jobs.noCache}</span>
                       </div>
                     </button>
                   );
                 })
               ) : (
-                <p className="small">Belum ada session yang tersimpan.</p>
+                <p className="small">{copy.jobs.empty}</p>
               )}
             </div>
           </section>
@@ -230,17 +220,15 @@ export function JobsPage({
 
         <div className="detail-box">
           {!selected ? (
-            <p>Pilih session untuk melihat detailnya.</p>
+            <p>{copy.jobs.selectPrompt}</p>
           ) : (
             <>
               <div className="job-panel-header">
                 <div className="row-head">
                   <div>
-                    <span className="eyebrow">Detail Session</span>
-                    <h3>Detail Generate</h3>
-                    <p className="section-note">
-                      Final video disimpan di perangkat yang sama, bukan di server pusat.
-                    </p>
+                    <span className="eyebrow">{copy.jobs.detailEyebrow}</span>
+                    <h3>{copy.jobs.detailTitle}</h3>
+                    <p className="section-note">{copy.jobs.detailLead}</p>
                   </div>
                   <span
                     className={
@@ -259,7 +247,11 @@ export function JobsPage({
               <div className="progress-card">
                 <div className="row-head">
                   <strong>{selected.title}</strong>
-                  <span>{selected.frameCount} cuplikan</span>
+                  <span>
+                    {selected.scriptMode === "manual_script"
+                      ? copy.jobs.manualScript
+                      : copy.jobs.clips(selected.frameCount)}
+                  </span>
                 </div>
                 <div className="progress-track" aria-label="Session status">
                   <div
@@ -282,68 +274,69 @@ export function JobsPage({
                   <p className="err-text break-anywhere">{selected.errorMessage}</p>
                 ) : null}
                 {hasLocalCache ? (
-                  <p className="ok-text">Perangkat ini masih menyimpan draft lokal untuk session ini.</p>
+                  <p className="ok-text">{copy.jobs.localDraftAvailable}</p>
                 ) : (
-                  <p className="small">
-                    Tidak ada cache lokal di perangkat ini. Anda masih bisa melihat hasil AI, tetapi tidak
-                    bisa render ulang tanpa upload video lagi.
-                  </p>
+                  <p className="small">{copy.jobs.localDraftUnavailable}</p>
                 )}
               </div>
 
               <div className="meta-grid">
                 <div className="meta-card">
-                  <span className="small">Judul</span>
+                  <span className="small">{copy.jobs.mode}</span>
+                  <strong>{getScriptModeLabel(locale, selected.scriptMode)}</strong>
+                </div>
+                <div className="meta-card">
+                  <span className="small">{locale === "id-ID" ? "Judul" : "Title"}</span>
                   <strong className="break-anywhere">{selected.title}</strong>
                 </div>
                 <div className="meta-card">
-                  <span className="small">Kategori</span>
-                  <strong>{CONTENT_LABEL[selected.contentType]}</strong>
+                  <span className="small">{copy.jobs.category}</span>
+                  <strong>{getContentLabel(locale, selected.contentType)}</strong>
                 </div>
                 <div className="meta-card">
-                  <span className="small">Platform</span>
-                  <strong>{PLATFORM_LABEL[selected.socialPlatform]}</strong>
+                  <span className="small">{copy.jobs.platform}</span>
+                  <strong>{getPlatformLabel(locale, selected.socialPlatform)}</strong>
                 </div>
                 <div className="meta-card">
-                  <span className="small">Gender Suara</span>
-                  <strong>{GENDER_LABEL[selected.voiceGender]}</strong>
+                  <span className="small">{copy.jobs.voiceGender}</span>
+                  <strong>{getGenderLabel(locale, selected.voiceGender)}</strong>
                 </div>
                 <div className="meta-card">
-                  <span className="small">Tone</span>
+                  <span className="small">{copy.jobs.tone}</span>
                   <strong>{selected.tone}</strong>
                 </div>
                 <div className="meta-card">
-                  <span className="small">Durasi Video</span>
-                  <strong>{selected.videoDurationSec.toFixed(2)} detik</strong>
+                  <span className="small">{copy.jobs.videoDuration}</span>
+                  <strong>{formatDurationSeconds(selected.videoDurationSec, locale)}</strong>
                 </div>
                 <div className="meta-card">
-                  <span className="small">Biaya</span>
+                  <span className="small">{copy.jobs.cost}</span>
                   <strong>
                     {currentUser.isUnlimited
-                      ? "Unlimited"
-                      : formatRupiah(selected.chargedAmountIdr || currentUser.generatePriceIdr)}
+                      ? copy.dashboard.unlimited
+                      : formatIdrCurrency(selected.chargedAmountIdr || currentUser.generatePriceIdr, locale)}
                   </strong>
                 </div>
               </div>
 
               <p className="break-anywhere">
-                <strong>Brief:</strong> {selected.description}
+                <strong>{copy.jobs.brief}:</strong> {selected.description}
               </p>
               {selected.ctaText ? (
                 <p className="break-anywhere">
-                  <strong>CTA:</strong> {selected.ctaText}
+                  <strong>{copy.jobs.cta}:</strong> {selected.ctaText}
                 </p>
               ) : null}
               {selected.referenceLink ? (
                 <p className="break-anywhere">
-                  <strong>Link Referensi:</strong> {selected.referenceLink}
+                  <strong>{copy.jobs.reference}:</strong> {selected.referenceLink}
                 </p>
               ) : null}
 
               {selected.scriptText ? (
                 <div className="notice-box">
                   <div className="row-head">
-                    <strong>Naskah Voice Over</strong>
+                    <strong>{copy.jobs.scriptTitle}</strong>
                     <Sparkles size={16} />
                   </div>
                   <p className="break-anywhere">{selected.scriptText}</p>
@@ -353,7 +346,7 @@ export function JobsPage({
               {selected.captionText ? (
                 <div className="notice-box">
                   <div className="row-head">
-                    <strong>Caption Sosial</strong>
+                    <strong>{copy.jobs.captionTitle}</strong>
                     <FolderClock size={16} />
                   </div>
                   <p className="break-anywhere">{selected.captionText}</p>
@@ -366,11 +359,11 @@ export function JobsPage({
               {selected.renderSummary ? (
                 <div className="meta-grid">
                   <div className="meta-card">
-                    <span className="small">Finalisasi</span>
-                    <strong>{selected.renderSummary.renderedAt ? "Selesai" : "Belum ada"}</strong>
+                    <span className="small">{copy.jobs.finalized}</span>
+                    <strong>{selected.renderSummary.renderedAt ? copy.jobs.completed : copy.jobs.notYet}</strong>
                   </div>
                   <div className="meta-card">
-                    <span className="small">Ukuran File</span>
+                    <span className="small">{copy.jobs.fileSize}</span>
                     <strong>
                       {selected.renderSummary.finalSizeBytes
                         ? `${(selected.renderSummary.finalSizeBytes / (1024 * 1024)).toFixed(2)} MB`
@@ -378,10 +371,10 @@ export function JobsPage({
                     </strong>
                   </div>
                   <div className="meta-card">
-                    <span className="small">Durasi Final</span>
+                    <span className="small">{copy.jobs.finalDuration}</span>
                     <strong>
                       {selected.renderSummary.finalDurationSec
-                        ? `${selected.renderSummary.finalDurationSec.toFixed(2)} detik`
+                        ? formatDurationSeconds(selected.renderSummary.finalDurationSec, locale)
                         : "-"}
                     </strong>
                   </div>
@@ -391,7 +384,7 @@ export function JobsPage({
               <div className="form-actions section-divider">
                 <button type="button" onClick={() => onResumeSession(selected.sessionId)}>
                   <Video size={16} />
-                  <span>Buka di Workspace Generate</span>
+                  <span>{copy.jobs.openWorkspace}</span>
                 </button>
                 <button
                   type="button"
@@ -399,7 +392,7 @@ export function JobsPage({
                   disabled={!canResumeLocally}
                 >
                   <Sparkles size={16} />
-                  <span>{canResumeLocally ? "Lanjutkan Finalisasi" : "Perlu Draft Lokal"}</span>
+                  <span>{canResumeLocally ? copy.jobs.continueFinalize : copy.jobs.localDraftNeeded}</span>
                 </button>
                 <button
                   type="button"
@@ -408,7 +401,7 @@ export function JobsPage({
                   disabled={!hasLocalFinalVideo}
                 >
                   <Download size={16} />
-                  <span>{hasLocalFinalVideo ? "Unduh Final" : "Final Belum Ada"}</span>
+                  <span>{hasLocalFinalVideo ? copy.jobs.downloadFinal : copy.jobs.finalUnavailable}</span>
                 </button>
               </div>
             </>

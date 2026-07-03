@@ -12,6 +12,13 @@ import * as generationCache from "./generation-cache";
 import * as localRender from "./local-render";
 import * as videoDuration from "./video-duration";
 
+function setNavigatorLanguage(language: string) {
+  Object.defineProperty(window.navigator, "language", {
+    value: language,
+    configurable: true
+  });
+}
+
 vi.mock("./api", async () => {
   const actual = await vi.importActual<typeof import("./api")>("./api");
   return {
@@ -22,6 +29,7 @@ vi.mock("./api", async () => {
     createGenerationSession: vi.fn(),
     createTopup: vi.fn(),
     disableAdminUser: vi.fn(),
+    fetchAdminTransactions: vi.fn(),
     failGenerationSession: vi.fn(),
     fetchAdminUsers: vi.fn(),
     fetchGenerationSession: vi.fn(),
@@ -126,6 +134,7 @@ const mockSettings = {
   ttsProvider: "openrouter" as const,
   ttsFallbackProvider: "gemini_direct" as const,
   ttsModel: "google/gemini-3.1-flash-tts-preview",
+  taxRatePercent: 0,
   language: "id-ID" as const,
   maxVideoSeconds: 60,
   safetyMode: "safe_marketing" as const,
@@ -175,6 +184,8 @@ function buildSession(
     description: "Jelaskan produk dengan singkat dan menarik",
     contentType: "affiliate",
     socialPlatform: "instagram",
+    contentLanguage: "id-ID",
+    scriptMode: "auto_analysis",
     voiceGender: "female",
     tone: "natural",
     ctaText: "cek detailnya sekarang",
@@ -197,6 +208,7 @@ function buildSession(
 beforeEach(() => {
   vi.clearAllMocks();
   window.history.replaceState({}, "", "/");
+  setNavigatorLanguage("id-ID");
   vi.mocked(api.completeGoogleOAuthRedirect).mockResolvedValue({ sessionReady: false });
   vi.mocked(api.fetchSession).mockResolvedValue(null);
   vi.mocked(api.fetchSettings).mockResolvedValue(mockSettings);
@@ -221,6 +233,10 @@ beforeEach(() => {
     ],
     recentLedger: [],
     recentTopups: []
+  });
+  vi.mocked(api.fetchAdminTransactions).mockResolvedValue({
+    items: [],
+    nextCursor: null
   });
   vi.mocked(api.fetchGenerationSessions).mockResolvedValue([]);
   vi.mocked(api.fetchGenerationSession).mockResolvedValue(buildSession());
@@ -299,6 +315,7 @@ describe("web smoke", () => {
   it("renders the local generate workspace", async () => {
     render(
       <GeneratePage
+        locale="id-ID"
         currentUser={activeUser}
         onRefreshSession={vi.fn(async () => undefined)}
         onViewJobs={vi.fn()}
@@ -310,6 +327,9 @@ describe("web smoke", () => {
     });
     expect(screen.getByRole("region", { name: /^slot video 1$/i })).toBeTruthy();
     expect(screen.getByText(/Video Utama/i)).toBeTruthy();
+    expect((screen.getByLabelText(/^Mode Generate/i) as HTMLSelectElement).value).toBe(
+      "auto_analysis"
+    );
     expect(screen.getByLabelText(/^Judul/i)).toBeTruthy();
     expect(screen.getAllByText(/Flat per proses/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Proses Video/i })).toBeTruthy();
@@ -328,6 +348,7 @@ describe("web smoke", () => {
 
     render(
       <GeneratePage
+        locale="id-ID"
         currentUser={activeUser}
         onRefreshSession={onRefreshSession}
         onViewJobs={vi.fn()}
@@ -362,8 +383,66 @@ describe("web smoke", () => {
     expect(onRefreshSession).toHaveBeenCalled();
   });
 
+  it("submits manual script mode without frame extraction", async () => {
+    const createdSession = buildSession({
+      sessionId: "session-manual-1",
+      scriptMode: "manual_script",
+      frameCount: 0,
+      status: "ready_for_audio",
+      description: ""
+    });
+    vi.mocked(api.createGenerationSession).mockResolvedValue({
+      session: createdSession
+    });
+
+    render(
+      <GeneratePage
+        locale="id-ID"
+        currentUser={activeUser}
+        onRefreshSession={vi.fn(async () => undefined)}
+        onViewJobs={vi.fn()}
+      />
+    );
+
+    const file = new File(["video-manual"], "manual.mp4", { type: "video/mp4" });
+    fireEvent.change(screen.getByLabelText(/^Video/i), {
+      target: { files: [file] }
+    });
+    await waitFor(() => {
+      expect(videoDuration.readVideoDuration).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.change(screen.getByLabelText(/^Mode Generate/i), {
+      target: { value: "manual_script" }
+    });
+
+    expect(await screen.findByLabelText(/Script Video Manual/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/Brief \/ Deskripsi/i)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText(/^Judul/i), {
+      target: { value: "Voice Over Manual" }
+    });
+    fireEvent.change(screen.getByLabelText(/Script Video Manual/i), {
+      target: { value: "Ini script manual final yang dipakai langsung." }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Proses Video/i }));
+
+    await waitFor(() => {
+      expect(frameExtractor.extractFramesFromVideo).not.toHaveBeenCalled();
+      expect(api.createGenerationSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          contentLanguage: "id-ID",
+          scriptMode: "manual_script",
+          manualScriptText: "Ini script manual final yang dipakai langsung.",
+          frames: []
+        })
+      );
+    });
+  });
+
   it("renders deposit page with per-generate package copy", async () => {
-    render(<DepositPage onRefreshSession={vi.fn(async () => undefined)} />);
+    render(<DepositPage locale="id-ID" onRefreshSession={vi.fn(async () => undefined)} />);
 
     expect(await screen.findByRole("heading", { name: /Isi saldo lewat QRIS/i })).toBeTruthy();
     expect(screen.getAllByText(/10 generate/i).length).toBeGreaterThan(0);
@@ -398,6 +477,7 @@ describe("web smoke", () => {
 
     render(
       <JobsPage
+        locale="id-ID"
         currentUser={activeUser}
         selectedJobId="session-1"
         onSelectJob={vi.fn()}
@@ -407,6 +487,7 @@ describe("web smoke", () => {
 
     expect(await screen.findByRole("heading", { name: /Detail Generate/i })).toBeTruthy();
     expect(screen.getByText(/Draft lokal tersedia/i)).toBeTruthy();
+    expect(screen.getAllByText(/Analisa Otomatis/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Buka di Workspace Generate/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Unduh Final/i })).toBeTruthy();
   });
@@ -427,10 +508,88 @@ describe("web smoke", () => {
     expect(audio?.src).toContain("blob:preview-audio");
   });
 
+  it("renders English user flows while keeping settings page in Indonesian", async () => {
+    setNavigatorLanguage("en-US");
+    vi.mocked(api.fetchGenerationSessions).mockResolvedValue([
+      buildSession({
+        contentLanguage: "en-US",
+        title: "English Session",
+        description: "English flow"
+      })
+    ]);
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("button", { name: /Continue with Google/i })
+    ).toBeTruthy();
+
+    render(
+      <GeneratePage
+        locale="en-US"
+        currentUser={activeUser}
+        onRefreshSession={vi.fn(async () => undefined)}
+        onViewJobs={vi.fn()}
+      />
+    );
+    expect(await screen.findByText(/Main Video/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Process Video/i })).toBeTruthy();
+
+    render(<DepositPage locale="en-US" onRefreshSession={vi.fn(async () => undefined)} />);
+    expect(await screen.findByRole("heading", { name: /Top up your balance/i })).toBeTruthy();
+
+    render(
+      <JobsPage
+        locale="en-US"
+        currentUser={activeUser}
+        selectedJobId="session-1"
+        onSelectJob={vi.fn()}
+        onResumeSession={vi.fn()}
+      />
+    );
+    expect(await screen.findByRole("heading", { name: /Generate Details/i })).toBeTruthy();
+
+    render(<SettingsPage />);
+    expect(await screen.findByRole("heading", { name: /Pengaturan Layanan/i })).toBeTruthy();
+    expect(screen.getByLabelText(/Pajak Transaksi/i)).toBeTruthy();
+  });
+
+  it("renders tax setting field for superadmin settings", async () => {
+    render(<SettingsPage />);
+
+    expect(await screen.findByRole("heading", { name: /Pengaturan Layanan/i })).toBeTruthy();
+    expect(screen.getByLabelText(/Pajak Transaksi/i)).toBeTruthy();
+  });
+
   it("renders admin navigation for superadmin", async () => {
     vi.mocked(api.fetchSession).mockResolvedValue(adminUser);
     vi.mocked(api.fetchGenerationSessions).mockResolvedValue([]);
     vi.mocked(api.fetchAdminUsers).mockResolvedValue([]);
+    vi.mocked(api.fetchAdminTransactions).mockResolvedValue({
+      items: [
+        {
+          transactionId: "payment_order:1",
+          kind: "payment",
+          status: "paid",
+          occurredAt: "2026-07-03T10:00:00.000Z",
+          ownerUserId: "user-creator",
+          ownerEmail: "creator@test.dev",
+          grossAmountIdr: 20000,
+          walletImpactIdr: 20000,
+          balanceAfterIdr: 36000,
+          taxRatePercent: 11,
+          taxAmountIdr: 2200,
+          netAmountIdr: 17800,
+          entryType: "deposit_credit",
+          sourceType: "payment_order",
+          description: "Deposit WebQRIS berhasil",
+          paymentMethod: "qris",
+          merchantOrderId: "VS-123",
+          invoiceId: "INV-123"
+        }
+      ],
+      nextCursor: null
+    });
 
     render(<App />);
 
@@ -440,8 +599,11 @@ describe("web smoke", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByRole("heading", { name: /Kelola user, akses, dan paket saldo/i })
+        screen.getByRole("heading", { name: /Kelola user, akses, paket saldo, dan audit transaksi/i })
       ).toBeTruthy();
     });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Transaksi$/i }));
+    expect(await screen.findByText(/Deposit WebQRIS berhasil/i)).toBeTruthy();
   });
 });

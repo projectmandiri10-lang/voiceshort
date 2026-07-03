@@ -291,4 +291,40 @@ describe("gemini service", () => {
       }
     });
   });
+
+  it("builds English Gemini direct TTS prompts when requested", async () => {
+    generateContentMock.mockResolvedValueOnce({
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                inlineData: {
+                  data: Buffer.from("audio", "utf8").toString("base64"),
+                  mimeType: "audio/wav"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    });
+
+    const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
+    await service.generateSpeech({
+      provider: "gemini_direct",
+      fallbackProvider: "openrouter",
+      model: "google/gemini-3.1-flash-tts-preview",
+      text: "Hello everyone, this is a quick sample.",
+      contentLanguage: "en-US",
+      voiceName: "Leda",
+      speechRate: 1,
+      deliveryHint: "warm and clear"
+    });
+
+    const payload = generateContentMock.mock.calls[0]?.[0] as {
+      contents?: Array<{ parts?: Array<{ text?: string }> }>;
+    };
+    expect(payload.contents?.[0]?.parts?.[0]?.text).toContain("Language: English (en-US).");
+  });
 });

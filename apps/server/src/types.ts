@@ -26,6 +26,10 @@ export type SubtitleStyle = "short_punchy" | "clear" | "narrative" | "sales";
 export type JobVoiceGender = "female" | "male";
 export type VoiceGender = JobVoiceGender | "neutral";
 export type AiProvider = "gemini_direct" | "openrouter";
+export const CONTENT_LANGUAGES = ["id-ID", "en-US"] as const;
+export type ContentLanguage = (typeof CONTENT_LANGUAGES)[number];
+export const SCRIPT_MODES = ["auto_analysis", "manual_script"] as const;
+export type ScriptMode = (typeof SCRIPT_MODES)[number];
 
 export type JobStatus = "queued" | "running" | "success" | "failed" | "interrupted";
 export type JobProgressPhase =
@@ -55,11 +59,38 @@ export interface AppSettings {
   ttsProvider: AiProvider;
   ttsFallbackProvider: AiProvider;
   ttsModel: string;
+  taxRatePercent: number;
   language: "id-ID";
   maxVideoSeconds: number;
   safetyMode: "safe_marketing";
   concurrency: 1;
   genderVoices: GenderVoiceSettings[];
+}
+
+export interface AdminTransactionRecord {
+  transactionId: string;
+  kind: "payment" | "generate" | "refund" | "admin";
+  status: string;
+  occurredAt: string;
+  ownerUserId: string;
+  ownerEmail: string;
+  grossAmountIdr: number;
+  walletImpactIdr: number;
+  balanceAfterIdr: number | null;
+  taxRatePercent: number;
+  taxAmountIdr: number;
+  netAmountIdr: number;
+  entryType?: string | null;
+  sourceType?: string | null;
+  description: string;
+  paymentMethod?: string | null;
+  merchantOrderId?: string | null;
+  invoiceId?: string | null;
+}
+
+export interface AdminTransactionCursor {
+  occurredAt: string;
+  transactionId: string;
 }
 
 export interface GenerationCapacity {
@@ -219,6 +250,7 @@ export interface GenerateSpeechInput {
   fallbackProvider?: AiProvider;
   model: string;
   text: string;
+  contentLanguage?: ContentLanguage;
   voiceName: string;
   speechRate: number;
   deliveryHint?: string;

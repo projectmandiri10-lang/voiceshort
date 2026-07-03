@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "../src/constants.js";
-import { parseJobCreateInput, parseSettings } from "../src/validation.js";
+import { parseJobCreateInput, parseSettings, parseTtsPreviewInput } from "../src/validation.js";
 
 describe("validation", () => {
   it("parses settings with ordered gender voices", () => {
@@ -47,6 +47,22 @@ describe("validation", () => {
     ).toThrow();
   });
 
+  it("accepts decimal tax rate and rejects values above 100", () => {
+    const parsed = parseSettings({
+      ...DEFAULT_SETTINGS,
+      taxRatePercent: 11.25
+    });
+
+    expect(parsed.taxRatePercent).toBe(11.25);
+
+    expect(() =>
+      parseSettings({
+        ...DEFAULT_SETTINGS,
+        taxRatePercent: 100.01
+      })
+    ).toThrow();
+  });
+
   it("parses general job input and normalizes optional text", () => {
     const parsed = parseJobCreateInput({
       title: "Judul",
@@ -64,5 +80,23 @@ describe("validation", () => {
     expect(parsed.voiceGender).toBe("male");
     expect(parsed.ctaText).toBeUndefined();
     expect(parsed.referenceLink).toBe("https://contoh.test/ref");
+  });
+
+  it("accepts supported preview content languages and rejects unsupported ones", () => {
+    const parsed = parseTtsPreviewInput({
+      voiceName: "Leda",
+      speechRate: 1,
+      contentLanguage: "en-US"
+    });
+
+    expect(parsed.contentLanguage).toBe("en-US");
+
+    expect(() =>
+      parseTtsPreviewInput({
+        voiceName: "Leda",
+        speechRate: 1,
+        contentLanguage: "fr-FR"
+      })
+    ).toThrow();
   });
 });

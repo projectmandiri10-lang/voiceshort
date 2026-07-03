@@ -261,6 +261,31 @@ describe("api integration", () => {
           recentLedger: [],
           recentTopups: []
         }),
+        getAdminTransactions: async () => ({
+          items: [
+            {
+              transactionId: "payment_order:test-1",
+              kind: "payment",
+              status: "paid",
+              occurredAt: "2026-07-03T10:00:00.000Z",
+              ownerUserId: "user-creator",
+              ownerEmail: "creator@test.dev",
+              grossAmountIdr: 20000,
+              walletImpactIdr: 20000,
+              balanceAfterIdr: 36000,
+              taxRatePercent: 11,
+              taxAmountIdr: 2200,
+              netAmountIdr: 17800,
+              entryType: "deposit_credit",
+              sourceType: "payment_order",
+              description: "Deposit WebQRIS berhasil",
+              paymentMethod: "qris",
+              merchantOrderId: "VS-TEST-1",
+              invoiceId: "INV-TEST-1"
+            }
+          ],
+          nextCursor: null
+        }),
         createTopup: async () => {
           throw new Error("not implemented in test");
         },
@@ -848,6 +873,29 @@ describe("api integration", () => {
       disabledReason: "Dinonaktifkan oleh admin"
     });
     expect(deleteResponse.json().disabledAt).toBeTruthy();
+  });
+
+  it("lets superadmin read the admin transaction feed", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/admin/transactions?limit=20",
+      headers: {
+        Authorization: bearerHeader(adminToken)
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      items: [
+        {
+          transactionId: "payment_order:test-1",
+          kind: "payment",
+          taxRatePercent: 11,
+          taxAmountIdr: 2200
+        }
+      ],
+      nextCursor: null
+    });
   });
 
   it("rejects admin user management for non-superadmin", async () => {

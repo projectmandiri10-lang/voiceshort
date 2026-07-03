@@ -36,6 +36,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ttsProvider: "openrouter",
   ttsFallbackProvider: "gemini_direct",
   ttsModel: DEFAULT_OPENROUTER_TTS_MODEL,
+  taxRatePercent: 0,
   language: "id-ID",
   maxVideoSeconds: ABSOLUTE_MAX_VIDEO_SECONDS,
   safetyMode: "safe_marketing",

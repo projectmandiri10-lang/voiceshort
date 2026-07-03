@@ -1946,6 +1946,22 @@ button {
   background: rgba(15, 255, 255, 0.08);
 }
 
+.session-mode-badge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 255, 255, 0.18);
+  background: rgba(15, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .detail-box {
   padding: 18px;
 }
@@ -2006,6 +2022,68 @@ button {
   margin-top: 20px;
   padding-top: 18px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.admin-section-tabs {
+  margin-bottom: 18px;
+}
+
+.admin-section-tabs button,
+.admin-filter-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.admin-transaction-toolbar {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-filter-tabs {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+.admin-transaction-table-wrap {
+  overflow-x: auto;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.admin-transaction-table {
+  width: 100%;
+  min-width: 1100px;
+  border-collapse: collapse;
+}
+
+.admin-transaction-table th,
+.admin-transaction-table td {
+  padding: 14px 16px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.admin-transaction-table th {
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: rgba(1, 11, 19, 0.72);
+}
+
+.admin-transaction-table td {
+  font-size: 0.92rem;
+}
+
+.admin-transaction-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.admin-load-more {
+  justify-self: start;
 }
 
 .err-text,
@@ -2379,6 +2457,12 @@ button {
 .generate-section-label {
   color: rgba(255, 255, 255, 0.38);
   font-size: 0.62rem;
+}
+
+.generate-field-hint {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.45;
 }
 
 .generate-upload-dropzone {

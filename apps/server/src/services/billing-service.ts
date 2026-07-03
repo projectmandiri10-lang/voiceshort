@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { FastifyBaseLogger } from "fastify";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { nanoid } from "nanoid";
-import type { AuthSessionUser } from "../types.js";
+import type { AdminTransactionCursor, AdminTransactionRecord, AuthSessionUser } from "../types.js";
 import { GENERATE_PRICE_IDR_DEFAULT, normalizeGeneratePriceIdr } from "../utils/billing.js";
 
 export const DEPOSIT_PACKAGES = [
@@ -53,12 +53,18 @@ interface PaymentOrderRow {
   qris_payload: string | null;
   unique_code: number | null;
   total_amount_idr: number | null;
+  tax_rate_percent?: number | string | null;
+  tax_amount_idr?: number | null;
   status: PaymentStatus;
   expired_at: string | null;
   paid_at: string | null;
   payment_method: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface AppSettingsTaxRow {
+  tax_rate_percent?: number | string | null;
 }
 
 interface WalletLedgerRow {
@@ -71,6 +77,27 @@ interface WalletLedgerRow {
   description: string;
   metadata: Record<string, unknown> | null;
   created_at: string;
+}
+
+interface AdminTransactionFeedRow {
+  transaction_id: string;
+  kind: AdminTransactionRecord["kind"];
+  status: string;
+  occurred_at: string;
+  owner_user_id: string;
+  owner_email: string;
+  gross_amount_idr: number;
+  wallet_impact_idr: number;
+  balance_after_idr: number | null;
+  tax_rate_percent?: number | string | null;
+  tax_amount_idr: number;
+  net_amount_idr: number;
+  entry_type: string | null;
+  source_type: string | null;
+  description: string | null;
+  payment_method: string | null;
+  merchant_order_id: string | null;
+  invoice_id: string | null;
 }
 
 interface WebqrisCreateResponse {
@@ -108,16 +135,39 @@ function normalizeBaseUrl(url: string): string {
   return (url.trim() || "https://webqris.com").replace(/\/+$/, "");
 }
 
+function normalizeTaxRatePercent(value: unknown): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Math.round(numeric * 100) / 100));
+}
+
+function calculateTaxAmountIdr(payAmountIdr: number, taxRatePercent: number): number {
+  return Math.max(0, Math.round(payAmountIdr * (taxRatePercent / 100)));
+}
+
 export function getDepositPackage(packageCode: string) {
   return DEPOSIT_PACKAGES.find((item) => item.code === packageCode);
 }
 
 function paymentOrderToApi(row: PaymentOrderRow) {
+  const taxRatePercent = normalizeTaxRatePercent(row.tax_rate_percent);
+  const taxAmountIdr = Math.max(
+    0,
+    Math.trunc(
+      row.tax_amount_idr ??
+        calculateTaxAmountIdr(Math.max(0, Math.trunc(row.pay_amount_idr || 0)), taxRatePercent)
+    )
+  );
   return {
     id: row.id,
     packageCode: row.package_code,
     payAmountIdr: row.pay_amount_idr,
     creditAmountIdr: row.credit_amount_idr,
+    taxRatePercent,
+    taxAmountIdr,
+    netAmountIdr: Math.max(0, Math.trunc(row.pay_amount_idr || 0) - taxAmountIdr),
     merchantOrderId: row.merchant_order_id,
     webqrisInvoiceId: row.webqris_invoice_id,
     qrisPayload: row.qris_payload,
@@ -143,6 +193,32 @@ function ledgerToApi(row: WalletLedgerRow) {
     description: row.description,
     metadata: row.metadata ?? {},
     createdAt: row.created_at
+  };
+}
+
+function adminTransactionToApi(row: AdminTransactionFeedRow): AdminTransactionRecord {
+  return {
+    transactionId: row.transaction_id,
+    kind: row.kind,
+    status: row.status,
+    occurredAt: row.occurred_at,
+    ownerUserId: row.owner_user_id,
+    ownerEmail: row.owner_email,
+    grossAmountIdr: Math.max(0, Math.trunc(row.gross_amount_idr || 0)),
+    walletImpactIdr: Math.trunc(row.wallet_impact_idr || 0),
+    balanceAfterIdr:
+      row.balance_after_idr === null || row.balance_after_idr === undefined
+        ? null
+        : Math.trunc(row.balance_after_idr),
+    taxRatePercent: normalizeTaxRatePercent(row.tax_rate_percent),
+    taxAmountIdr: Math.max(0, Math.trunc(row.tax_amount_idr || 0)),
+    netAmountIdr: Math.max(0, Math.trunc(row.net_amount_idr || 0)),
+    entryType: row.entry_type,
+    sourceType: row.source_type,
+    description: row.description || "-",
+    paymentMethod: row.payment_method,
+    merchantOrderId: row.merchant_order_id,
+    invoiceId: row.invoice_id
   };
 }
 
@@ -179,6 +255,37 @@ export class BillingService {
       ...item,
       generateCredits: Math.floor(item.creditAmountIdr / this.generatePriceIdr)
     }));
+  }
+
+  public async getAdminTransactions(input?: {
+    limit?: number;
+    cursor?: AdminTransactionCursor | null;
+  }): Promise<{
+    items: AdminTransactionRecord[];
+    nextCursor: AdminTransactionCursor | null;
+  }> {
+    const limit = Math.max(1, Math.min(100, Math.trunc(input?.limit || 50)));
+    const { data, error } = await this.db.rpc("admin_transaction_feed", {
+      row_limit: limit + 1,
+      cursor_occurred_at: input?.cursor?.occurredAt ?? null,
+      cursor_transaction_id: input?.cursor?.transactionId ?? null
+    });
+    if (error) {
+      throw error;
+    }
+    const rows = ((data || []) as AdminTransactionFeedRow[]).map(adminTransactionToApi);
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const last = hasMore ? items[items.length - 1] : null;
+    return {
+      items,
+      nextCursor: last
+        ? {
+            occurredAt: last.occurredAt,
+            transactionId: last.transactionId
+          }
+        : null
+    };
   }
 
   public async getWallet(user: AuthSessionUser) {
@@ -233,6 +340,16 @@ export class BillingService {
     if (!this.webqrisApiToken) {
       throw createHttpError(503, "WEBQRIS_API_TOKEN belum dikonfigurasi di server.");
     }
+    const { data: settingsRow, error: settingsError } = await this.db
+      .from("app_settings")
+      .select("tax_rate_percent")
+      .eq("settings_key", "default")
+      .maybeSingle<AppSettingsTaxRow>();
+    if (settingsError) {
+      throw settingsError;
+    }
+    const taxRatePercent = normalizeTaxRatePercent(settingsRow?.tax_rate_percent);
+    const taxAmountIdr = calculateTaxAmountIdr(selectedPackage.payAmountIdr, taxRatePercent);
 
     const merchantOrderId = `VS-${Date.now()}-${nanoid(8)}`;
     const { data: inserted, error: insertError } = await this.db
@@ -243,6 +360,8 @@ export class BillingService {
         package_code: selectedPackage.code,
         pay_amount_idr: selectedPackage.payAmountIdr,
         credit_amount_idr: selectedPackage.creditAmountIdr,
+        tax_rate_percent: taxRatePercent,
+        tax_amount_idr: taxAmountIdr,
         merchant_order_id: merchantOrderId
       })
       .select("*")

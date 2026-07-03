@@ -10,6 +10,8 @@ import { JobsPage } from "./pages/JobsPage";
 import { LandingPage } from "./pages/LandingPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { AuthUser } from "./types";
+import { resolveBrowserLocale } from "./user-locale";
+import { getUserCopy } from "./user-copy";
 
 type DashboardView = Exclude<AppView, "landing">;
 
@@ -21,10 +23,10 @@ const TAB_META: Record<
   }
 > = {
   generate: { label: "Generate", icon: Sparkles },
-  deposit: { label: "Isi Saldo", icon: WalletCards },
-  jobs: { label: "Riwayat", icon: FolderClock },
+  deposit: { label: "Balance", icon: WalletCards },
+  jobs: { label: "History", icon: FolderClock },
   settings: { label: "Pengaturan", icon: Settings2 },
-  admin: { label: "Admin", icon: ShieldUser },
+  admin: { label: "Admin", icon: ShieldUser }
 };
 
 function getAllowedView(user: AuthUser | null, route: AppRoute): AppView {
@@ -45,6 +47,8 @@ export default function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
   const [sessionError, setSessionError] = useState("");
+  const locale = useMemo(() => resolveBrowserLocale(), []);
+  const copy = useMemo(() => getUserCopy(locale), [locale]);
 
   const activeView = useMemo(() => getAllowedView(user, route), [route, user]);
   const dashboardTabs = useMemo<DashboardView[]>(() => {
@@ -58,10 +62,19 @@ export default function App() {
   const dashboardTabDefinitions = useMemo<DashboardTabDefinition<DashboardView>[]>(() => {
     return dashboardTabs.map((tabId) => ({
       id: tabId,
-      label: TAB_META[tabId].label,
+      label:
+        tabId === "settings"
+          ? copy.app.tabs.settings
+          : tabId === "generate"
+            ? copy.app.tabs.generate
+            : tabId === "deposit"
+              ? copy.app.tabs.deposit
+              : tabId === "jobs"
+                ? copy.app.tabs.jobs
+                : copy.app.tabs.admin,
       icon: TAB_META[tabId].icon,
     }));
-  }, [dashboardTabs]);
+  }, [copy.app.tabs, dashboardTabs]);
 
   const refreshSession = async () => {
     const nextUser = await fetchSession();
@@ -113,7 +126,11 @@ export default function App() {
       } catch (loadError) {
         if (mounted) {
           console.warn("Unable to load user session:", loadError);
-          setSessionError("Kami belum bisa memuat akun Anda. Coba muat ulang halaman sebentar lagi.");
+          setSessionError(
+            locale === "id-ID"
+              ? "Kami belum bisa memuat akun Anda. Coba muat ulang halaman sebentar lagi."
+              : "We could not load your account yet. Please refresh the page and try again."
+          );
         }
       } finally {
         if (mounted) {
@@ -126,7 +143,7 @@ export default function App() {
     return () => {
       mounted = false;
     };
-  }, [route.view]);
+  }, [locale, route.view]);
 
   useEffect(() => {
     return subscribeToAuthState(async (event) => {
@@ -176,30 +193,36 @@ export default function App() {
     return (
       <main className="app-shell-loading">
         <section className="card">
-          <span className="eyebrow">Booting Workspace</span>
+          <span className="eyebrow">{copy.app.loadingEyebrow}</span>
           <h1>VoiceOver Shorts 60</h1>
-          <p className="section-note">Memuat akun Anda...</p>
+          <p className="section-note">{copy.app.loadingNote}</p>
         </section>
       </main>
     );
   }
 
   if (!user) {
-    return <LandingPage authError={route.authError} onAuthenticated={onAuthenticated} />;
+    return (
+      <LandingPage
+        locale={locale}
+        authError={route.authError}
+        onAuthenticated={onAuthenticated}
+      />
+    );
   }
 
   if (user.disabledAt) {
     return (
       <main className="app-shell-loading">
         <section className="card app-page-card">
-          <span className="eyebrow">Akun Nonaktif</span>
-          <h1>Akun Anda sedang dinonaktifkan</h1>
+          <span className="eyebrow">{copy.app.disabledEyebrow}</span>
+          <h1>{copy.app.disabledTitle}</h1>
           <p>
             {user.disabledReason ||
-              "Hubungi admin VoiceOver Shorts 60 jika Anda merasa akun ini perlu diaktifkan kembali."}
+              copy.app.disabledFallback}
           </p>
           <button type="button" className="danger-button" onClick={() => void onLogout()}>
-            Logout
+            {copy.app.logout}
           </button>
         </section>
       </main>
@@ -209,6 +232,7 @@ export default function App() {
   return (
     <DashboardShell
       user={user}
+      locale={locale}
       activeView={activeView as DashboardView}
       tabs={dashboardTabDefinitions}
       sessionError={sessionError}
@@ -217,15 +241,19 @@ export default function App() {
     >
       {activeView === "generate" ? (
         <GeneratePage
+          locale={locale}
           currentUser={user}
           onRefreshSession={onRefreshSession}
           onViewJobs={(jobId) => onNavigate("jobs", { jobId })}
           resumeSessionId={route.jobId}
         />
       ) : null}
-      {activeView === "deposit" ? <DepositPage onRefreshSession={onRefreshSession} /> : null}
+      {activeView === "deposit" ? (
+        <DepositPage locale={locale} onRefreshSession={onRefreshSession} />
+      ) : null}
       {activeView === "jobs" ? (
         <JobsPage
+          locale={locale}
           currentUser={user}
           selectedJobId={route.jobId}
           onSelectJob={(jobId) => onNavigate("jobs", { jobId })}

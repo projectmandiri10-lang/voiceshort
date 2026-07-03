@@ -93,6 +93,42 @@ function normalizeRoutePath(input: string | undefined): string {
   return value.startsWith("/") ? value : "/";
 }
 
+function encodeAdminTransactionCursor(cursor: { occurredAt: string; transactionId: string } | null): string | null {
+  if (!cursor) {
+    return null;
+  }
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function decodeAdminTransactionCursor(cursor: string | undefined): { occurredAt: string; transactionId: string } | null {
+  const raw = cursor?.trim();
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as {
+      occurredAt?: unknown;
+      transactionId?: unknown;
+    };
+    const occurredAt = String(parsed.occurredAt || "").trim();
+    const transactionId = String(parsed.transactionId || "").trim();
+    if (!occurredAt || !transactionId) {
+      throw new Error("invalid cursor");
+    }
+    return { occurredAt, transactionId };
+  } catch {
+    throw Object.assign(new Error("Cursor transaksi tidak valid."), { statusCode: 400 });
+  }
+}
+
+function parseAdminTransactionLimit(limit: unknown): number {
+  const numeric = typeof limit === "number" ? limit : Number(String(limit ?? ""));
+  if (!Number.isFinite(numeric)) {
+    return 50;
+  }
+  return Math.max(1, Math.min(100, Math.trunc(numeric)));
+}
+
 function normalizeJobRecord(job: JobRecord): JobRecord {
   return {
     ...job,
@@ -518,6 +554,27 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     return await options.usersStore.list(authContext.db);
   });
 
+  app.get("/api/admin/transactions", async (request, reply) => {
+    const authContext = await requireSuperadmin(request, reply);
+    if (!authContext) {
+      return;
+    }
+
+    const query = request.query as { limit?: string | number; cursor?: string };
+    try {
+      const result = await options.billingService.getAdminTransactions({
+        limit: parseAdminTransactionLimit(query.limit),
+        cursor: decodeAdminTransactionCursor(query.cursor)
+      });
+      return reply.send({
+        items: result.items,
+        nextCursor: encodeAdminTransactionCursor(result.nextCursor)
+      });
+    } catch (error) {
+      return sendNormalizedError(reply, error, "Gagal memuat transaksi admin.");
+    }
+  });
+
   app.post("/api/admin/users", async (request, reply) => {
     const authContext = await requireSuperadmin(request, reply);
     if (!authContext) {
@@ -781,17 +838,24 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
     try {
       const settings = await options.settingsStore.get();
+      const contentLanguage = payload.contentLanguage === "en-US" ? "en-US" : "id-ID";
       const sampleText =
         payload.text ||
-        "Ini contoh voice over general untuk video sampai 60 detik dengan delivery natural dan jelas.";
+        (contentLanguage === "en-US"
+          ? "This is a natural and clear English voice over sample for a short video."
+          : "Ini contoh voice over general untuk video sampai 60 detik dengan delivery natural dan jelas.");
       const audio = await options.speechGenerator.generateSpeech({
         provider: settings.ttsProvider,
         fallbackProvider: settings.ttsFallbackProvider,
         model: settings.ttsModel,
         text: sampleText,
+        contentLanguage,
         voiceName: voice.voiceName,
         speechRate: payload.speechRate,
-        deliveryHint: `${voice.tone.toLowerCase()} dan natural untuk voice over video berbahasa Indonesia`
+        deliveryHint:
+          contentLanguage === "en-US"
+            ? `${voice.tone.toLowerCase()} and natural for English short-form voice over`
+            : `${voice.tone.toLowerCase()} dan natural untuk voice over video berbahasa Indonesia`
       });
 
       const previewDir = path.join(OUTPUTS_DIR, "_voice_previews");

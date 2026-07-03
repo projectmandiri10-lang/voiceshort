@@ -1,4 +1,5 @@
 import type {
+  AdminTransactionRecord,
   AdminUserRecord,
   AppSettings,
   AuthUser,
@@ -82,6 +83,9 @@ export interface PaymentOrder {
   packageCode: DepositPackage["code"];
   payAmountIdr: number;
   creditAmountIdr: number;
+  taxRatePercent: number;
+  taxAmountIdr: number;
+  netAmountIdr: number;
   merchantOrderId: string;
   webqrisInvoiceId?: string | null;
   qrisPayload?: string | null;
@@ -115,6 +119,11 @@ export interface WalletSummary {
   packages: DepositPackage[];
   recentLedger: WalletLedgerEntry[];
   recentTopups: PaymentOrder[];
+}
+
+export interface AdminTransactionsPage {
+  items: AdminTransactionRecord[];
+  nextCursor: string | null;
 }
 
 export function isAuthReady(): boolean {
@@ -459,6 +468,21 @@ export async function logout(): Promise<void> {
 
 export async function fetchAdminUsers(): Promise<AdminUserRecord[]> {
   return await apiFetch<AdminUserRecord[]>("/api/admin/users");
+}
+
+export async function fetchAdminTransactions(input?: {
+  cursor?: string | null;
+  limit?: number;
+}): Promise<AdminTransactionsPage> {
+  const params = new URLSearchParams();
+  if (input?.cursor) {
+    params.set("cursor", input.cursor);
+  }
+  if (input?.limit) {
+    params.set("limit", String(input.limit));
+  }
+  const suffix = params.size ? `?${params.toString()}` : "";
+  return await apiFetch<AdminTransactionsPage>(`/api/admin/transactions${suffix}`);
 }
 
 export async function updateAdminUser(

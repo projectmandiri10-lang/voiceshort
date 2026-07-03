@@ -36,6 +36,8 @@ function buildSessionRow(overrides: Record<string, unknown> = {}) {
     description: "Deskripsi Session",
     content_type: "affiliate",
     social_platform: "instagram",
+    content_language: "id-ID",
+    script_mode: "auto_analysis",
     voice_gender: "female",
     tone: "natural",
     cta_text: null,
@@ -63,6 +65,7 @@ function buildServiceClient(options?: {
   sessionRow?: Record<string, unknown>;
   settingsRow?: Record<string, unknown> | null;
   insertError?: { message: string };
+  insertCollector?: unknown[];
   updateCollector?: unknown[];
   rpcMock?: ReturnType<typeof vi.fn>;
 }) {
@@ -70,6 +73,7 @@ function buildServiceClient(options?: {
   const settingsRow = options?.settingsRow ?? null;
   const sessions = options?.sessions || [buildSessionRow()];
   const sessionRow = options?.sessionRow || buildSessionRow();
+  const insertCollector = options?.insertCollector || [];
   const updateCollector = options?.updateCollector || [];
   const rpcMock =
     options?.rpcMock ||
@@ -155,7 +159,8 @@ function buildServiceClient(options?: {
               error: null
             };
           },
-          insert() {
+          insert(payload: unknown) {
+            insertCollector.push(payload);
             return {
               select() {
                 return this;
@@ -169,6 +174,7 @@ function buildServiceClient(options?: {
                 }
                 return {
                   data: buildSessionRow({
+                    ...(payload as Record<string, unknown>),
                     status: "ready_for_audio"
                   }),
                   error: null
@@ -367,6 +373,257 @@ describe("handleApiRequest", () => {
     expect(body[0]?.sessionId).toBe("session-1");
   });
 
+  it("defaults legacy session rows to auto_analysis mode", async () => {
+    createClientMock.mockReturnValue(
+      buildServiceClient({
+        sessions: [buildSessionRow({ script_mode: undefined })]
+      })
+    );
+
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(
+      new Request("https://voiceshort.example/api/generation-sessions", {
+        headers: {
+          Authorization: "Bearer token-123"
+        }
+      }),
+      {
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Array<{ scriptMode: string }>;
+    expect(body[0]?.scriptMode).toBe("auto_analysis");
+  });
+
+  it("rejects auto analysis session creation when frames are missing", async () => {
+    createClientMock.mockReturnValue(buildServiceClient());
+
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(
+      new Request("https://voiceshort.example/api/generation-sessions", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token-123",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          title: "Voice Over Produk",
+          description: "Jelaskan produk dengan singkat dan menarik",
+          contentType: "affiliate",
+          socialPlatform: "instagram",
+          contentLanguage: "id-ID",
+          scriptMode: "auto_analysis",
+          voiceGender: "female",
+          tone: "natural",
+          videoDurationSec: 42,
+          frames: []
+        })
+      }),
+      {
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+      }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      message: "Cuplikan video wajib dikirim untuk analisis."
+    });
+  });
+
+  it("rejects unsupported content language on session creation", async () => {
+    createClientMock.mockReturnValue(buildServiceClient());
+
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(
+      new Request("https://voiceshort.example/api/generation-sessions", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token-123",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          title: "Voice Over Produk",
+          description: "Jelaskan produk dengan singkat dan menarik",
+          contentType: "affiliate",
+          socialPlatform: "instagram",
+          contentLanguage: "fr-FR",
+          scriptMode: "auto_analysis",
+          voiceGender: "female",
+          tone: "natural",
+          videoDurationSec: 42,
+          frames: [
+            {
+              timestampSec: 0,
+              mimeType: "image/jpeg",
+              base64Data: "frame-one",
+              width: 448,
+              height: 252
+            }
+          ]
+        })
+      }),
+      {
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+      }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      message: "Bahasa output tidak valid."
+    });
+  });
+
+  it("creates manual script sessions without visual analysis or AI script generation", async () => {
+    const insertCollector: unknown[] = [];
+    createClientMock.mockReturnValue(
+      buildServiceClient({
+        insertCollector,
+        settingsRow: {
+          settings_key: "default",
+          script_provider: "openrouter",
+          script_fallback_provider: "gemini_direct",
+          script_model: "google/gemini-2.5-flash-lite",
+          tts_provider: "openrouter",
+          tts_fallback_provider: "gemini_direct",
+          tts_model: "google/gemini-3.1-flash-tts-preview",
+          language: "id-ID",
+          max_video_seconds: 60,
+          safety_mode: "safe_marketing",
+          concurrency: 1,
+          gender_voices: [
+            { gender: "male", voiceName: "Charon", speechRate: 1 },
+            { gender: "female", voiceName: "Leda", speechRate: 1 }
+          ]
+        }
+      })
+    );
+
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      openRouterTextResponse(
+        JSON.stringify({
+          caption: "Caption dari script manual.",
+          hashtags: ["#manual", "#voiceshort"]
+        })
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(
+      new Request("https://voiceshort.example/api/generation-sessions", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token-123",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          title: "Voice Over Manual",
+          description: "",
+          contentType: "informasi",
+          socialPlatform: "youtube",
+          contentLanguage: "id-ID",
+          scriptMode: "manual_script",
+          manualScriptText: "Ini script manual final yang dipakai langsung.",
+          voiceGender: "female",
+          tone: "informatif",
+          videoDurationSec: 30,
+          frames: []
+        })
+      }),
+      {
+        GEMINI_API_KEY: "gemini-key",
+        OPENROUTER_API_KEY: "openrouter-key",
+        GENERATE_PRICE_IDR: "2000",
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+      }
+    );
+
+    expect(response.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(insertCollector).toContainEqual(
+      expect.objectContaining({
+        script_mode: "manual_script",
+        frame_count: 0,
+        script_text: "Ini script manual final yang dipakai langsung."
+      })
+    );
+    const body = (await response.json()) as {
+      session: { scriptMode: string; frameCount: number; scriptText?: string; contentLanguage: string };
+    };
+    expect(body.session.scriptMode).toBe("manual_script");
+    expect(body.session.frameCount).toBe(0);
+    expect(body.session.scriptText).toBe("Ini script manual final yang dipakai langsung.");
+    expect(body.session.contentLanguage).toBe("id-ID");
+  });
+
+  it("maps persisted English sessions back to the API record", async () => {
+    createClientMock.mockReturnValue(
+      buildServiceClient({
+        sessions: [buildSessionRow({ content_language: "en-US" })]
+      })
+    );
+
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(
+      new Request("https://voiceshort.example/api/generation-sessions", {
+        headers: {
+          Authorization: "Bearer token-123"
+        }
+      }),
+      {
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Array<{ contentLanguage: string }>;
+    expect(body[0]?.contentLanguage).toBe("en-US");
+  });
+
+  it("rejects manual script sessions when the manual script is empty", async () => {
+    createClientMock.mockReturnValue(buildServiceClient());
+
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(
+      new Request("https://voiceshort.example/api/generation-sessions", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token-123",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          title: "Voice Over Manual",
+          description: "",
+          contentType: "affiliate",
+          socialPlatform: "instagram",
+          contentLanguage: "id-ID",
+          scriptMode: "manual_script",
+          manualScriptText: "",
+          voiceGender: "female",
+          tone: "natural",
+          videoDurationSec: 42,
+          frames: []
+        })
+      }),
+      {
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+      }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      message: "Script manual wajib diisi."
+    });
+  });
+
   it("refunds flat generate credit when session insert fails after AI generation", async () => {
     const rpcMock = vi.fn(async (name: string) => {
       if (name === "reserve_generate_credit") {
@@ -439,6 +696,7 @@ describe("handleApiRequest", () => {
           description: "Jelaskan produk dengan singkat dan menarik",
           contentType: "affiliate",
           socialPlatform: "instagram",
+          contentLanguage: "id-ID",
           voiceGender: "female",
           tone: "natural",
           videoDurationSec: 42,
@@ -557,6 +815,7 @@ describe("handleApiRequest", () => {
           description: "Jelaskan produk dengan singkat dan menarik",
           contentType: "affiliate",
           socialPlatform: "instagram",
+          contentLanguage: "id-ID",
           voiceGender: "female",
           tone: "natural",
           videoDurationSec: 42,
@@ -662,6 +921,7 @@ describe("handleApiRequest", () => {
           description: "Jelaskan produk dengan singkat dan menarik",
           contentType: "affiliate",
           socialPlatform: "instagram",
+          contentLanguage: "id-ID",
           voiceGender: "female",
           tone: "natural",
           videoDurationSec: 42,
@@ -800,6 +1060,7 @@ describe("handleApiRequest", () => {
           description: "Jelaskan produk dengan singkat dan menarik",
           contentType: "affiliate",
           socialPlatform: "instagram",
+          contentLanguage: "id-ID",
           voiceGender: "female",
           tone: "natural",
           videoDurationSec: 42,
@@ -829,7 +1090,7 @@ describe("handleApiRequest", () => {
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("litellm.example"))).toHaveLength(9);
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("openrouter.ai/api/v1/chat/completions"))).toHaveLength(3);
     expect(warnSpy).toHaveBeenCalled();
-  });
+  }, 10000);
 
   it("returns a clear provider error when LiteLLM script primary and OpenRouter fallback both fail", async () => {
     const rpcMock = vi.fn(async () => ({ data: {}, error: null }));
@@ -883,6 +1144,7 @@ describe("handleApiRequest", () => {
           description: "Jelaskan produk dengan singkat dan menarik",
           contentType: "affiliate",
           socialPlatform: "instagram",
+          contentLanguage: "id-ID",
           voiceGender: "female",
           tone: "natural",
           videoDurationSec: 42,
@@ -1005,6 +1267,7 @@ describe("handleApiRequest", () => {
           description: "Jelaskan produk dengan singkat dan menarik",
           contentType: "affiliate",
           socialPlatform: "instagram",
+          contentLanguage: "id-ID",
           voiceGender: "female",
           tone: "natural",
           videoDurationSec: 42,

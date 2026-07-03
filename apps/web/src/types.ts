@@ -27,6 +27,10 @@ export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 export const VOICE_GENDERS = ["male", "female"] as const;
 export type JobVoiceGender = (typeof VOICE_GENDERS)[number];
 export type VoiceGender = JobVoiceGender | "neutral";
+export const CONTENT_LANGUAGES = ["id-ID", "en-US"] as const;
+export type ContentLanguage = (typeof CONTENT_LANGUAGES)[number];
+export const SCRIPT_MODES = ["auto_analysis", "manual_script"] as const;
+export type ScriptMode = (typeof SCRIPT_MODES)[number];
 export const SCRIPT_AI_PROVIDERS = ["gemini_direct", "openrouter", "litellm"] as const;
 export type ScriptAiProvider = (typeof SCRIPT_AI_PROVIDERS)[number];
 export const TTS_AI_PROVIDERS = ["gemini_direct", "openrouter"] as const;
@@ -50,11 +54,33 @@ export interface AppSettings {
   ttsProvider: TtsAiProvider;
   ttsFallbackProvider: TtsAiProvider;
   ttsModel: string;
+  taxRatePercent: number;
   language: "id-ID";
   maxVideoSeconds: number;
   safetyMode: "safe_marketing";
   concurrency: 1;
   genderVoices: GenderVoiceSettings[];
+}
+
+export interface AdminTransactionRecord {
+  transactionId: string;
+  kind: "payment" | "generate" | "refund" | "admin";
+  status: string;
+  occurredAt: string;
+  ownerUserId: string;
+  ownerEmail: string;
+  grossAmountIdr: number;
+  walletImpactIdr: number;
+  balanceAfterIdr: number | null;
+  taxRatePercent: number;
+  taxAmountIdr: number;
+  netAmountIdr: number;
+  entryType?: string | null;
+  sourceType?: string | null;
+  description: string;
+  paymentMethod?: string | null;
+  merchantOrderId?: string | null;
+  invoiceId?: string | null;
 }
 
 export interface AuthUser {
@@ -122,6 +148,8 @@ export interface GenerationSessionRecord {
   description: string;
   contentType: ContentType;
   socialPlatform: SocialPlatform;
+  contentLanguage: ContentLanguage;
+  scriptMode: ScriptMode;
   voiceGender: JobVoiceGender;
   tone: string;
   ctaText?: string;
@@ -154,10 +182,13 @@ export interface GenerationSessionCreateInput {
   description: string;
   contentType: ContentType;
   socialPlatform: SocialPlatform;
+  contentLanguage: ContentLanguage;
+  scriptMode: ScriptMode;
   voiceGender: JobVoiceGender;
   tone: string;
   ctaText?: string;
   referenceLink?: string;
+  manualScriptText?: string;
   videoDurationSec: number;
   frames: Array<{
     timestampSec: number;

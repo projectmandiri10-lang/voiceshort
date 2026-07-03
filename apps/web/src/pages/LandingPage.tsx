@@ -11,60 +11,25 @@ import {
   WandSparkles
 } from "lucide-react";
 import { isAuthReady, login, register, startGoogleLogin } from "../api";
-import type { AuthUser } from "../types";
+import type { AuthUser, ContentLanguage } from "../types";
+import { getUserCopy } from "../user-copy";
 
 interface LandingPageProps {
+  locale: ContentLanguage;
   authError?: string;
   onAuthenticated: (user: AuthUser) => void;
 }
 
 type AuthMode = "login" | "register";
 
-const FEATURE_STEPS = [
-  {
-    title: "1. Unggah Video",
-    description:
-      "Upload file MP4/MOV, sistem membaca durasi dan menghitung estimasi biaya otomatis.",
-    icon: Upload
-  },
-  {
-    title: "2. Tulis Arahan",
-    description:
-      "Isi brief singkat. Tone, gaya narasi, dan CTA disusun ke script serta audio TTS.",
-    icon: PenLine
-  },
-  {
-    title: "3. Unduh Hasil",
-    description:
-      "Final MP4 disiapkan otomatis, lengkap dengan caption dan voice over siap posting.",
-    icon: Download
-  }
-] as const;
-
 const TAGS = ["TikTok", "Instagram Reels", "YouTube Shorts", "Facebook Reels"] as const;
 
-const PACKAGES: Array<{
-  name: string;
-  price: string;
-  quota: string;
-  note: string;
-  badge: string;
-}> = [
-  {
-    name: "QRIS",
-    price: "Rp2.000",
-    quota: "Pengisi suara AI realistis",
-    note: "Bayar sekali untuk satu generate dengan pembayaran QRIS yang cepat dan otomatis.",
-    badge: "Single Card"
-  }
-] as const;
-
-function authErrorMessage(authError?: string): string {
+function authErrorMessage(copy: ReturnType<typeof getUserCopy>, authError?: string): string {
   if (authError === "google-login-failed") {
-    return "Masuk dengan Google belum berhasil. Coba lagi sebentar.";
+    return copy.landing.authErrorGoogleFailed;
   }
   if (authError === "google-callback-invalid") {
-    return "Proses masuk Google tidak lengkap. Silakan ulangi dari tombol Google.";
+    return copy.landing.authErrorGoogleInvalid;
   }
   return "";
 }
@@ -78,7 +43,8 @@ function BrandGlyph() {
   );
 }
 
-export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
+export function LandingPage({ locale, authError, onAuthenticated }: LandingPageProps) {
+  const copy = getUserCopy(locale);
   const [mode, setMode] = useState<AuthMode>("login");
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -88,7 +54,7 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const oauthError = useMemo(() => authErrorMessage(authError), [authError]);
+  const oauthError = useMemo(() => authErrorMessage(copy, authError), [authError, copy]);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -124,12 +90,10 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
 
     try {
       if (!isAuthReady()) {
-        throw new Error(
-          "Masuk Google belum tersedia saat ini. Silakan coba masuk dengan email atau hubungi admin."
-        );
+        throw new Error(copy.landing.googleUnavailable);
       }
 
-      setMessage("Mengarahkan Anda ke Google...");
+      setMessage(copy.landing.redirectingGoogle);
       await startGoogleLogin("/?view=generate");
     } catch (oauthErrorValue) {
       setMessage("");
@@ -152,13 +116,13 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
 
         <div className="landing-nav-actions">
           <a className="landing-nav-link" href="#fitur">
-            Cara Kerja
+            {copy.landing.navHowItWorks}
           </a>
           <a className="landing-nav-link" href="#pricing">
-            Paket Saldo
+            {copy.landing.navPricing}
           </a>
           <a className="landing-nav-cta" href="#masuk">
-            Masuk <span aria-hidden="true">→</span>
+            {copy.landing.navLogin} <span aria-hidden="true">→</span>
           </a>
         </div>
       </nav>
@@ -167,19 +131,16 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
         <div className="landing-copy">
           <div className="badge">
             <span className="badge-dot" />
-            AI Voice Over Generator
+            {copy.landing.badge}
           </div>
 
           <h1>
-            Bikin pengisi suara video short
+            {copy.landing.heroTitle}
             <br />
-            <span>dengan cepat</span> dan rapi.
+            <span>{copy.landing.heroTitleAccent}</span> {copy.landing.heroTitleTail}
           </h1>
 
-          <p className="landing-copy-lead">
-            Unggah video, tulis arahan singkat. Voiceshort menyiapkan narasi berbahasa Indonesia
-            yang siap diposting ke TikTok, Reels, dan Shorts.
-          </p>
+          <p className="landing-copy-lead">{copy.landing.heroLead}</p>
 
           <div className="hero-stat-grid">
             <article className="stat-item">
@@ -187,8 +148,8 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
                 <WandSparkles size={16} />
               </div>
               <div>
-                <div className="stat-title">&lt; 2 Menit</div>
-                <div className="stat-subtitle">Proses rata-rata</div>
+                <div className="stat-title">{copy.landing.statSpeed}</div>
+                <div className="stat-subtitle">{copy.landing.statSpeedNote}</div>
               </div>
             </article>
 
@@ -197,8 +158,8 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
                 <FileVideo size={16} />
               </div>
               <div>
-                <div className="stat-title">Rp2.000</div>
-                <div className="stat-subtitle">Pembayaran via QRIS</div>
+                <div className="stat-title">{copy.landing.statPayment}</div>
+                <div className="stat-subtitle">{copy.landing.statPaymentNote}</div>
               </div>
             </article>
 
@@ -207,8 +168,8 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
                 <ShieldCheck size={16} />
               </div>
               <div>
-                <div className="stat-title">Client-first</div>
-                <div className="stat-subtitle">Diproses lokal</div>
+                <div className="stat-title">{copy.landing.statLocal}</div>
+                <div className="stat-subtitle">{copy.landing.statLocalNote}</div>
               </div>
             </article>
           </div>
@@ -223,19 +184,19 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
 
           <div className="hero-actions">
             <a className="primary-button" href="#pricing">
-              <span>Lihat Paket Saldo</span>
+              <span>{copy.landing.ctaPricing}</span>
               <ArrowRight size={16} />
             </a>
             <a className="ghost-button" href="#fitur">
-              Cara kerja
+              {copy.landing.ctaHowItWorks}
             </a>
           </div>
         </div>
 
         <aside className="auth-card landing-auth-card" id="masuk">
           <div className="auth-head">
-            <h2>Masuk Sekarang</h2>
-            <p>Akses workspace Anda untuk mulai generate voice over.</p>
+            <h2>{copy.landing.authTitle}</h2>
+            <p>{copy.landing.authLead}</p>
           </div>
 
           <button
@@ -257,69 +218,73 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
               <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
               <path fill="none" d="M0 0h48v48H0z" />
             </svg>
-            <span>{oauthLoading ? "Mengarahkan ke Google..." : "Masuk dengan Google"}</span>
+            <span>{oauthLoading ? copy.landing.googleRedirecting : copy.landing.googleLogin}</span>
           </button>
 
-          <p className="auth-helper">Cara tercepat - tanpa perlu ingat password.</p>
+          <p className="auth-helper">{copy.landing.authHelper}</p>
 
           <div className="auth-divider">
-            <span>atau email</span>
+            <span>{copy.landing.authDivider}</span>
           </div>
 
-          <div className="tab-pill" role="tablist" aria-label="Authentication mode">
+          <div className="tab-pill" role="tablist" aria-label={copy.landing.authMode}>
             <button
               className={mode === "login" ? "active" : ""}
               type="button"
               onClick={() => setMode("login")}
             >
-              Masuk
+              {copy.landing.login}
             </button>
             <button
               className={mode === "register" ? "active" : ""}
               type="button"
               onClick={() => setMode("register")}
             >
-              Daftar Akun
+              {copy.landing.register}
             </button>
           </div>
 
           <form className="grid-form auth-form" onSubmit={onSubmit}>
             {showRegisterFields ? (
               <label>
-                <span>Nama</span>
+                <span>{copy.landing.name}</span>
                 <input
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
                   disabled={emailLoading || oauthLoading}
-                  placeholder="Nama Anda"
+                  placeholder={copy.landing.namePlaceholder}
                 />
               </label>
             ) : null}
 
             <label>
-              <span>Email</span>
+              <span>{copy.landing.email}</span>
               <input
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 disabled={emailLoading || oauthLoading}
-                placeholder="nama@email.com"
+                placeholder={copy.landing.emailPlaceholder}
               />
             </label>
 
             <label>
-              <span>Password</span>
+              <span>{copy.landing.password}</span>
               <input
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 disabled={emailLoading || oauthLoading}
-                placeholder="Minimal 8 karakter"
+                placeholder={copy.landing.passwordPlaceholder}
               />
             </label>
 
             <button type="submit" className="primary-btn" disabled={emailLoading || oauthLoading}>
-              {emailLoading ? "Memproses..." : mode === "login" ? "Masuk" : "Buat Akun"}
+              {emailLoading
+                ? copy.landing.submitting
+                : mode === "login"
+                  ? copy.landing.login
+                  : copy.landing.createAccount}
             </button>
           </form>
 
@@ -334,11 +299,11 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
             </span>
             <span>
               <ShieldCheck size={13} />
-              Data aman
+              {copy.landing.securityData}
             </span>
             <span>
               <EyeOff size={13} />
-              No spam
+              {copy.landing.securitySpam}
             </span>
           </div>
         </aside>
@@ -348,17 +313,15 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
         <div className="section-heading landing-section-heading">
           <div className="badge">
             <span className="badge-dot" />
-            Cara Kerja
+            {copy.landing.howItWorksBadge}
           </div>
-          <h2>Tiga langkah, sudah jadi.</h2>
-          <p className="section-note">
-            Tidak perlu software tambahan. Semua berjalan otomatis di perangkat Anda.
-          </p>
+          <h2>{copy.landing.howItWorksTitle}</h2>
+          <p className="section-note">{copy.landing.howItWorksLead}</p>
         </div>
 
         <div className="feature-grid">
-          {FEATURE_STEPS.map((step) => {
-            const Icon = step.icon;
+          {copy.landing.featureSteps.map((step, index) => {
+            const Icon = index === 0 ? Upload : index === 1 ? PenLine : Download;
             return (
               <article className="feature-step" key={step.title}>
                 <div className="feature-step-icon">
@@ -378,31 +341,27 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
         <div className="section-heading landing-section-heading centered">
           <div className="badge">
             <span className="badge-dot" />
-            Pembayaran QRIS
+            {copy.landing.pricingBadge}
           </div>
-          <h2>Bayar Rp2.000 untuk pengisi suara AI realistis</h2>
-          <p className="section-note">
-            Transaksi cepat, aman, dan saldo masuk otomatis setelah pembayaran berhasil.
-          </p>
+          <h2>{copy.landing.pricingTitle}</h2>
+          <p className="section-note">{copy.landing.pricingLead}</p>
         </div>
 
         <div className="pricing-grid">
-          {PACKAGES.map((item) => (
-            <article className="pricing-card featured pricing-card-single" key={item.name}>
-              <div className="pricing-card-head">
-                <span className="pricing-badge">{item.badge}</span>
-                <span className="pricing-popular">QRIS</span>
-              </div>
-              <h3>{item.name}</h3>
-              <div className="pricing-price">{item.price}</div>
-              <strong>{item.quota}</strong>
-              <div className="pricing-divider" />
-              <p className="section-note">{item.note}</p>
-              <button className="primary-btn pricing-action" type="button">
-                Bayar via QRIS
-              </button>
-            </article>
-          ))}
+          <article className="pricing-card featured pricing-card-single">
+            <div className="pricing-card-head">
+              <span className="pricing-badge">{copy.landing.package.badge}</span>
+              <span className="pricing-popular">QRIS</span>
+            </div>
+            <h3>QRIS</h3>
+            <div className="pricing-price">{copy.landing.package.price}</div>
+            <strong>{copy.landing.package.quota}</strong>
+            <div className="pricing-divider" />
+            <p className="section-note">{copy.landing.package.note}</p>
+            <button className="primary-btn pricing-action" type="button">
+              {copy.landing.pricingButton}
+            </button>
+          </article>
         </div>
       </section>
 
@@ -411,23 +370,17 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
           <article className="footer-card">
             <div className="footer-card-head">
               <ShieldCheck size={17} />
-              <span>Privasi</span>
+              <span>{copy.landing.privacy}</span>
             </div>
-            <p className="section-note">
-              Kami menyimpan data akun dan metadata session. Video asli tetap di perangkat Anda.
-              Data tidak dijual ke pihak lain.
-            </p>
+            <p className="section-note">{copy.landing.privacyNote}</p>
           </article>
 
           <article className="footer-card">
             <div className="footer-card-head">
               <ShieldCheck size={17} />
-              <span>Aturan Penggunaan</span>
+              <span>{copy.landing.usage}</span>
             </div>
-            <p className="section-note">
-              Pastikan video yang Anda unggah memang boleh digunakan. Hindari spam,
-              penyalahgunaan, dan konten yang melanggar aturan platform.
-            </p>
+            <p className="section-note">{copy.landing.usageNote}</p>
           </article>
         </div>
 
@@ -436,10 +389,10 @@ export function LandingPage({ authError, onAuthenticated }: LandingPageProps) {
             <div className="landing-brand-mark landing-brand-mark-small">V</div>
             <span className="landing-brand-name">Voiceshort AI</span>
           </div>
-          <p>© 2024 Voiceshort AI. All rights reserved.</p>
+          <p>{copy.landing.footerRights}</p>
           <div className="footer-links">
-            <a href="#">Bantuan</a>
-            <a href="#">Kontak</a>
+            <a href="#">{copy.landing.footerHelp}</a>
+            <a href="#">{copy.landing.footerContact}</a>
           </div>
         </div>
       </footer>
