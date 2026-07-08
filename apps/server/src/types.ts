@@ -25,7 +25,7 @@ export type SubtitleStyle = "short_punchy" | "clear" | "narrative" | "sales";
 
 export type JobVoiceGender = "female" | "male";
 export type VoiceGender = JobVoiceGender | "neutral";
-export type AiProvider = "gemini_direct" | "openrouter";
+export type AiProvider = "gemini_direct" | "openrouter" | "litellm";
 export const CONTENT_LANGUAGES = ["id-ID", "en-US"] as const;
 export type ContentLanguage = (typeof CONTENT_LANGUAGES)[number];
 export const SCRIPT_MODES = ["auto_analysis", "manual_script"] as const;

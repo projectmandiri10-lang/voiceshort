@@ -1301,6 +1301,23 @@ describe("handleApiRequest", () => {
     const updates: unknown[] = [];
     createClientMock.mockReturnValue(
       buildServiceClient({
+        settingsRow: {
+          settings_key: "default",
+          script_provider: "litellm",
+          script_fallback_provider: "openrouter",
+          script_model: "gemini/gemini-2.5-flash-lite",
+          tts_provider: "openrouter",
+          tts_fallback_provider: "gemini_direct",
+          tts_model: "google/gemini-3.1-flash-tts-preview",
+          language: "id-ID",
+          max_video_seconds: 60,
+          safety_mode: "safe_marketing",
+          concurrency: 1,
+          gender_voices: [
+            { gender: "male", voiceName: "Charon", speechRate: 1 },
+            { gender: "female", voiceName: "Leda", speechRate: 1 }
+          ]
+        },
         sessionRow: buildSessionRow({
           status: "ready_for_audio",
           script_text: "Halo, ini script voice over.",
@@ -1321,7 +1338,11 @@ describe("handleApiRequest", () => {
         }
       }),
       {
+        AI_PROVIDER: "litellm",
         GEMINI_API_KEY: "gemini-key",
+        LITELLM_BASE_URL: "https://litellm.example/v1",
+        LITELLM_API_KEY: "litellm-key",
+        LITELLM_TTS_MODEL: "gemini/gemini-2.5-pro-preview-tts",
         OPENROUTER_API_KEY: "openrouter-key",
         SUPABASE_URL: "https://project.supabase.co",
         SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
@@ -1332,17 +1353,17 @@ describe("handleApiRequest", () => {
     expect(response.headers.get("Content-Type")).toBe("audio/mpeg");
     expect(response.headers.get("X-Voice-Name")).toBe("Leda");
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://openrouter.ai/api/v1/audio/speech",
+      "https://litellm.example/v1/audio/speech",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          Authorization: "Bearer openrouter-key"
+          Authorization: "Bearer litellm-key"
         })
       })
     );
     const init = ((fetchMock.mock.calls[0] as unknown as [string, RequestInit] | undefined)?.[1] || {}) as RequestInit;
     expect(JSON.parse(String(init.body))).toMatchObject({
-      model: "google/gemini-3.1-flash-tts-preview",
+      model: "gemini/gemini-2.5-pro-preview-tts",
       voice: "Leda",
       response_format: "mp3",
       speed: 1
@@ -1357,17 +1378,17 @@ describe("handleApiRequest", () => {
     expect(buffer.byteLength).toBeGreaterThan(0);
   });
 
-  it("falls back to Gemini direct for voice preview when OpenRouter TTS fails", async () => {
+  it("falls back to OpenRouter for voice preview when LiteLLM TTS fails", async () => {
     createClientMock.mockReturnValue(
       buildServiceClient({
         settingsRow: {
           settings_key: "default",
-          script_provider: "gemini_direct",
+          script_provider: "litellm",
           script_fallback_provider: "openrouter",
-          script_model: "gemini-2.5-flash-lite",
-          tts_provider: "openrouter",
-          tts_fallback_provider: "gemini_direct",
-          tts_model: "google/gemini-3.1-flash-tts-preview",
+          script_model: "gemini/gemini-2.5-flash-lite",
+          tts_provider: "litellm",
+          tts_fallback_provider: "openrouter",
+          tts_model: "gemini/gemini-2.5-pro-preview-tts",
           language: "id-ID",
           max_video_seconds: 60,
           safety_mode: "safe_marketing",
@@ -1383,7 +1404,7 @@ describe("handleApiRequest", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { message: "OpenRouter TTS gagal" } }), {
+        new Response(JSON.stringify({ error: { message: "LiteLLM TTS gagal" } }), {
           status: 503,
           headers: {
             "Content-Type": "application/json"
@@ -1391,7 +1412,7 @@ describe("handleApiRequest", () => {
         })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { message: "OpenRouter TTS gagal" } }), {
+        new Response(JSON.stringify({ error: { message: "LiteLLM TTS gagal" } }), {
           status: 503,
           headers: {
             "Content-Type": "application/json"
@@ -1399,14 +1420,14 @@ describe("handleApiRequest", () => {
         })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { message: "OpenRouter TTS gagal" } }), {
+        new Response(JSON.stringify({ error: { message: "LiteLLM TTS gagal" } }), {
           status: 503,
           headers: {
             "Content-Type": "application/json"
           }
         })
       )
-      .mockResolvedValueOnce(geminiAudioResponse("fallback-audio"));
+      .mockResolvedValueOnce(openRouterAudioResponse("fallback-audio"));
     vi.stubGlobal("fetch", fetchMock);
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -1427,6 +1448,8 @@ describe("handleApiRequest", () => {
       }),
       {
         GEMINI_API_KEY: "gemini-key",
+        LITELLM_BASE_URL: "https://litellm.example/v1",
+        LITELLM_API_KEY: "litellm-key",
         OPENROUTER_API_KEY: "openrouter-key",
         SUPABASE_URL: "https://project.supabase.co",
         SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
@@ -1434,9 +1457,9 @@ describe("handleApiRequest", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Type")).toBe("audio/wav");
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("openrouter.ai/api/v1/audio/speech"))).toHaveLength(3);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("generativelanguage.googleapis.com"))).toBe(true);
+    expect(response.headers.get("Content-Type")).toBe("audio/mpeg");
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("litellm.example/v1/audio/speech"))).toHaveLength(3);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("openrouter.ai/api/v1/audio/speech"))).toBe(true);
     expect(warnSpy).toHaveBeenCalled();
     const buffer = Buffer.from(await response.arrayBuffer());
     expect(buffer.byteLength).toBeGreaterThan(0);
@@ -1447,7 +1470,23 @@ describe("handleApiRequest", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { message: "OpenRouter TTS gagal" } }), {
+        new Response(JSON.stringify({ error: { message: "LiteLLM TTS gagal" } }), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "LiteLLM TTS gagal" } }), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "LiteLLM TTS gagal" } }), {
           status: 503,
           headers: {
             "Content-Type": "application/json"
@@ -1471,23 +1510,7 @@ describe("handleApiRequest", () => {
         })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { message: "Gemini direct TTS gagal" } }), {
-          status: 503,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { message: "Gemini direct TTS gagal" } }), {
-          status: 503,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { message: "Gemini direct TTS gagal" } }), {
+        new Response(JSON.stringify({ error: { message: "OpenRouter TTS gagal" } }), {
           status: 503,
           headers: {
             "Content-Type": "application/json"
@@ -1513,6 +1536,8 @@ describe("handleApiRequest", () => {
       }),
       {
         GEMINI_API_KEY: "gemini-key",
+        LITELLM_BASE_URL: "https://litellm.example/v1",
+        LITELLM_API_KEY: "litellm-key",
         OPENROUTER_API_KEY: "openrouter-key",
         SUPABASE_URL: "https://project.supabase.co",
         SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
@@ -1524,10 +1549,10 @@ describe("handleApiRequest", () => {
       message: string;
       error?: Record<string, string>;
     };
-    expect(body.message).toContain("Voice preview TTS gagal pada provider utama (openrouter) dan fallback (gemini_direct).");
+    expect(body.message).toContain("Voice preview TTS gagal pada provider utama (litellm) dan fallback (openrouter).");
     expect(body.error).toMatchObject({
-      primaryProvider: "openrouter",
-      fallbackProvider: "gemini_direct"
+      primaryProvider: "litellm",
+      fallbackProvider: "openrouter"
     });
   });
 

@@ -27,6 +27,32 @@ const OPENROUTER_TEXT_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 const OPENROUTER_TTS_ENDPOINT = "https://openrouter.ai/api/v1/audio/speech";
 const DEFAULT_OPENROUTER_TTS_MODEL = "google/gemini-3.1-flash-tts-preview";
 
+function trimTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function resolveLiteLlmChatEndpoint(baseUrl: string): string {
+  const normalized = trimTrailingSlash(baseUrl);
+  if (normalized.endsWith("/chat/completions")) {
+    return normalized;
+  }
+  if (normalized.endsWith("/v1")) {
+    return `${normalized}/chat/completions`;
+  }
+  return `${normalized}/v1/chat/completions`;
+}
+
+function resolveLiteLlmSpeechEndpoint(baseUrl: string): string {
+  const normalized = trimTrailingSlash(baseUrl);
+  if (normalized.endsWith("/audio/speech")) {
+    return normalized;
+  }
+  if (normalized.endsWith("/v1")) {
+    return `${normalized}/audio/speech`;
+  }
+  return `${normalized}/v1/audio/speech`;
+}
+
 interface ParsedGeminiApiError {
   code?: number;
   status?: string;
@@ -210,12 +236,11 @@ export class GeminiService implements AiService {
   public constructor(
     geminiApiKey: string,
     private readonly openrouterApiKey: string,
+    private readonly litellmBaseUrl: string,
+    private readonly litellmApiKey: string,
     private readonly logger: FastifyBaseLogger
   ) {
     this.client = new GoogleGenAI({ apiKey: geminiApiKey });
-    if (!this.openrouterApiKey.trim()) {
-      throw new Error("OPENROUTER_API_KEY wajib diisi.");
-    }
   }
 
   private buildUserParts(prompt: string, video?: UploadedAiFile | UploadedAiFile[]) {
@@ -365,6 +390,55 @@ export class GeminiService implements AiService {
     return this.openRouterPayloadToGeminiLike(payload);
   }
 
+  private async generateLiteLlmText(input: {
+    model: string;
+    prompt: string;
+    video?: UploadedAiFile | UploadedAiFile[];
+  }): Promise<Record<string, unknown>> {
+    if (!this.litellmBaseUrl.trim() || !this.litellmApiKey.trim()) {
+      throw new Error("LiteLLM belum dikonfigurasi.");
+    }
+
+    const response = await fetch(resolveLiteLlmChatEndpoint(this.litellmBaseUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.litellmApiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: normalizeScriptModel(input.model, "litellm"),
+        messages: [
+          {
+            role: "user",
+            content: this.buildOpenRouterMessageContent(input.prompt, input.video)
+          }
+        ]
+      })
+    });
+
+    const text = await response.text().catch(() => "");
+    let payload: Record<string, unknown> = {};
+    if (text) {
+      try {
+        payload = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        payload = { message: text };
+      }
+    }
+
+    if (!response.ok) {
+      const message =
+        String((payload.error as { message?: unknown } | undefined)?.message || payload.message || "").trim() ||
+        `LiteLLM text request gagal (${response.status}).`;
+      throw Object.assign(new Error(message), {
+        status: response.status === 429 ? 503 : response.status,
+        details: payload
+      });
+    }
+
+    return this.openRouterPayloadToGeminiLike(payload);
+  }
+
   private async generateTextWithProvider(input: {
     provider: AiProvider;
     fallbackProvider?: AiProvider;
@@ -377,11 +451,13 @@ export class GeminiService implements AiService {
         async () =>
           provider === "openrouter"
             ? await this.generateOpenRouterText(input)
-            : ((await this.generateUserContent({
-                model: normalizeScriptModel(input.model, "gemini_direct"),
-                prompt: input.prompt,
-                video: input.video
-              })) as unknown as Record<string, unknown>),
+            : provider === "litellm"
+              ? await this.generateLiteLlmText(input)
+              : ((await this.generateUserContent({
+                  model: normalizeScriptModel(input.model, "gemini_direct"),
+                  prompt: input.prompt,
+                  video: input.video
+                })) as unknown as Record<string, unknown>),
         {
           attempts: 3,
           baseDelayMs: 700,
@@ -439,6 +515,54 @@ export class GeminiService implements AiService {
       const message =
         String((payload.error as { message?: unknown } | undefined)?.message || payload.message || "").trim() ||
         `OpenRouter TTS request gagal (${response.status}).`;
+      throw Object.assign(new Error(message), {
+        status: response.status === 429 ? 503 : response.status,
+        details: payload
+      });
+    }
+
+    const data = Buffer.from(await response.arrayBuffer());
+    return {
+      data,
+      mimeType: response.headers.get("Content-Type")?.trim() || "audio/mpeg"
+    };
+  }
+
+  private async generateLiteLlmSpeech(
+    input: GenerateSpeechInput
+  ): Promise<{ data: Buffer; mimeType: string }> {
+    if (!this.litellmBaseUrl.trim() || !this.litellmApiKey.trim()) {
+      throw new Error("LiteLLM belum dikonfigurasi.");
+    }
+
+    const response = await fetch(resolveLiteLlmSpeechEndpoint(this.litellmBaseUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.litellmApiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: normalizeTtsModel(input.model, "litellm"),
+        input: normalizeSpeechText(input.text),
+        voice: input.voiceName,
+        response_format: "mp3",
+        speed: input.speechRate
+      })
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let payload: Record<string, unknown> = {};
+      if (text) {
+        try {
+          payload = JSON.parse(text) as Record<string, unknown>;
+        } catch {
+          payload = { message: text };
+        }
+      }
+      const message =
+        String((payload.error as { message?: unknown } | undefined)?.message || payload.message || "").trim() ||
+        `LiteLLM TTS request gagal (${response.status}).`;
       throw Object.assign(new Error(message), {
         status: response.status === 429 ? 503 : response.status,
         details: payload
@@ -675,7 +799,9 @@ export class GeminiService implements AiService {
         async () =>
           provider === "openrouter"
             ? await this.generateOpenRouterSpeech(input)
-            : await this.generateGeminiDirectSpeech(input),
+            : provider === "litellm"
+              ? await this.generateLiteLlmSpeech(input)
+              : await this.generateGeminiDirectSpeech(input),
         {
           attempts: 3,
           baseDelayMs: 700,

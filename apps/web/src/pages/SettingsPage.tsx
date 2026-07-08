@@ -169,7 +169,7 @@ export function SettingsPage() {
         <p className="section-note">
           Atur provider utama dan fallback untuk script maupun TTS. Gemini Direct memakai API key
           Google langsung, OpenRouter memakai gateway OpenRouter, LiteLLM memakai proxy OpenAI-style
-          untuk akses model Gemini di jalur script, dan pajak transaksi dipakai sebagai snapshot
+          untuk akses model Gemini di jalur script maupun TTS, dan pajak transaksi dipakai sebagai snapshot
           pelaporan untuk top up baru.
         </p>
       </div>

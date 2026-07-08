@@ -12,13 +12,17 @@ function applyBaseEnv() {
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
   process.env.GENERATE_PRICE_IDR = "2000";
   process.env.GEMINI_API_KEY = "test-gemini-key";
-  process.env.SCRIPT_PROVIDER = "gemini_direct";
+  process.env.AI_PROVIDER = "litellm";
+  process.env.SCRIPT_PROVIDER = "litellm";
   process.env.SCRIPT_FALLBACK_PROVIDER = "openrouter";
-  process.env.GEMINI_SCRIPT_MODEL = "gemini-2.5-flash-lite";
-  process.env.TTS_PROVIDER = "openrouter";
-  process.env.TTS_FALLBACK_PROVIDER = "gemini_direct";
+  process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-2.5-flash-lite";
+  process.env.TTS_PROVIDER = "litellm";
+  process.env.TTS_FALLBACK_PROVIDER = "openrouter";
   process.env.OPENROUTER_API_KEY = "test-openrouter-key";
   process.env.OPENROUTER_TTS_MODEL = "google/gemini-3.1-flash-tts-preview";
+  process.env.LITELLM_BASE_URL = "https://litellm.example/v1";
+  process.env.LITELLM_SECRET_KEY = "test-litellm-key";
+  process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
 }
 
 describe("env config", () => {
@@ -35,33 +39,34 @@ describe("env config", () => {
     const env = loadEnv();
     expect(env.aiProvider).toBe("gemini");
     expect(env.geminiApiKey).toBe("test-gemini-key");
-    expect(env.scriptProvider).toBe("gemini_direct");
-    expect(env.ttsProvider).toBe("openrouter");
+    expect(env.scriptProvider).toBe("litellm");
+    expect(env.ttsProvider).toBe("litellm");
   });
 
   it("loads model envs", () => {
     applyBaseEnv();
-    process.env.GEMINI_SCRIPT_MODEL = "gemini-3.5-flash";
-    process.env.OPENROUTER_TTS_MODEL = "google/gemini-3.1-flash-tts-preview";
+    process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
+    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
 
     const env = loadEnv();
-    expect(env.geminiScriptModel).toBe("gemini-3.5-flash");
-    expect(env.openrouterTtsModel).toBe("google/gemini-3.1-flash-tts-preview");
+    expect(env.geminiScriptModel).toBe("gemini/gemini-3-flash-preview");
+    expect(env.openrouterTtsModel).toBe("gemini/gemini-2.5-pro-preview-tts");
     expect(env.successOutputRetentionHours).toBe(72);
   });
 
   it("throws a clear error when gemini api key is missing", () => {
     applyBaseEnv();
+    process.env.TTS_FALLBACK_PROVIDER = "gemini_direct";
     process.env.GEMINI_API_KEY = "";
 
     expect(() => loadEnv()).toThrow("GEMINI_API_KEY wajib diisi");
   });
 
-  it("throws a clear error when gemini script model is missing", () => {
+  it("throws a clear error when litellm script model is missing", () => {
     applyBaseEnv();
-    process.env.GEMINI_SCRIPT_MODEL = "";
+    process.env.LITELLM_SCRIPT_MODEL = "";
 
-    expect(() => loadEnv()).toThrow("GEMINI_SCRIPT_MODEL wajib diisi");
+    expect(() => loadEnv()).toThrow("LITELLM_SCRIPT_MODEL wajib diisi");
   });
 
   it("throws a clear error when openrouter api key is missing", () => {
@@ -71,9 +76,18 @@ describe("env config", () => {
     expect(() => loadEnv()).toThrow("OPENROUTER_API_KEY wajib diisi");
   });
 
+  it("throws a clear error when litellm gateway config is missing", () => {
+    applyBaseEnv();
+    process.env.LITELLM_BASE_URL = "";
+
+    expect(() => loadEnv()).toThrow(
+      "LITELLM_BASE_URL dan LITELLM_SECRET_KEY atau LITELLM_API_KEY wajib diisi"
+    );
+  });
+
   it("throws a clear error when fallback providers match the primary", () => {
     applyBaseEnv();
-    process.env.SCRIPT_FALLBACK_PROVIDER = "gemini_direct";
+    process.env.SCRIPT_FALLBACK_PROVIDER = "litellm";
 
     expect(() => loadEnv()).toThrow("SCRIPT_FALLBACK_PROVIDER wajib berbeda dari SCRIPT_PROVIDER");
   });

@@ -31,9 +31,11 @@ export const CONTENT_LANGUAGES = ["id-ID", "en-US"] as const;
 export type ContentLanguage = (typeof CONTENT_LANGUAGES)[number];
 export const SCRIPT_MODES = ["auto_analysis", "manual_script"] as const;
 export type ScriptMode = (typeof SCRIPT_MODES)[number];
+export const SUBTITLE_MODES = ["without_subtitles", "with_subtitles"] as const;
+export type SubtitleMode = (typeof SUBTITLE_MODES)[number];
 export const SCRIPT_AI_PROVIDERS = ["gemini_direct", "openrouter", "litellm"] as const;
 export type ScriptAiProvider = (typeof SCRIPT_AI_PROVIDERS)[number];
-export const TTS_AI_PROVIDERS = ["gemini_direct", "openrouter"] as const;
+export const TTS_AI_PROVIDERS = ["gemini_direct", "openrouter", "litellm"] as const;
 export type TtsAiProvider = (typeof TTS_AI_PROVIDERS)[number];
 export type AiProvider = ScriptAiProvider;
 
@@ -150,6 +152,7 @@ export interface GenerationSessionRecord {
   socialPlatform: SocialPlatform;
   contentLanguage: ContentLanguage;
   scriptMode: ScriptMode;
+  includeSubtitles: boolean;
   voiceGender: JobVoiceGender;
   tone: string;
   ctaText?: string;
@@ -184,6 +187,7 @@ export interface GenerationSessionCreateInput {
   socialPlatform: SocialPlatform;
   contentLanguage: ContentLanguage;
   scriptMode: ScriptMode;
+  includeSubtitles: boolean;
   voiceGender: JobVoiceGender;
   tone: string;
   ctaText?: string;

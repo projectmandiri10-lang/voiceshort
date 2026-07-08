@@ -20,6 +20,16 @@ vi.mock("@google/genai", () => ({
 
 import { GeminiService } from "../src/services/gemini-service.js";
 
+function createService(logger: pino.Logger) {
+  return new GeminiService(
+    "test-gemini-key",
+    "test-openrouter-key",
+    "https://litellm.example/v1",
+    "test-litellm-key",
+    logger
+  );
+}
+
 describe("gemini service", () => {
   const logger = pino({ level: "silent" });
 
@@ -61,7 +71,7 @@ describe("gemini service", () => {
       })
     });
 
-    const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
+    const service = createService(logger);
     await service.generateVisualBrief({
       provider: "gemini_direct",
       fallbackProvider: "openrouter",
@@ -97,7 +107,7 @@ describe("gemini service", () => {
       .mockResolvedValueOnce({ state: "PROCESSING" })
       .mockResolvedValueOnce({ state: "ACTIVE" });
 
-    const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
+    const service = createService(logger);
     const uploaded = await service.uploadVideo("C:/temp/source.mp4", "video/mp4");
 
     expect(uploaded).toEqual({
@@ -145,7 +155,7 @@ describe("gemini service", () => {
         })
       });
 
-    const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
+    const service = createService(logger);
     const brief = await service.generateVisualBrief({
       provider: "gemini_direct",
       fallbackProvider: "openrouter",
@@ -190,7 +200,7 @@ describe("gemini service", () => {
       )
     );
 
-    const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
+    const service = createService(logger);
     const result = await service.generateScript({
       provider: "gemini_direct",
       fallbackProvider: "openrouter",
@@ -214,7 +224,7 @@ describe("gemini service", () => {
       })
     );
 
-    const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
+    const service = createService(logger);
     const audio = await service.generateSpeech({
       provider: "openrouter",
       fallbackProvider: "gemini_direct",
@@ -244,6 +254,45 @@ describe("gemini service", () => {
     });
   });
 
+  it("sends LiteLLM TTS requests with Gemini-native slugs", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(Buffer.from("litellm-audio"), {
+        status: 200,
+        headers: {
+          "Content-Type": "audio/mpeg"
+        }
+      })
+    );
+
+    const service = createService(logger);
+    const audio = await service.generateSpeech({
+      provider: "litellm",
+      fallbackProvider: "openrouter",
+      model: "google/gemini-3.1-flash-tts-preview",
+      text: "Halo semua, ini contoh LiteLLM TTS.",
+      voiceName: "Charon",
+      speechRate: 1,
+      deliveryHint: "jelas dan natural"
+    });
+
+    expect(audio.data.toString("utf8")).toBe("litellm-audio");
+    expect(audio.mimeType).toBe("audio/mpeg");
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://litellm.example/v1/audio/speech");
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer test-litellm-key",
+      "Content-Type": "application/json"
+    });
+    const payload = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      model: "gemini/gemini-2.5-flash-preview-tts",
+      input: "Halo semua, ini contoh LiteLLM TTS.",
+      voice: "Charon",
+      response_format: "mp3",
+      speed: 1
+    });
+  });
+
   it("uses Gemini direct TTS when configured and requests audio output", async () => {
     generateContentMock.mockResolvedValueOnce({
       candidates: [
@@ -262,7 +311,7 @@ describe("gemini service", () => {
       ]
     });
 
-    const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
+    const service = createService(logger);
     const audio = await service.generateSpeech({
       provider: "gemini_direct",
       fallbackProvider: "openrouter",
@@ -310,7 +359,7 @@ describe("gemini service", () => {
       ]
     });
 
-    const service = new GeminiService("test-gemini-key", "test-openrouter-key", logger);
+    const service = createService(logger);
     await service.generateSpeech({
       provider: "gemini_direct",
       fallbackProvider: "openrouter",

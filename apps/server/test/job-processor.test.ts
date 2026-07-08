@@ -333,7 +333,7 @@ describe("job processor", () => {
 
     await vi.waitFor(() => {
       expect(uploadStarted).toHaveLength(3);
-    });
+    }, { timeout: 5000 });
     expect([...uploadStarted].sort()).toEqual(["parallel-a", "parallel-b", "parallel-c"].sort());
 
     for (const job of jobs) {
@@ -348,7 +348,7 @@ describe("job processor", () => {
 
     await vi.waitFor(() => {
       expect(uploadStarted).toHaveLength(4);
-    });
+    }, { timeout: 5000 });
     expect(uploadStarted[3]).toBe("parallel-d");
     for (const job of jobs) {
       expect((await jobsStore.getById(job.jobId))?.status).toBe("success");

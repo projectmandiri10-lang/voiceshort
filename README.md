@@ -15,7 +15,7 @@ Aplikasi untuk membuat voice over Bahasa Indonesia untuk video pendek sampai `60
 - Worker melakukan:
   - auth/session via Supabase token
   - generate visual brief, script, caption, dan hashtag via provider text yang dipilih (`LiteLLM`, `Gemini Direct`, atau `OpenRouter`)
-  - generate voice over via provider TTS yang dipilih (`Gemini Direct` atau `OpenRouter`)
+  - generate voice over via provider TTS yang dipilih (`LiteLLM`, `Gemini Direct`, atau `OpenRouter`)
   - billing flat per generate
   - simpan metadata history ke Supabase `generation_sessions`
 - Video asli dan `final.mp4` tidak disimpan permanen di server.
@@ -40,6 +40,7 @@ GEMINI_API_KEY=your_gemini_api_key
 OPENROUTER_API_KEY=your_openrouter_api_key
 LITELLM_BASE_URL=https://your-litellm-host
 LITELLM_API_KEY=your_litellm_secret_key
+LITELLM_TTS_MODEL=gemini/gemini-2.5-flash-preview-tts
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 SUPABASE_ANON_KEY=your_publishable_or_anon_key
@@ -58,7 +59,8 @@ Catatan:
 
 - Default aktif tetap kompatibel dengan perilaku lama:
   - provider script utama: `litellm`
-  - provider TTS utama: `openrouter`
+  - provider TTS utama: `litellm`
+  - fallback TTS utama: `openrouter`
 - Superadmin sekarang dapat memilih provider utama dan fallback terpisah untuk script dan TTS dari halaman `Pengaturan`.
 - `VITE_API_BASE` hanya berguna untuk local dev saat Vite dan Worker berjalan di port berbeda.
 - Di production single-origin, frontend otomatis memakai origin Worker yang sama.
@@ -85,6 +87,7 @@ GEMINI_API_KEY=your_gemini_api_key
 OPENROUTER_API_KEY=your_openrouter_api_key
 LITELLM_BASE_URL=https://your-litellm-host
 LITELLM_API_KEY=your_litellm_secret_key
+LITELLM_TTS_MODEL=gemini/gemini-2.5-flash-preview-tts
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 SUPABASE_ANON_KEY=your_publishable_or_anon_key
@@ -96,11 +99,13 @@ VITE_API_BASE=http://localhost:8787
 Jika Anda juga menjalankan `apps/server` legacy, tambahkan env berikut:
 
 ```env
-SCRIPT_PROVIDER=gemini_direct
+AI_PROVIDER=litellm
+SCRIPT_PROVIDER=litellm
 SCRIPT_FALLBACK_PROVIDER=openrouter
-GEMINI_SCRIPT_MODEL=gemini-2.5-flash-lite
-TTS_PROVIDER=openrouter
-TTS_FALLBACK_PROVIDER=gemini_direct
+LITELLM_SCRIPT_MODEL=gemini/gemini-2.5-flash-lite
+TTS_PROVIDER=litellm
+TTS_FALLBACK_PROVIDER=openrouter
+LITELLM_TTS_MODEL=gemini/gemini-2.5-flash-preview-tts
 OPENROUTER_TTS_MODEL=google/gemini-3.1-flash-tts-preview
 ```
 
@@ -169,7 +174,8 @@ Route `/api/jobs*`, SSE progress, server-side download artifact, dan `open-locat
 - Billing default: `Rp2.000/generate`
 - Default provider split:
   - script/caption/visual brief: `LiteLLM`
-  - TTS: `OpenRouter`
+  - TTS: `LiteLLM`
+  - fallback TTS: `OpenRouter`
 - Fallback otomatis tersedia untuk script dan TTS bila provider utama gagal.
 - Frame analisis: JPEG terkompresi, lebar maksimal `448px`
 - Final MP4 hanya tersedia di browser yang sama kecuali user mengunduhnya

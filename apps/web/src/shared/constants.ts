@@ -28,14 +28,15 @@ export const DEFAULT_OPENROUTER_SCRIPT_MODEL = "google/gemini-2.5-flash-lite";
 export const DEFAULT_LITELLM_SCRIPT_MODEL = "gemini/gemini-2.5-flash-lite";
 export const DEFAULT_GEMINI_TTS_MODEL = "gemini-3.1-flash-tts-preview";
 export const DEFAULT_OPENROUTER_TTS_MODEL = "google/gemini-3.1-flash-tts-preview";
+export const DEFAULT_LITELLM_TTS_MODEL = "gemini/gemini-2.5-flash-preview-tts";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   scriptProvider: "litellm",
   scriptFallbackProvider: "openrouter",
   scriptModel: DEFAULT_LITELLM_SCRIPT_MODEL,
-  ttsProvider: "openrouter",
-  ttsFallbackProvider: "gemini_direct",
-  ttsModel: DEFAULT_OPENROUTER_TTS_MODEL,
+  ttsProvider: "litellm",
+  ttsFallbackProvider: "openrouter",
+  ttsModel: DEFAULT_LITELLM_TTS_MODEL,
   taxRatePercent: 0,
   language: "id-ID",
   maxVideoSeconds: ABSOLUTE_MAX_VIDEO_SECONDS,
@@ -57,7 +58,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 const LEGACY_GEMINI_TTS_ALIASES = new Map<string, string>([
   ["gemini-2.5-flash-preview-tts", DEFAULT_GEMINI_TTS_MODEL],
-  ["gemini-2.5-pro-preview-tts", DEFAULT_GEMINI_TTS_MODEL]
+  ["gemini-2.5-pro-preview-tts", DEFAULT_GEMINI_TTS_MODEL],
+  ["google/gemini-3.1-flash-tts-preview", DEFAULT_GEMINI_TTS_MODEL]
 ]);
 
 export function normalizeScriptProvider(
@@ -73,7 +75,9 @@ export function normalizeTtsProvider(
   model: string | undefined,
   fallback: AppSettings["ttsProvider"]
 ): AppSettings["ttsProvider"] {
-  return model === "openrouter" || model === "gemini_direct" ? model : fallback;
+  return model === "openrouter" || model === "gemini_direct" || model === "litellm"
+    ? model
+    : fallback;
 }
 
 export function normalizeAiProvider(model: string | undefined, fallback: AiProvider): AiProvider {
@@ -128,11 +132,21 @@ export function normalizeTtsModel(model: string, provider = DEFAULT_SETTINGS.tts
   const trimmed = model.trim();
   const normalized = LEGACY_GEMINI_TTS_ALIASES.get(trimmed) || trimmed;
   if (!normalized) {
-    return provider === "openrouter" ? DEFAULT_OPENROUTER_TTS_MODEL : DEFAULT_GEMINI_TTS_MODEL;
+    if (provider === "openrouter") {
+      return DEFAULT_OPENROUTER_TTS_MODEL;
+    }
+    if (provider === "litellm") {
+      return DEFAULT_LITELLM_TTS_MODEL;
+    }
+    return DEFAULT_GEMINI_TTS_MODEL;
   }
-  return provider === "openrouter"
-    ? ensureOpenRouterGeminiPrefix(normalized)
-    : stripGoogleGeminiPrefix(normalized);
+  if (provider === "openrouter") {
+    return ensureOpenRouterGeminiPrefix(normalized);
+  }
+  if (provider === "litellm") {
+    return ensureLiteLlmGeminiPrefix(normalized === DEFAULT_GEMINI_TTS_MODEL ? DEFAULT_LITELLM_TTS_MODEL : normalized);
+  }
+  return stripGoogleGeminiPrefix(normalized);
 }
 
 export const GEMINI_TTS_VOICES: TtsVoiceOption[] = [

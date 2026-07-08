@@ -34,11 +34,11 @@ export class SettingsStore {
     }
 
     const nextScriptProvider =
-      scriptProvider === "openrouter" || scriptProvider === "gemini_direct"
+      scriptProvider === "openrouter" || scriptProvider === "gemini_direct" || scriptProvider === "litellm"
         ? scriptProvider
         : settings.scriptProvider;
     const nextTtsProvider =
-      ttsProvider === "openrouter" || ttsProvider === "gemini_direct"
+      ttsProvider === "openrouter" || ttsProvider === "gemini_direct" || ttsProvider === "litellm"
         ? ttsProvider
         : settings.ttsProvider;
 

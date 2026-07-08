@@ -1,21 +1,28 @@
 import dotenv from "dotenv";
 import path from "node:path";
+import {
+  DEFAULT_GEMINI_TTS_MODEL,
+  DEFAULT_LITELLM_TTS_MODEL,
+  DEFAULT_OPENROUTER_TTS_MODEL,
+  DEFAULT_PORT
+} from "./constants.js";
 import { DEFAULT_SUCCESS_OUTPUT_RETENTION_HOURS } from "./services/success-output-retention.js";
 import { ROOT_DIR } from "./utils/paths.js";
-import { DEFAULT_PORT } from "./constants.js";
 
 dotenv.config({ path: path.join(ROOT_DIR, ".env"), override: true });
 
 export interface AppEnv {
   aiProvider: "gemini";
   geminiApiKey: string;
-  scriptProvider: "gemini_direct" | "openrouter";
-  scriptFallbackProvider: "gemini_direct" | "openrouter";
+  scriptProvider: "gemini_direct" | "openrouter" | "litellm";
+  scriptFallbackProvider: "gemini_direct" | "openrouter" | "litellm";
   geminiScriptModel: string;
-  ttsProvider: "gemini_direct" | "openrouter";
-  ttsFallbackProvider: "gemini_direct" | "openrouter";
+  ttsProvider: "gemini_direct" | "openrouter" | "litellm";
+  ttsFallbackProvider: "gemini_direct" | "openrouter" | "litellm";
   openrouterApiKey: string;
   openrouterTtsModel: string;
+  litellmBaseUrl: string;
+  litellmApiKey: string;
   port: number;
   webOrigins: string[];
   superadminEmail: string;
@@ -39,23 +46,53 @@ export interface AppEnv {
 
 export function loadEnv(): AppEnv {
   const aiProvider: AppEnv["aiProvider"] = "gemini";
+  const legacyAiProvider = process.env.AI_PROVIDER?.trim() ?? "";
   const geminiApiKey = process.env.GEMINI_API_KEY?.trim() ?? "";
-  const scriptProvider: AppEnv["scriptProvider"] = (
-    process.env.SCRIPT_PROVIDER?.trim() === "openrouter" ? "openrouter" : "gemini_direct"
-  );
-  const scriptFallbackProvider: AppEnv["scriptFallbackProvider"] = (
-    process.env.SCRIPT_FALLBACK_PROVIDER?.trim() === "gemini_direct" ? "gemini_direct" : "openrouter"
-  );
-  const geminiScriptModel = process.env.GEMINI_SCRIPT_MODEL?.trim() ?? "";
-  const ttsProvider: AppEnv["ttsProvider"] = (
-    process.env.TTS_PROVIDER?.trim() === "gemini_direct" ? "gemini_direct" : "openrouter"
-  );
-  const ttsFallbackProvider: AppEnv["ttsFallbackProvider"] = (
-    process.env.TTS_FALLBACK_PROVIDER?.trim() === "openrouter" ? "openrouter" : "gemini_direct"
-  );
+  const scriptProvider: AppEnv["scriptProvider"] =
+    process.env.SCRIPT_PROVIDER?.trim() === "gemini_direct" ||
+    process.env.SCRIPT_PROVIDER?.trim() === "openrouter" ||
+    process.env.SCRIPT_PROVIDER?.trim() === "litellm"
+      ? (process.env.SCRIPT_PROVIDER.trim() as AppEnv["scriptProvider"])
+      : legacyAiProvider === "gemini_direct" || legacyAiProvider === "openrouter" || legacyAiProvider === "litellm"
+        ? (legacyAiProvider as AppEnv["scriptProvider"])
+        : "litellm";
+  const scriptFallbackProvider: AppEnv["scriptFallbackProvider"] =
+    process.env.SCRIPT_FALLBACK_PROVIDER?.trim() === "gemini_direct" ||
+    process.env.SCRIPT_FALLBACK_PROVIDER?.trim() === "openrouter" ||
+    process.env.SCRIPT_FALLBACK_PROVIDER?.trim() === "litellm"
+      ? (process.env.SCRIPT_FALLBACK_PROVIDER.trim() as AppEnv["scriptFallbackProvider"])
+      : scriptProvider === "litellm"
+        ? "openrouter"
+        : "gemini_direct";
+  const geminiScriptModel =
+    scriptProvider === "litellm"
+      ? process.env.LITELLM_SCRIPT_MODEL?.trim() ?? ""
+      : process.env.GEMINI_SCRIPT_MODEL?.trim() ?? "";
+  const ttsProvider: AppEnv["ttsProvider"] =
+    process.env.TTS_PROVIDER?.trim() === "gemini_direct" ||
+    process.env.TTS_PROVIDER?.trim() === "openrouter" ||
+    process.env.TTS_PROVIDER?.trim() === "litellm"
+      ? (process.env.TTS_PROVIDER.trim() as AppEnv["ttsProvider"])
+      : legacyAiProvider === "gemini_direct" || legacyAiProvider === "openrouter" || legacyAiProvider === "litellm"
+        ? (legacyAiProvider as AppEnv["ttsProvider"])
+        : "litellm";
+  const ttsFallbackProvider: AppEnv["ttsFallbackProvider"] =
+    process.env.TTS_FALLBACK_PROVIDER?.trim() === "gemini_direct" ||
+    process.env.TTS_FALLBACK_PROVIDER?.trim() === "openrouter" ||
+    process.env.TTS_FALLBACK_PROVIDER?.trim() === "litellm"
+      ? (process.env.TTS_FALLBACK_PROVIDER.trim() as AppEnv["ttsFallbackProvider"])
+      : ttsProvider === "litellm"
+        ? "openrouter"
+        : "gemini_direct";
   const openrouterApiKey = process.env.OPENROUTER_API_KEY?.trim() ?? "";
   const openrouterTtsModel =
-    process.env.OPENROUTER_TTS_MODEL?.trim() || "google/gemini-3.1-flash-tts-preview";
+    ttsProvider === "litellm"
+      ? process.env.LITELLM_TTS_MODEL?.trim() || DEFAULT_LITELLM_TTS_MODEL
+      : ttsProvider === "openrouter"
+        ? process.env.OPENROUTER_TTS_MODEL?.trim() || DEFAULT_OPENROUTER_TTS_MODEL
+        : process.env.GEMINI_TTS_MODEL?.trim() || DEFAULT_GEMINI_TTS_MODEL;
+  const litellmBaseUrl = process.env.LITELLM_BASE_URL?.trim() ?? "";
+  const litellmApiKey = process.env.LITELLM_SECRET_KEY?.trim() || process.env.LITELLM_API_KEY?.trim() || "";
   const portRaw = process.env.PORT?.trim();
   const port = portRaw ? Number(portRaw) : DEFAULT_PORT;
   const webOrigins = (process.env.WEB_ORIGIN?.trim() || "http://localhost:5174")
@@ -87,14 +124,35 @@ export function loadEnv(): AppEnv {
     ? Number(successOutputRetentionHoursRaw)
     : DEFAULT_SUCCESS_OUTPUT_RETENTION_HOURS;
 
-  if (!geminiApiKey) {
+  const needsGeminiDirect =
+    scriptProvider === "gemini_direct" ||
+    scriptFallbackProvider === "gemini_direct" ||
+    ttsProvider === "gemini_direct" ||
+    ttsFallbackProvider === "gemini_direct";
+  const needsOpenRouter =
+    scriptProvider === "openrouter" ||
+    scriptFallbackProvider === "openrouter" ||
+    ttsProvider === "openrouter" ||
+    ttsFallbackProvider === "openrouter";
+  const needsLiteLlm =
+    scriptProvider === "litellm" ||
+    scriptFallbackProvider === "litellm" ||
+    ttsProvider === "litellm" ||
+    ttsFallbackProvider === "litellm";
+
+  if (needsGeminiDirect && !geminiApiKey) {
     throw new Error("GEMINI_API_KEY wajib diisi.");
   }
   if (!geminiScriptModel) {
-    throw new Error("GEMINI_SCRIPT_MODEL wajib diisi.");
+    throw new Error(
+      scriptProvider === "litellm" ? "LITELLM_SCRIPT_MODEL wajib diisi." : "GEMINI_SCRIPT_MODEL wajib diisi."
+    );
   }
-  if (!openrouterApiKey) {
+  if (needsOpenRouter && !openrouterApiKey) {
     throw new Error("OPENROUTER_API_KEY wajib diisi.");
+  }
+  if (needsLiteLlm && (!litellmBaseUrl || !litellmApiKey)) {
+    throw new Error("LITELLM_BASE_URL dan LITELLM_SECRET_KEY atau LITELLM_API_KEY wajib diisi.");
   }
   if (scriptProvider === scriptFallbackProvider) {
     throw new Error("SCRIPT_FALLBACK_PROVIDER wajib berbeda dari SCRIPT_PROVIDER.");
@@ -142,6 +200,8 @@ export function loadEnv(): AppEnv {
     ttsFallbackProvider,
     openrouterApiKey,
     openrouterTtsModel,
+    litellmBaseUrl,
+    litellmApiKey,
     port,
     webOrigins,
     superadminEmail,

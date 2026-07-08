@@ -84,11 +84,19 @@ interface WorkerAssetBinding {
 }
 
 export interface WorkerEnv {
+  AI_PROVIDER?: string;
   GEMINI_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
+  OPENROUTER_TTS_MODEL?: string;
   LITELLM_BASE_URL?: string;
   LITELLM_API_KEY?: string;
   LITELLM_SECRET_KEY?: string;
+  LITELLM_SCRIPT_MODEL?: string;
+  LITELLM_TTS_MODEL?: string;
+  SCRIPT_PROVIDER?: string;
+  SCRIPT_FALLBACK_PROVIDER?: string;
+  TTS_PROVIDER?: string;
+  TTS_FALLBACK_PROVIDER?: string;
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
@@ -303,6 +311,17 @@ function resolveLiteLlmChatUrl(baseUrl: string): string {
   return `${normalized}/v1/chat/completions`;
 }
 
+function resolveLiteLlmSpeechUrl(baseUrl: string): string {
+  const normalized = trimTrailingSlash(baseUrl);
+  if (normalized.endsWith("/audio/speech")) {
+    return normalized;
+  }
+  if (normalized.endsWith("/v1")) {
+    return `${normalized}/audio/speech`;
+  }
+  return `${normalized}/v1/audio/speech`;
+}
+
 function getGeneratePriceIdr(env: WorkerEnv): number {
   const raw = String(env.GENERATE_PRICE_IDR || "").trim();
   const parsed = raw ? Number(raw) : DEFAULT_GENERATE_PRICE_IDR;
@@ -475,6 +494,62 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
             : fallbackVoice.speechRate
       };
     })
+  };
+}
+
+function applyRuntimeSettingsEnvOverrides(settings: AppSettings, env: WorkerEnv): AppSettings {
+  const aiProvider = String(env.AI_PROVIDER || "").trim();
+  const scriptProvider = normalizeScriptProvider(
+    String(env.SCRIPT_PROVIDER || aiProvider || "").trim(),
+    settings.scriptProvider
+  );
+  const ttsProvider = normalizeTtsProvider(
+    String(env.TTS_PROVIDER || aiProvider || "").trim(),
+    settings.ttsProvider
+  );
+  const scriptFallbackProvider = normalizeScriptProvider(
+    String(env.SCRIPT_FALLBACK_PROVIDER || (scriptProvider === "litellm" ? "openrouter" : "")).trim(),
+    settings.scriptFallbackProvider === scriptProvider
+      ? scriptProvider === "openrouter"
+        ? "gemini_direct"
+        : "openrouter"
+      : settings.scriptFallbackProvider
+  );
+  const ttsFallbackProvider = normalizeTtsProvider(
+    String(env.TTS_FALLBACK_PROVIDER || (ttsProvider === "litellm" ? "openrouter" : "")).trim(),
+    settings.ttsFallbackProvider === ttsProvider
+      ? ttsProvider === "openrouter"
+        ? "gemini_direct"
+        : "openrouter"
+      : settings.ttsFallbackProvider
+  );
+  const scriptModelOverride =
+    scriptProvider === "litellm" ? String(env.LITELLM_SCRIPT_MODEL || "").trim() : "";
+  const ttsModelOverride =
+    ttsProvider === "litellm"
+      ? String(env.LITELLM_TTS_MODEL || "").trim()
+      : ttsProvider === "openrouter"
+        ? String(env.OPENROUTER_TTS_MODEL || "").trim()
+        : "";
+
+  return {
+    ...settings,
+    scriptProvider,
+    scriptFallbackProvider:
+      scriptFallbackProvider === scriptProvider
+        ? scriptProvider === "openrouter"
+          ? "gemini_direct"
+          : "openrouter"
+        : scriptFallbackProvider,
+    scriptModel: normalizeScriptModel(scriptModelOverride || settings.scriptModel, scriptProvider),
+    ttsProvider,
+    ttsFallbackProvider:
+      ttsFallbackProvider === ttsProvider
+        ? ttsProvider === "openrouter"
+          ? "gemini_direct"
+          : "openrouter"
+        : ttsFallbackProvider,
+    ttsModel: normalizeTtsModel(ttsModelOverride || settings.ttsModel, ttsProvider)
   };
 }
 
@@ -815,7 +890,7 @@ async function parseJsonRequest(request: Request): Promise<unknown> {
   }
 }
 
-async function getSettings(serviceDb: SupabaseClient): Promise<AppSettings> {
+async function getSettings(serviceDb: SupabaseClient, env: WorkerEnv): Promise<AppSettings> {
   const result = await serviceDb
     .from("app_settings")
     .select("*")
@@ -824,7 +899,7 @@ async function getSettings(serviceDb: SupabaseClient): Promise<AppSettings> {
   if (result.error) {
     throw result.error;
   }
-  return normalizeSettings(result.data);
+  return applyRuntimeSettingsEnvOverrides(normalizeSettings(result.data), env);
 }
 
 async function callGemini(
@@ -943,6 +1018,41 @@ async function callOpenRouterTts(
         : typeof payload.message === "string"
           ? payload.message
           : `OpenRouter TTS request gagal (${response.status}).`;
+    throw createHttpError(response.status === 429 ? 503 : response.status, message, payload);
+  }
+
+  return response;
+}
+
+async function callLiteLlmTts(
+  env: WorkerEnv,
+  body: Record<string, unknown>
+): Promise<Response> {
+  const response = await fetch(resolveLiteLlmSpeechUrl(getRequiredEnv(env, "LITELLM_BASE_URL")), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getLiteLlmApiKey(env)}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    let payload: Record<string, unknown> = {};
+    if (text) {
+      try {
+        payload = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        payload = { message: text };
+      }
+    }
+    const message =
+      typeof (payload.error as { message?: unknown } | undefined)?.message === "string"
+        ? String((payload.error as { message?: unknown }).message)
+        : typeof payload.message === "string"
+          ? payload.message
+          : `LiteLLM TTS request gagal (${response.status}).`;
     throw createHttpError(response.status === 429 ? 503 : response.status, message, payload);
   }
 
@@ -1158,6 +1268,22 @@ async function generateAudioWithProvider(
     deliveryHint?: string;
   }
 ): Promise<GeminiAudio> {
+  if (provider === "litellm") {
+    const response = await withRetry(() =>
+      callLiteLlmTts(env, {
+        model: normalizeTtsModel(settings.ttsModel, provider),
+        input: input.text.replace(/\s+/g, " ").trim(),
+        voice: input.voiceName,
+        response_format: "mp3",
+        speed: input.speechRate
+      })
+    );
+    return {
+      bytes: new Uint8Array(await response.arrayBuffer()),
+      mimeType: response.headers.get("Content-Type")?.trim() || "audio/mpeg"
+    };
+  }
+
   if (provider === "openrouter") {
     const response = await withRetry(() =>
       callOpenRouterTts(env, {
@@ -1210,7 +1336,7 @@ async function createGenerationSession(
   context: AuthContext,
   input: GenerationSessionCreateInput
 ): Promise<GenerationSessionRecord> {
-  const settings = await getSettings(context.serviceDb);
+  const settings = await getSettings(context.serviceDb, env);
   if (input.videoDurationSec > settings.maxVideoSeconds) {
     throw createHttpError(
       400,
@@ -1449,7 +1575,7 @@ async function synthesizeGenerationSessionTts(
   sessionId: string
 ): Promise<Response> {
   const session = await getGenerationSessionForUser(context, sessionId);
-  const settings = await getSettings(context.serviceDb);
+  const settings = await getSettings(context.serviceDb, env);
   const scriptText = session.script_text;
   if (!scriptText) {
     throw createHttpError(400, "Session ini belum memiliki naskah untuk TTS.");
@@ -1504,7 +1630,7 @@ async function synthesizeGenerationSessionTts(
 }
 
 async function previewVoice(env: WorkerEnv, context: AuthContext, payload: Record<string, unknown>): Promise<Response> {
-  const settings = await getSettings(context.serviceDb);
+  const settings = await getSettings(context.serviceDb, env);
   const contentLanguage =
     payload.contentLanguage === undefined ? "id-ID" : assertContentLanguage(payload.contentLanguage);
   const voiceName = assertString(payload.voiceName, "Voice name") || "";
@@ -2214,7 +2340,7 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
 
     if (route.path === "/api/settings" && request.method === "GET") {
       requireSuperadmin(context);
-      return jsonResponse(await getSettings(context.serviceDb), {
+      return jsonResponse(await getSettings(context.serviceDb, env), {
         headers: buildCorsHeaders(request)
       });
     }
@@ -2242,7 +2368,7 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
       if (result.error) {
         throw result.error;
       }
-      return jsonResponse(nextSettings, {
+      return jsonResponse(applyRuntimeSettingsEnvOverrides(nextSettings, env), {
         headers: buildCorsHeaders(request)
       });
     }

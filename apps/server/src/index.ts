@@ -57,7 +57,13 @@ async function bootstrap(): Promise<void> {
     logger.error({ err: error }, "Gagal sinkronisasi Google OAuth ke Supabase.");
   });
 
-  const gemini = new GeminiService(env.geminiApiKey, env.openrouterApiKey, logger);
+  const gemini = new GeminiService(
+    env.geminiApiKey,
+    env.openrouterApiKey,
+    env.litellmBaseUrl,
+    env.litellmApiKey,
+    logger
+  );
   const aiService: AiService = gemini;
   const speechGenerator: SpeechService = gemini;
   const billingService = new BillingService({
