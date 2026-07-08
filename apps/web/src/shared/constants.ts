@@ -88,24 +88,43 @@ function stripGoogleGeminiPrefix(model: string): string {
   return model.startsWith("google/gemini-") ? model.slice("google/".length) : model;
 }
 
-function ensureOpenRouterGeminiPrefix(model: string): string {
-  if (model.includes("/")) {
-    return model;
+function collapseRepeatedGeminiPrefix(model: string): string {
+  let normalized = model.trim();
+  while (normalized.startsWith("gemini/gemini/")) {
+    normalized = `gemini/${normalized.slice("gemini/gemini/".length)}`;
   }
-  return model.startsWith("gemini-") ? `google/${model}` : model;
+  while (normalized.startsWith("google/google/")) {
+    normalized = `google/${normalized.slice("google/google/".length)}`;
+  }
+  return normalized;
+}
+
+function ensureOpenRouterGeminiPrefix(model: string): string {
+  const normalized = collapseRepeatedGeminiPrefix(model);
+  if (normalized.startsWith("gemini/")) {
+    return `google/${normalized.slice("gemini/".length)}`;
+  }
+  if (normalized.startsWith("google/gemini-")) {
+    return normalized;
+  }
+  if (normalized.includes("/")) {
+    return normalized;
+  }
+  return normalized.startsWith("gemini-") ? `google/${normalized}` : normalized;
 }
 
 function ensureLiteLlmGeminiPrefix(model: string): string {
-  if (model.startsWith("google/gemini-")) {
-    return `gemini/${model.slice("google/".length)}`;
+  const normalized = collapseRepeatedGeminiPrefix(model);
+  if (normalized.startsWith("google/gemini-")) {
+    return `gemini/${normalized.slice("google/".length)}`;
   }
-  if (model.startsWith("gemini/")) {
-    return model;
+  if (normalized.startsWith("gemini/")) {
+    return normalized;
   }
-  if (model.startsWith("gemini-")) {
-    return `gemini/${model}`;
+  if (normalized.startsWith("gemini-")) {
+    return `gemini/${normalized}`;
   }
-  return model;
+  return normalized;
 }
 
 export function normalizeScriptModel(model: string, provider = DEFAULT_SETTINGS.scriptProvider): string {

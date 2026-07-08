@@ -27,6 +27,15 @@ describe("shared constants", () => {
     expect(normalizeScriptModel("", "litellm")).toBe(DEFAULT_LITELLM_SCRIPT_MODEL);
   });
 
+  it("normalizes Gemini slugs across litellm and openrouter fallback formats", () => {
+    expect(normalizeScriptModel("gemini/gemini-3-flash-preview", "openrouter")).toBe(
+      "google/gemini-3-flash-preview"
+    );
+    expect(normalizeScriptModel("gemini/gemini/gemini-3.1-pro-preview", "litellm")).toBe(
+      "gemini/gemini-3.1-pro-preview"
+    );
+  });
+
   it("keeps provider validation split between script and tts", () => {
     expect(normalizeScriptProvider("litellm", "gemini_direct")).toBe("litellm");
     expect(normalizeTtsProvider("litellm", "openrouter")).toBe("litellm");
