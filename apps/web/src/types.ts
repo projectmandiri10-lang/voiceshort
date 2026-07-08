@@ -152,7 +152,7 @@ export interface GenerationSessionRecord {
   socialPlatform: SocialPlatform;
   contentLanguage: ContentLanguage;
   scriptMode: ScriptMode;
-  includeSubtitles: boolean;
+  includeSubtitles?: boolean;
   voiceGender: JobVoiceGender;
   tone: string;
   ctaText?: string;
@@ -187,7 +187,7 @@ export interface GenerationSessionCreateInput {
   socialPlatform: SocialPlatform;
   contentLanguage: ContentLanguage;
   scriptMode: ScriptMode;
-  includeSubtitles: boolean;
+  includeSubtitles?: boolean;
   voiceGender: JobVoiceGender;
   tone: string;
   ctaText?: string;
