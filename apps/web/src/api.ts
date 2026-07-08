@@ -202,12 +202,68 @@ function friendlyAuthError(error: unknown, fallback: string): Error {
   return new Error(fallback);
 }
 
+function formatApiErrorDetails(details: unknown): string | undefined {
+  if (typeof details === "string") {
+    return details.trim() || undefined;
+  }
+  if (!details || typeof details !== "object") {
+    return undefined;
+  }
+
+  const record = details as Record<string, unknown>;
+  const parts: string[] = [];
+  const primaryProvider =
+    typeof record.primaryProvider === "string" ? record.primaryProvider.trim() : "";
+  const fallbackProvider =
+    typeof record.fallbackProvider === "string" ? record.fallbackProvider.trim() : "";
+  const primaryError = typeof record.primaryError === "string" ? record.primaryError.trim() : "";
+  const fallbackError =
+    typeof record.fallbackError === "string" ? record.fallbackError.trim() : "";
+
+  if (primaryError) {
+    parts.push(`Provider utama ${primaryProvider || "unknown"}: ${primaryError}`);
+  }
+  if (fallbackError) {
+    parts.push(`Provider fallback ${fallbackProvider || "unknown"}: ${fallbackError}`);
+  }
+
+  for (const [key, value] of Object.entries(record)) {
+    if (
+      key === "primaryProvider" ||
+      key === "fallbackProvider" ||
+      key === "primaryError" ||
+      key === "fallbackError"
+    ) {
+      continue;
+    }
+    if (typeof value === "string" && value.trim()) {
+      parts.push(`${key}: ${value.trim()}`);
+    }
+  }
+
+  if (parts.length > 0) {
+    return parts.join(" | ");
+  }
+
+  try {
+    return JSON.stringify(details);
+  } catch {
+    return undefined;
+  }
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let message = `HTTP ${response.status}`;
     try {
-      const body = (await response.json()) as { message?: string; error?: string };
-      message = body.error ? `${body.message || "Error"}: ${body.error}` : body.message || message;
+      const body = (await response.json()) as { message?: unknown; error?: unknown };
+      const baseMessage =
+        typeof body.message === "string" && body.message.trim() ? body.message.trim() : message;
+      const detailMessage = formatApiErrorDetails(body.error);
+      message =
+        detailMessage && detailMessage !== baseMessage
+          ? `${baseMessage} (${detailMessage})`
+          : baseMessage;
     } catch {
       // ignore
     }
