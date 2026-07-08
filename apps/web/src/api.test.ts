@@ -80,7 +80,7 @@ describe("api error handling", () => {
     }
 
     expect(captured).toBeInstanceOf(ApiError);
-    expect(captured).toMatchObject<ApiError>({
+    expect(captured).toMatchObject({
       status: 503,
       message:
         "Visual brief gagal pada provider utama (litellm) dan fallback (openrouter). (Provider utama litellm: LiteLLM script gagal | Provider fallback openrouter: OpenRouter script gagal)"
