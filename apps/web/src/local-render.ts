@@ -1,7 +1,7 @@
 import { FINAL_AUDIO_BITRATE, FINAL_AUDIO_SAMPLE_RATE, FINAL_VIDEO_CRF, FINAL_VIDEO_FPS, FINAL_VIDEO_MAX_DIMENSION, FINAL_VOICE_LOUDNORM } from "./shared/constants";
 import { buildTimedSubtitleCues } from "./subtitle-utils";
+import { calculateAudioFit } from "./shared/speech-timing";
 
-const EXACT_DURATION_FIT_THRESHOLD_SEC = 0.08;
 const FFMPEG_CORE_VERSION = "0.12.10";
 
 function toPlainArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -103,18 +103,13 @@ export function buildFinalMuxArgs(input: {
   subtitleText?: string;
 }): string[] {
   const safeTargetDurationSec = Math.max(1, input.targetDurationSec);
-  const durationDiff = Math.abs(input.voiceDurationSec - safeTargetDurationSec);
-  const tempoFactor = input.voiceDurationSec / safeTargetDurationSec;
+  const audioFit = calculateAudioFit(input.voiceDurationSec, safeTargetDurationSec);
   const targetDurationText = safeTargetDurationSec.toFixed(3);
   const videoFilter = buildVideoCompressionFilter();
   const subtitleFilter = input.subtitleText
     ? buildSubtitleFilterChain(input.subtitleText, safeTargetDurationSec)
     : "";
-  const tempoFilter =
-    durationDiff > EXACT_DURATION_FIT_THRESHOLD_SEC
-      ? `${buildAtempoFilter(tempoFactor)},`
-      : "";
-  const audioFilter = `${tempoFilter}${FINAL_VOICE_LOUDNORM},atrim=0:${targetDurationText},apad=pad_dur=${targetDurationText}`;
+  const audioFilter = `${buildAtempoFilter(audioFit.tempoFactor)},${FINAL_VOICE_LOUDNORM},apad=whole_dur=${targetDurationText}`;
   const filterGraph = `[0:v:0]${videoFilter}${subtitleFilter ? `,${subtitleFilter}` : ""}[vout];[1:a]${audioFilter}[aout]`;
 
   return [

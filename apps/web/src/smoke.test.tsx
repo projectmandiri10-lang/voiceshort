@@ -73,6 +73,8 @@ describe("personal voice upload workflow", () => {
     const voice = new File(["voice"], "voice.mp3", { type: "audio/mpeg" });
     fireEvent.change(container.querySelector('input[type="file"][accept^=".wav"]')!, { target: { files: [voice] } });
     await waitFor(() => expect(screen.getByText(/41\.80 detik voice/)).toBeTruthy());
+    expect(screen.getByText(/Tempo voice sudah sesuai/)).toBeTruthy();
+    expect(screen.getByText(/tanpa memotong kata/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Gabungkan Voice dengan Video" }));
 
     await screen.findByText(readySession.captionText);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildFinalMuxArgs, resolveUploadedAudioPath } from "./local-render";
+import { calculateAudioFit } from "./shared/speech-timing";
 
 describe("buildFinalMuxArgs", () => {
   it("preserves supported uploaded audio extensions for FFmpeg", () => {
@@ -20,6 +21,8 @@ describe("buildFinalMuxArgs", () => {
     expect(args).toContain("-filter_complex");
     expect(args.join(" ")).toContain("libx264");
     expect(args.join(" ")).toContain("loudnorm");
+    expect(args.join(" ")).toContain("apad=whole_dur=42.000");
+    expect(args.join(" ")).not.toContain("atrim");
     expect(args[args.length - 1]).toBe("final.mp4");
   });
 
@@ -53,8 +56,8 @@ describe("buildFinalMuxArgs", () => {
       voiceDurationSec: 58
     }).join(" ");
 
-    expect(tooShort).toContain("atempo=0.625000");
-    expect(tooLong).toContain("atempo=1.450000");
+    expect(tooShort).toContain("atempo=0.628141");
+    expect(tooLong).toContain("atempo=1.457286");
   });
 
   it("chains tempo filters for extreme uploaded-audio duration gaps", () => {
@@ -67,6 +70,31 @@ describe("buildFinalMuxArgs", () => {
     }).join(" ");
 
     expect(args.match(/atempo=0\.5/g)).toHaveLength(3);
-    expect(args).toContain("atempo=0.666667");
+    expect(args).toContain("atempo=0.668896");
+  });
+
+  it("fits a 39 second voice into a 36 second video without clipping words", () => {
+    const fit = calculateAudioFit(39, 36);
+    const args = buildFinalMuxArgs({
+      sourceVideoPath: "source.mp4",
+      voiceWavPath: "voice.wav",
+      outputVideoPath: "final.mp4",
+      targetDurationSec: 36,
+      voiceDurationSec: 39
+    }).join(" ");
+
+    expect(fit.safetyMarginSec).toBe(0.2);
+    expect(fit.speechTargetSec).toBe(35.8);
+    expect(fit.tempoFactor).toBeCloseTo(1.089385, 6);
+    expect(fit.hasQualityWarning).toBe(false);
+    expect(args).toContain("atempo=1.089385");
+    expect(args).toContain("apad=whole_dur=36.000");
+    expect(args).not.toContain("atrim");
+  });
+
+  it("warns but still calculates tempo above the quality threshold", () => {
+    const fit = calculateAudioFit(50, 36);
+    expect(fit.tempoFactor).toBeGreaterThan(1.25);
+    expect(fit.hasQualityWarning).toBe(true);
   });
 });

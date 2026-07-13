@@ -21,6 +21,7 @@ import type {
 import { CONTENT_TYPES } from "../types";
 import { readVideoDuration } from "../video-duration";
 import { formatVideoDuration } from "../utils/billing";
+import { calculateAudioFit } from "../shared/speech-timing";
 
 const AI_STUDIO_URL = "https://aistudio.google.com/generate-speech";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
@@ -274,6 +275,9 @@ export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePa
   };
 
   const completed = session?.status === "completed";
+  const audioFit = session && voiceDurationSec
+    ? calculateAudioFit(voiceDurationSec, session.videoDurationSec)
+    : null;
 
   return (
     <section className="personal-workspace">
@@ -351,6 +355,21 @@ export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePa
               <span>{voiceDurationSec ? `${voiceDurationSec.toFixed(2)} detik voice / ${session.videoDurationSec.toFixed(2)} detik video` : "WAV, MP3, M4A, MP4 audio, atau OGG. Maksimal 25 MB."}</span>
               <input type="file" accept={AUDIO_ACCEPT} onChange={(event) => void selectVoice(event.target.files?.[0] || null)} />
             </label>
+            {audioFit ? (
+              <div className={audioFit.hasQualityWarning ? "tempo-fit-note warning" : "tempo-fit-note"}>
+                <strong>
+                  {audioFit.tempoFactor > 1.001
+                    ? `Voice akan dipercepat ${audioFit.tempoFactor.toFixed(3)}x`
+                    : audioFit.tempoFactor < 0.999
+                      ? `Voice akan diperlambat ${audioFit.tempoFactor.toFixed(3)}x`
+                      : "Tempo voice sudah sesuai"}
+                </strong>
+                <span>
+                  Semua kata dipertahankan dan selesai pada {audioFit.speechTargetSec.toFixed(2)} detik tanpa memotong kata.
+                </span>
+                {audioFit.hasQualityWarning ? <span>Kualitas ucapan dapat menurun karena penyesuaian melebihi 1.25x.</span> : null}
+              </div>
+            ) : null}
             <button type="button" className="primary-action" disabled={!voiceFile || Boolean(busy)} onClick={() => void merge()}>
               {busy === "render" ? <LoaderCircle className="spin" size={18} /> : <Video size={18} />}
               {busy === "render" ? `Menggabungkan ${progress}%` : "Gabungkan Voice dengan Video"}
