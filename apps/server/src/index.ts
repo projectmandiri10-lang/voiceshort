@@ -20,9 +20,9 @@ async function bootstrap(): Promise<void> {
   const env = loadEnv();
   const runtimeModelOverrides = {
     scriptProvider: env.scriptProvider,
-    scriptModel: env.geminiScriptModel,
+    scriptModel: env.scriptModel,
     ttsProvider: env.ttsProvider,
-    ttsModel: env.openrouterTtsModel
+    ttsModel: env.ttsModel
   };
   const adminDb = createSupabaseClient({
     supabaseUrl: env.supabaseUrl,
@@ -58,10 +58,9 @@ async function bootstrap(): Promise<void> {
   });
 
   const gemini = new GeminiService(
-    env.geminiApiKey,
+    env.aiveneApiKey,
+    env.aiveneBaseUrl,
     env.openrouterApiKey,
-    env.litellmBaseUrl,
-    env.litellmApiKey,
     logger
   );
   const aiService: AiService = gemini;
@@ -113,10 +112,10 @@ async function bootstrap(): Promise<void> {
       aiProvider: env.aiProvider,
       scriptProvider: env.scriptProvider,
       scriptFallbackProvider: env.scriptFallbackProvider,
-      scriptModel: env.geminiScriptModel,
+      scriptModel: env.scriptModel,
       ttsProvider: env.ttsProvider,
       ttsFallbackProvider: env.ttsFallbackProvider,
-      ttsModel: env.openrouterTtsModel,
+      ttsModel: env.ttsModel,
       nonTtsProvider: env.scriptProvider,
       nonTtsFallbackProvider: env.scriptFallbackProvider,
       ttsActiveProvider: env.ttsProvider,

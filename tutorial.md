@@ -23,9 +23,11 @@ Pilih jalur ini jika Anda ingin:
 ## 2. Env minimum backend
 
 ```txt
-GEMINI_API_KEY=your_gemini_api_key
+AIVENE_API_KEY=your_aivene_api_key
+AIVENE_BASE_URL=https://api.aivene.com/v1
+AIVENE_SCRIPT_MODEL=gemini-2.5-pro
+AIVENE_TTS_MODEL=tts-1-hd
 OPENROUTER_API_KEY=your_openrouter_api_key
-GEMINI_SCRIPT_MODEL=gemini-2.5-flash-lite
 OPENROUTER_TTS_MODEL=google/gemini-3.1-flash-tts-preview
 SUPABASE_URL=https://project-ref.supabase.co
 SUPABASE_ANON_KEY=your_publishable_or_anon_key

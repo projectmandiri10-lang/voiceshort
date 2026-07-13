@@ -25,6 +25,10 @@ function voiceMatchesGender(voice: TtsVoiceOption, gender: JobVoiceGender): bool
   return voice.gender === gender || voice.gender === "neutral";
 }
 
+function voiceMatchesProvider(voice: TtsVoiceOption, provider: TtsAiProvider): boolean {
+  return voice.provider === provider;
+}
+
 function setProvider(
   settings: AppSettings,
   key: "scriptProvider" | "scriptFallbackProvider",
@@ -97,6 +101,35 @@ export function SettingsPage() {
     setSettings({ ...settings, genderVoices });
   };
 
+  const onTtsProviderChange = (key: "ttsProvider" | "ttsFallbackProvider", value: TtsAiProvider) => {
+    if (!settings) {
+      return;
+    }
+    if (key === "ttsFallbackProvider") {
+      setSettings(setTtsProvider(settings, key, value));
+      return;
+    }
+
+    const nextVoiceOptions = voiceOptions.filter((voice) => voiceMatchesProvider(voice, value));
+    const nextGenderVoices = settings.genderVoices.map((voiceConfig) => {
+      const current = nextVoiceOptions.find((voice) => voice.voiceName === voiceConfig.voiceName);
+      if (current) {
+        return voiceConfig;
+      }
+      const fallback =
+        nextVoiceOptions.find((voice) => voiceMatchesGender(voice, voiceConfig.gender)) || nextVoiceOptions[0];
+      return {
+        ...voiceConfig,
+        voiceName: fallback?.voiceName || voiceConfig.voiceName
+      };
+    });
+
+    setSettings({
+      ...setTtsProvider(settings, key, value),
+      genderVoices: nextGenderVoices
+    });
+  };
+
   const onSave = async (event: FormEvent) => {
     event.preventDefault();
     if (!settings) {
@@ -167,10 +200,9 @@ export function SettingsPage() {
         <span className="eyebrow">Pengaturan Layanan</span>
         <h2>Atur batas durasi dan suara default untuk setiap proses generate.</h2>
         <p className="section-note">
-          Atur provider utama dan fallback untuk script maupun TTS. Gemini Direct memakai API key
-          Google langsung, OpenRouter memakai gateway OpenRouter, LiteLLM memakai proxy OpenAI-style
-          untuk akses model Gemini di jalur script maupun TTS, dan pajak transaksi dipakai sebagai snapshot
-          pelaporan untuk top up baru.
+          Atur provider utama dan fallback untuk script maupun TTS. Aivene menjadi jalur utama untuk
+          akses model Gemini melalui gateway OpenAI-compatible, OpenRouter tetap tersedia sebagai fallback,
+          dan pajak transaksi dipakai sebagai snapshot pelaporan untuk top up baru.
         </p>
       </div>
 
@@ -292,11 +324,7 @@ export function SettingsPage() {
                 Provider Utama
                 <select
                   value={settings.ttsProvider}
-                  onChange={(event) =>
-                    setSettings(
-                      setTtsProvider(settings, "ttsProvider", event.target.value as TtsAiProvider)
-                    )
-                  }
+                  onChange={(event) => onTtsProviderChange("ttsProvider", event.target.value as TtsAiProvider)}
                 >
                   {TTS_AI_PROVIDERS.map((provider) => (
                     <option key={provider} value={provider}>
@@ -311,13 +339,7 @@ export function SettingsPage() {
                 <select
                   value={settings.ttsFallbackProvider}
                   onChange={(event) =>
-                    setSettings(
-                      setTtsProvider(
-                        settings,
-                        "ttsFallbackProvider",
-                        event.target.value as TtsAiProvider
-                      )
-                    )
+                    onTtsProviderChange("ttsFallbackProvider", event.target.value as TtsAiProvider)
                   }
                 >
                   {TTS_AI_PROVIDERS.map((provider) => (
@@ -347,7 +369,10 @@ export function SettingsPage() {
         <div className="style-grid">
           {(["male", "female"] as JobVoiceGender[]).map((gender) => {
             const selected = findVoiceConfig(settings, gender);
-            const options = voiceOptions.filter((voice) => voiceMatchesGender(voice, gender));
+            const options = voiceOptions.filter(
+              (voice) =>
+                voiceMatchesProvider(voice, settings.ttsProvider) && voiceMatchesGender(voice, gender)
+            );
             return (
               <article className="style-card" key={gender}>
                 <div className="row-head">

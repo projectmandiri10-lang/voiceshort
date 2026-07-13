@@ -1,33 +1,25 @@
 alter table public.app_settings
   add column if not exists tax_rate_percent numeric(5,2) not null default 0;
-
 alter table public.app_settings
   drop constraint if exists app_settings_tax_rate_percent_check;
-
 alter table public.app_settings
   add constraint app_settings_tax_rate_percent_check
   check (tax_rate_percent between 0 and 100);
-
 alter table public.payment_orders
   add column if not exists tax_rate_percent numeric(5,2) not null default 0,
   add column if not exists tax_amount_idr integer not null default 0;
-
 alter table public.payment_orders
   drop constraint if exists payment_orders_tax_rate_percent_check,
   drop constraint if exists payment_orders_tax_amount_idr_check;
-
 alter table public.payment_orders
   add constraint payment_orders_tax_rate_percent_check
   check (tax_rate_percent between 0 and 100),
   add constraint payment_orders_tax_amount_idr_check
   check (tax_amount_idr >= 0);
-
 create index if not exists payment_orders_created_at_idx
   on public.payment_orders (created_at desc);
-
 create index if not exists wallet_ledger_created_at_idx
   on public.wallet_ledger (created_at desc);
-
 create or replace function public.credit_wallet_from_payment(
   order_id uuid,
   webhook_payload jsonb default '{}'::jsonb
@@ -116,7 +108,6 @@ begin
   return updated_order;
 end;
 $$;
-
 create or replace function public.admin_transaction_feed(
   row_limit integer default 50,
   cursor_occurred_at timestamptz default null,
@@ -248,6 +239,5 @@ as $$
   order by occurred_at desc, transaction_id desc
   limit greatest(1, least(coalesce(row_limit, 50), 100));
 $$;
-
 revoke execute on function public.admin_transaction_feed(integer, timestamptz, text) from public, anon, authenticated;
 grant execute on function public.admin_transaction_feed(integer, timestamptz, text) to service_role;

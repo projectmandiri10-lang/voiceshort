@@ -13,27 +13,27 @@ describe("validation", () => {
     expect(parsed.genderVoices[1]?.gender).toBe("female");
   });
 
-  it("normalizes provider-aware models for litellm, openrouter, and gemini direct", () => {
+  it("normalizes provider-aware models for aivene and openrouter", () => {
     const parsed = parseSettings({
       ...DEFAULT_SETTINGS,
-      scriptProvider: "litellm",
+      scriptProvider: "aivene",
       scriptFallbackProvider: "openrouter",
-      scriptModel: "gemini-2.5-flash-lite",
-      ttsProvider: "litellm",
+      scriptModel: "google/gemini-2.5-pro",
+      ttsProvider: "aivene",
       ttsFallbackProvider: "openrouter",
       ttsModel: "google/gemini-3.1-flash-tts-preview"
     });
 
-    expect(parsed.scriptModel).toBe("gemini/gemini-2.5-flash-lite");
-    expect(parsed.ttsModel).toBe("gemini/gemini-2.5-flash-preview-tts");
+    expect(parsed.scriptModel).toBe("gemini-2.5-pro");
+    expect(parsed.ttsModel).toBe("tts-1-hd");
   });
 
   it("rejects identical primary and fallback providers", () => {
     expect(() =>
       parseSettings({
         ...DEFAULT_SETTINGS,
-        scriptProvider: "gemini_direct",
-        scriptFallbackProvider: "gemini_direct"
+        scriptProvider: "aivene",
+        scriptFallbackProvider: "aivene"
       })
     ).toThrow(/fallback provider script/i);
   });
@@ -84,7 +84,7 @@ describe("validation", () => {
 
   it("accepts supported preview content languages and rejects unsupported ones", () => {
     const parsed = parseTtsPreviewInput({
-      voiceName: "Leda",
+      voiceName: "nova",
       speechRate: 1,
       contentLanguage: "en-US"
     });
@@ -93,7 +93,7 @@ describe("validation", () => {
 
     expect(() =>
       parseTtsPreviewInput({
-        voiceName: "Leda",
+        voiceName: "nova",
         speechRate: 1,
         contentLanguage: "fr-FR"
       })

@@ -521,18 +521,18 @@ describe("api integration", () => {
       method: "POST",
       url: "/api/tts/preview",
       payload: {
-        voiceName: "Leda",
+        voiceName: "nova",
         speechRate: 1
       }
     });
 
     expect(response.statusCode).toBe(200);
     const payload = response.json() as { voiceName: string; previewPath: string };
-    expect(payload.voiceName).toBe("Leda");
+    expect(payload.voiceName).toBe("nova");
     expect(payload.previewPath).toContain("/outputs/_voice_previews/");
     expect(previewSpeechCalls[0]).toMatchObject({
       model: DEFAULT_SETTINGS.ttsModel,
-      voiceName: "Leda",
+      voiceName: "nova",
       speechRate: 1
     });
     expect(String(previewSpeechCalls[0]?.deliveryHint || "")).toContain("natural");

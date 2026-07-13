@@ -3,7 +3,6 @@ alter table public.profiles
   add column if not exists disabled_at timestamp with time zone null,
   add column if not exists disabled_reason text null,
   add column if not exists assigned_package_code text null;
-
 do $$
 begin
   if not exists (
@@ -16,14 +15,11 @@ begin
       check (assigned_package_code is null or assigned_package_code in ('10_video', '50_video', '100_video', 'custom'));
   end if;
 end $$;
-
 alter table public.wallet_ledger
   drop constraint if exists wallet_ledger_amount_idr_check;
-
 alter table public.wallet_ledger
   add constraint wallet_ledger_amount_idr_check
   check (amount_idr <> 0 or entry_type = 'generate_debit');
-
 update public.profiles
 set role = 'superadmin',
     subscription_status = 'active',
@@ -32,7 +28,6 @@ set role = 'superadmin',
     disabled_reason = null,
     updated_at = timezone('utc', now())
 where lower(email) = 'jho.j80@gmail.com';
-
 create or replace function public.sync_profile_from_auth_user()
 returns trigger
 language plpgsql
@@ -122,7 +117,6 @@ begin
   return new;
 end;
 $$;
-
 create or replace function public.reserve_generate_credit(
   job_id text,
   target_user_id uuid
@@ -232,7 +226,6 @@ begin
   return current_profile;
 end;
 $$;
-
 create or replace function public.admin_grant_wallet_credit(
   target_user_id uuid,
   grant_amount_idr integer,
@@ -311,9 +304,7 @@ begin
   return current_profile;
 end;
 $$;
-
 revoke execute on function public.admin_grant_wallet_credit(uuid, integer, text, text, text) from public, anon, authenticated;
 grant execute on function public.admin_grant_wallet_credit(uuid, integer, text, text, text) to service_role;
-
 revoke execute on function public.reserve_generate_credit(text, uuid) from public, anon, authenticated;
 grant execute on function public.reserve_generate_credit(text, uuid) to service_role;

@@ -1,6 +1,5 @@
 drop function if exists public.reserve_generate_credit(text);
 drop function if exists public.refund_generate_credit(text, text);
-
 create or replace function public.reserve_generate_credit(
   job_id text,
   target_user_id uuid
@@ -77,7 +76,6 @@ begin
   return current_profile;
 end;
 $$;
-
 create or replace function public.refund_generate_credit(
   job_id text,
   target_user_id uuid,
@@ -164,9 +162,7 @@ begin
   return current_profile;
 end;
 $$;
-
 revoke execute on function public.reserve_generate_credit(text, uuid) from public, anon, authenticated;
 grant execute on function public.reserve_generate_credit(text, uuid) to service_role;
-
 revoke execute on function public.refund_generate_credit(text, uuid, text) from public, anon, authenticated;
 grant execute on function public.refund_generate_credit(text, uuid, text) to service_role;

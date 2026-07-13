@@ -150,4 +150,4 @@ revoke execute on function public.reserve_generate_credit(text, uuid, integer, i
 from public, anon, authenticated;
 
 grant execute on function public.reserve_generate_credit(text, uuid, integer, integer, double precision)
-to service_role;
+to service_role;;

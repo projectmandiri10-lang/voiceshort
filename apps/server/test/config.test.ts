@@ -11,18 +11,17 @@ function applyBaseEnv() {
   process.env.SUPABASE_ANON_KEY = "anon-key";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
   process.env.GENERATE_PRICE_IDR = "2000";
-  process.env.GEMINI_API_KEY = "test-gemini-key";
-  process.env.AI_PROVIDER = "litellm";
-  process.env.SCRIPT_PROVIDER = "litellm";
+  process.env.AIVENE_API_KEY = "test-aivene-key";
+  process.env.AIVENE_BASE_URL = "https://api.aivene.test/v1";
+  process.env.AI_PROVIDER = "aivene";
+  process.env.SCRIPT_PROVIDER = "aivene";
   process.env.SCRIPT_FALLBACK_PROVIDER = "openrouter";
-  process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-2.5-flash-lite";
-  process.env.TTS_PROVIDER = "litellm";
+  process.env.AIVENE_SCRIPT_MODEL = "gemini-2.5-pro";
+  process.env.TTS_PROVIDER = "aivene";
   process.env.TTS_FALLBACK_PROVIDER = "openrouter";
   process.env.OPENROUTER_API_KEY = "test-openrouter-key";
   process.env.OPENROUTER_TTS_MODEL = "google/gemini-3.1-flash-tts-preview";
-  process.env.LITELLM_BASE_URL = "https://litellm.example/v1";
-  process.env.LITELLM_SECRET_KEY = "test-litellm-key";
-  process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
+  process.env.AIVENE_TTS_MODEL = "tts-1-hd";
 }
 
 describe("env config", () => {
@@ -33,40 +32,32 @@ describe("env config", () => {
     Object.assign(process.env, ORIGINAL_ENV);
   });
 
-  it("defaults to gemini mode with the new env contract", () => {
+  it("defaults to aivene mode with the new env contract", () => {
     applyBaseEnv();
 
     const env = loadEnv();
-    expect(env.aiProvider).toBe("gemini");
-    expect(env.geminiApiKey).toBe("test-gemini-key");
-    expect(env.scriptProvider).toBe("litellm");
-    expect(env.ttsProvider).toBe("litellm");
+    expect(env.aiProvider).toBe("aivene");
+    expect(env.aiveneApiKey).toBe("test-aivene-key");
+    expect(env.scriptProvider).toBe("aivene");
+    expect(env.ttsProvider).toBe("aivene");
   });
 
   it("loads model envs", () => {
     applyBaseEnv();
-    process.env.LITELLM_SCRIPT_MODEL = "gemini/gemini-3-flash-preview";
-    process.env.LITELLM_TTS_MODEL = "gemini/gemini-2.5-pro-preview-tts";
+    process.env.AIVENE_SCRIPT_MODEL = "gemini-2.5-pro";
+    process.env.AIVENE_TTS_MODEL = "tts-1";
 
     const env = loadEnv();
-    expect(env.geminiScriptModel).toBe("gemini/gemini-3-flash-preview");
-    expect(env.openrouterTtsModel).toBe("gemini/gemini-2.5-pro-preview-tts");
+    expect(env.scriptModel).toBe("gemini-2.5-pro");
+    expect(env.ttsModel).toBe("tts-1");
     expect(env.successOutputRetentionHours).toBe(72);
   });
 
-  it("throws a clear error when gemini api key is missing", () => {
+  it("throws a clear error when aivene api key is missing", () => {
     applyBaseEnv();
-    process.env.TTS_FALLBACK_PROVIDER = "gemini_direct";
-    process.env.GEMINI_API_KEY = "";
+    process.env.AIVENE_API_KEY = "";
 
-    expect(() => loadEnv()).toThrow("GEMINI_API_KEY wajib diisi");
-  });
-
-  it("throws a clear error when litellm script model is missing", () => {
-    applyBaseEnv();
-    process.env.LITELLM_SCRIPT_MODEL = "";
-
-    expect(() => loadEnv()).toThrow("LITELLM_SCRIPT_MODEL wajib diisi");
+    expect(() => loadEnv()).toThrow("AIVENE_API_KEY wajib diisi");
   });
 
   it("throws a clear error when openrouter api key is missing", () => {
@@ -76,18 +67,9 @@ describe("env config", () => {
     expect(() => loadEnv()).toThrow("OPENROUTER_API_KEY wajib diisi");
   });
 
-  it("throws a clear error when litellm gateway config is missing", () => {
-    applyBaseEnv();
-    process.env.LITELLM_BASE_URL = "";
-
-    expect(() => loadEnv()).toThrow(
-      "LITELLM_BASE_URL dan LITELLM_SECRET_KEY atau LITELLM_API_KEY wajib diisi"
-    );
-  });
-
   it("throws a clear error when fallback providers match the primary", () => {
     applyBaseEnv();
-    process.env.SCRIPT_FALLBACK_PROVIDER = "litellm";
+    process.env.SCRIPT_FALLBACK_PROVIDER = "aivene";
 
     expect(() => loadEnv()).toThrow("SCRIPT_FALLBACK_PROVIDER wajib berbeda dari SCRIPT_PROVIDER");
   });

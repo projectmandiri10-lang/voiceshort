@@ -164,6 +164,8 @@ export interface UserCopy {
     descriptionPlaceholder: string;
     contentCategory: string;
     socialPlatform: string;
+    subtitleMode: string;
+    subtitleModeHint: string;
     voiceGender: string;
     tone: string;
     optionalCta: string;
@@ -236,6 +238,7 @@ export interface UserCopy {
     detailTitle: string;
     detailLead: string;
     manualScript: string;
+    subtitleMode: string;
     clips: (count: number) => string;
     localDraftAvailable: string;
     localDraftUnavailable: string;
@@ -439,6 +442,8 @@ export const USER_COPY: Record<ContentLanguage, UserCopy> = {
       descriptionPlaceholder: "Tulis arahan utama, angle promosi, atau narasi yang diinginkan",
       contentCategory: "Kategori Konten",
       socialPlatform: "Platform Medsos",
+      subtitleMode: "Subtitle Video",
+      subtitleModeHint: "Pilih apakah final MP4 perlu subtitle yang ikut dibakar ke video.",
       voiceGender: "Gender Suara",
       tone: "Tone",
       optionalCta: "CTA Opsional",
@@ -511,6 +516,7 @@ export const USER_COPY: Record<ContentLanguage, UserCopy> = {
       detailTitle: "Detail Generate",
       detailLead: "Final video disimpan di perangkat yang sama, bukan di server pusat.",
       manualScript: "Script manual",
+      subtitleMode: "Subtitle",
       clips: (count) => `${count} cuplikan`,
       localDraftAvailable: "Perangkat ini masih menyimpan draft lokal untuk session ini.",
       localDraftUnavailable: "Tidak ada cache lokal di perangkat ini. Anda masih bisa melihat hasil AI, tetapi tidak bisa render ulang tanpa upload video lagi.",
@@ -712,6 +718,8 @@ export const USER_COPY: Record<ContentLanguage, UserCopy> = {
       descriptionPlaceholder: "Write the main direction, promo angle, or narration you want",
       contentCategory: "Content Category",
       socialPlatform: "Target Platform",
+      subtitleMode: "Video Subtitles",
+      subtitleModeHint: "Choose whether the final MP4 should include burned-in subtitles.",
       voiceGender: "Voice Gender",
       tone: "Tone",
       optionalCta: "Optional CTA",
@@ -784,6 +792,7 @@ export const USER_COPY: Record<ContentLanguage, UserCopy> = {
       detailTitle: "Generate Details",
       detailLead: "The final video is stored on the same device, not on a central server.",
       manualScript: "Manual script",
+      subtitleMode: "Subtitles",
       clips: (count) => `${count} clips`,
       localDraftAvailable: "This device still stores the local draft for this session.",
       localDraftUnavailable: "There is no local cache on this device. You can still review AI output, but you cannot render again without uploading the video again.",

@@ -1,4 +1,5 @@
 import { FINAL_AUDIO_BITRATE, FINAL_AUDIO_SAMPLE_RATE, FINAL_VIDEO_CRF, FINAL_VIDEO_FPS, FINAL_VIDEO_MAX_DIMENSION, FINAL_VOICE_LOUDNORM } from "./shared/constants";
+import { buildTimedSubtitleCues } from "./subtitle-utils";
 
 const EXACT_DURATION_FIT_THRESHOLD_SEC = 0.08;
 const FFMPEG_CORE_VERSION = "0.12.10";
@@ -38,24 +39,78 @@ function buildVideoCompressionFilter(): string {
   ].join(",");
 }
 
+function escapeDrawtextText(input: string): string {
+  return input
+    .replace(/\\/g, "\\\\")
+    .replace(/:/g, "\\:")
+    .replace(/'/g, "\\'")
+    .replace(/,/g, "\\,")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]")
+    .replace(/%/g, "\\%")
+    .replace(/;/g, "\\;")
+    .replace(/\n/g, "\\n");
+}
+
+function buildSubtitleFilterChain(scriptText: string, totalDurationSec: number): string {
+  const cues = buildTimedSubtitleCues(scriptText, totalDurationSec);
+  if (!cues.length) {
+    return "";
+  }
+
+  const filters: string[] = [];
+  for (const cue of cues) {
+    cue.lines.forEach((line, lineIndex) => {
+      const yExpression =
+        cue.lines.length > 1
+          ? lineIndex === 0
+            ? "h-(text_h*4.4)-44"
+            : "h-(text_h*2.2)-28"
+          : "h-(text_h*2.4)-34";
+      filters.push(
+        [
+          "drawtext=",
+          `text='${escapeDrawtextText(line)}'`,
+          "fontcolor=white",
+          "fontsize=h*0.044",
+          "line_spacing=10",
+          "borderw=4",
+          "bordercolor=black@0.82",
+          "box=1",
+          "boxcolor=black@0.18",
+          "boxborderw=18",
+          "x=(w-text_w)/2",
+          `y=${yExpression}`,
+          `enable='between(t,${cue.startSec.toFixed(3)},${cue.endSec.toFixed(3)})'`,
+        ].join(":")
+      );
+    });
+  }
+  return filters.join(",");
+}
+
 export function buildFinalMuxArgs(input: {
   sourceVideoPath: string;
   voiceWavPath: string;
   outputVideoPath: string;
   targetDurationSec: number;
   voiceDurationSec: number;
+  subtitleText?: string;
 }): string[] {
   const safeTargetDurationSec = Math.max(1, input.targetDurationSec);
   const durationDiff = Math.abs(input.voiceDurationSec - safeTargetDurationSec);
   const tempoFactor = input.voiceDurationSec / safeTargetDurationSec;
   const targetDurationText = safeTargetDurationSec.toFixed(3);
   const videoFilter = buildVideoCompressionFilter();
+  const subtitleFilter = input.subtitleText
+    ? buildSubtitleFilterChain(input.subtitleText, safeTargetDurationSec)
+    : "";
   const tempoFilter =
     durationDiff > EXACT_DURATION_FIT_THRESHOLD_SEC && tempoFactor >= 0.85 && tempoFactor <= 1.18
       ? `${buildAtempoFilter(tempoFactor)},`
       : "";
   const audioFilter = `${tempoFilter}${FINAL_VOICE_LOUDNORM},atrim=0:${targetDurationText},apad=pad_dur=${targetDurationText}`;
-  const filterGraph = `[0:v:0]${videoFilter}[vout];[1:a]${audioFilter}[aout]`;
+  const filterGraph = `[0:v:0]${videoFilter}${subtitleFilter ? `,${subtitleFilter}` : ""}[vout];[1:a]${audioFilter}[aout]`;
 
   return [
     "-y",
@@ -99,6 +154,7 @@ export async function renderFinalVideoLocally(input: {
   sourceVideo: File | Blob;
   audioWavBlob: Blob;
   sourceVideoName?: string;
+  subtitleText?: string;
   onLog?: (message: string) => void;
   onProgress?: (ratio: number) => void;
 }): Promise<Blob> {
@@ -139,7 +195,8 @@ export async function renderFinalVideoLocally(input: {
       voiceWavPath: voicePath,
       outputVideoPath: outputPath,
       targetDurationSec: videoDurationSec,
-      voiceDurationSec: audioDurationSec
+      voiceDurationSec: audioDurationSec,
+      subtitleText: input.subtitleText,
     })
   );
 

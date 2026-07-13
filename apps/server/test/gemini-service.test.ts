@@ -1,32 +1,42 @@
 import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const generateContentMock = vi.fn();
-const uploadMock = vi.fn();
-const getFileMock = vi.fn();
 const fetchMock = vi.fn();
+const readFileMock = vi.fn();
 
-vi.mock("@google/genai", () => ({
-  GoogleGenAI: vi.fn().mockImplementation(() => ({
-    models: {
-      generateContent: generateContentMock
-    },
-    files: {
-      upload: uploadMock,
-      get: getFileMock
-    }
-  }))
+vi.mock("node:fs/promises", () => ({
+  readFile: (...args: unknown[]) => readFileMock(...args)
 }));
 
 import { GeminiService } from "../src/services/gemini-service.js";
 
 function createService(logger: pino.Logger) {
   return new GeminiService(
-    "test-gemini-key",
+    "test-aivene-key",
+    "https://api.aivene.test/v1",
     "test-openrouter-key",
-    "https://litellm.example/v1",
-    "test-litellm-key",
     logger
+  );
+}
+
+function openAiTextResponse(text: string): Response {
+  return new Response(
+    JSON.stringify({
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: text
+          }
+        }
+      ]
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json"
+      }
+    }
   );
 }
 
@@ -34,10 +44,8 @@ describe("gemini service", () => {
   const logger = pino({ level: "silent" });
 
   beforeEach(() => {
-    generateContentMock.mockReset();
-    uploadMock.mockReset();
-    getFileMock.mockReset();
     fetchMock.mockReset();
+    readFileMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
   });
 
@@ -45,93 +53,23 @@ describe("gemini service", () => {
     vi.unstubAllGlobals();
   });
 
-  it("puts fileData before prompt text for multimodal visual-brief calls", async () => {
-    generateContentMock.mockResolvedValueOnce({
-      text: JSON.stringify({
-        summary: "Video meja kerja dirapikan.",
-        hook: {
-          startSec: 0,
-          endSec: 2,
-          reason: "Perubahan visual paling kuat di awal."
-        },
-        timeline: [
-          {
-            startSec: 0,
-            endSec: 2,
-            primaryVisual: "Meja kerja berantakan",
-            action: "Kamera menyorot kondisi awal",
-            onScreenText: [],
-            narrationFocus: "Masalah yang langsung kelihatan",
-            avoidClaims: ["Jangan klaim merek"]
-          }
-        ],
-        mustMention: ["perubahan meja"],
-        mustAvoid: ["klaim tidak terlihat"],
-        uncertainties: []
-      })
-    });
-
-    const service = createService(logger);
-    await service.generateVisualBrief({
-      provider: "gemini_direct",
-      fallbackProvider: "openrouter",
-      model: "gemini-test",
-      prompt: "Analisis video ini.",
-      video: {
-        provider: "gemini",
-        fileUri: "mock://video",
-        mimeType: "video/mp4"
-      }
-    });
-
-    expect(generateContentMock).toHaveBeenCalledTimes(1);
-    const payload = generateContentMock.mock.calls[0][0];
-    expect(payload.contents[0].parts).toEqual([
-      {
-        fileData: {
-          fileUri: "mock://video",
-          mimeType: "video/mp4"
-        }
-      },
-      { text: "Analisis video ini." }
-    ]);
-  });
-
-  it("waits until uploaded files become ACTIVE", async () => {
-    uploadMock.mockResolvedValueOnce({
-      name: "files/123",
-      uri: "mock://video",
-      mimeType: "video/mp4"
-    });
-    getFileMock
-      .mockResolvedValueOnce({ state: "PROCESSING" })
-      .mockResolvedValueOnce({ state: "ACTIVE" });
+  it("uploads legacy fallback videos as base64 payloads", async () => {
+    readFileMock.mockResolvedValueOnce(Buffer.from("video-bytes"));
 
     const service = createService(logger);
     const uploaded = await service.uploadVideo("C:/temp/source.mp4", "video/mp4");
 
     expect(uploaded).toEqual({
       provider: "gemini",
-      fileUri: "mock://video",
-      mimeType: "video/mp4"
+      mimeType: "video/mp4",
+      base64Data: Buffer.from("video-bytes").toString("base64")
     });
-    expect(uploadMock).toHaveBeenCalledWith({
-      file: "C:/temp/source.mp4",
-      config: {
-        mimeType: "video/mp4"
-      }
-    });
-    expect(getFileMock).toHaveBeenCalledTimes(2);
-    expect(getFileMock).toHaveBeenLastCalledWith({ name: "files/123" });
   });
 
-  it("retries visual brief with strict json prompt when first response is invalid", async () => {
-    generateContentMock
-      .mockResolvedValueOnce({
-        text: "Ringkasan biasa tanpa JSON"
-      })
-      .mockResolvedValueOnce({
-        text: JSON.stringify({
+  it("sends input_video content to aivene for visual brief calls", async () => {
+    fetchMock.mockResolvedValueOnce(
+      openAiTextResponse(
+        JSON.stringify({
           summary: "Video meja kerja dirapikan.",
           hook: {
             startSec: 0,
@@ -153,65 +91,157 @@ describe("gemini service", () => {
           mustAvoid: ["klaim tidak terlihat"],
           uncertainties: []
         })
-      });
+      )
+    );
 
     const service = createService(logger);
-    const brief = await service.generateVisualBrief({
-      provider: "gemini_direct",
+    await service.generateVisualBrief({
+      provider: "aivene",
       fallbackProvider: "openrouter",
-      model: "gemini-test",
+      model: "gemini-2.5-flash",
       prompt: "Analisis video ini.",
       video: {
         provider: "gemini",
-        fileUri: "mock://video",
+        base64Data: Buffer.from("video-bytes").toString("base64"),
+        mimeType: "video/mp4"
+      }
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const payload = JSON.parse(String(init.body)) as {
+      messages: Array<{ content: Array<Record<string, unknown>> }>;
+    };
+    expect(payload.messages[0]?.content).toEqual([
+      { type: "text", text: "Analisis video ini." },
+      {
+        type: "input_video",
+        input_video: {
+          data: Buffer.from("video-bytes").toString("base64"),
+          format: "mp4"
+        }
+      }
+    ]);
+  });
+
+  it("retries visual brief with strict json prompt when first response is invalid", async () => {
+    fetchMock
+      .mockResolvedValueOnce(openAiTextResponse("Ringkasan biasa tanpa JSON"))
+      .mockResolvedValueOnce(
+        openAiTextResponse(
+          JSON.stringify({
+            summary: "Video meja kerja dirapikan.",
+            hook: {
+              startSec: 0,
+              endSec: 2,
+              reason: "Perubahan visual paling kuat di awal."
+            },
+            timeline: [
+              {
+                startSec: 0,
+                endSec: 2,
+                primaryVisual: "Meja kerja berantakan",
+                action: "Kamera menyorot kondisi awal",
+                onScreenText: [],
+                narrationFocus: "Masalah yang langsung kelihatan",
+                avoidClaims: ["Jangan klaim merek"]
+              }
+            ],
+            mustMention: ["perubahan meja"],
+            mustAvoid: ["klaim tidak terlihat"],
+            uncertainties: []
+          })
+        )
+      );
+
+    const service = createService(logger);
+    const brief = await service.generateVisualBrief({
+      provider: "aivene",
+      fallbackProvider: "openrouter",
+      model: "gemini-2.5-flash",
+      prompt: "Analisis video ini.",
+      video: {
+        provider: "gemini",
+        fileUri: "https://example.test/video.mp4",
         mimeType: "video/mp4"
       }
     });
 
     expect(brief.summary).toBe("Video meja kerja dirapikan.");
-    expect(generateContentMock).toHaveBeenCalledTimes(2);
-    const strictPrompt = generateContentMock.mock.calls[1][0].contents[0].parts[1].text;
-    expect(strictPrompt).toContain("Kembalikan hanya JSON valid");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const secondPayload = JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body)) as {
+      messages: Array<{ content: Array<{ text?: string }> }>;
+    };
+    expect(secondPayload.messages[0]?.content[0]?.text).toContain("Kembalikan hanya JSON valid");
   });
 
-  it("falls back to OpenRouter text generation when Gemini direct fails", async () => {
-    generateContentMock.mockRejectedValue(
-      Object.assign(new Error("Gemini text gagal"), { status: 503 })
-    );
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  script: "Script fallback dari OpenRouter."
-                })
-              }
+  it("falls back to OpenRouter text generation when aivene fails", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: "Aivene text gagal"
             }
-          ]
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json"
+          }),
+          {
+            status: 503,
+            headers: {
+              "Content-Type": "application/json"
+            }
           }
-        }
+        )
       )
-    );
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: "Aivene text gagal"
+            }
+          }),
+          {
+            status: 503,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: "Aivene text gagal"
+            }
+          }),
+          {
+            status: 503,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        openAiTextResponse(
+          JSON.stringify({
+            script: "Script fallback dari OpenRouter."
+          })
+        )
+      );
 
     const service = createService(logger);
     const result = await service.generateScript({
-      provider: "gemini_direct",
+      provider: "aivene",
       fallbackProvider: "openrouter",
-      model: "gemini-2.5-flash-lite",
+      model: "gemini-2.5-flash",
       prompt: "Tulis script singkat."
     });
 
     expect(result).toBe("Script fallback dari OpenRouter.");
-    expect(generateContentMock).toHaveBeenCalledTimes(3);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.aivene.test/v1/chat/completions");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("https://api.aivene.test/v1/chat/completions");
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("https://api.aivene.test/v1/chat/completions");
+    expect(fetchMock.mock.calls[3]?.[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
   });
 
   it("sends OpenRouter TTS requests with normalized Gemini model slugs", async () => {
@@ -227,7 +257,7 @@ describe("gemini service", () => {
     const service = createService(logger);
     const audio = await service.generateSpeech({
       provider: "openrouter",
-      fallbackProvider: "gemini_direct",
+      fallbackProvider: "aivene",
       model: "gemini-2.5-flash-preview-tts",
       text: "Halo semua, ini contoh voice over singkat.",
       voiceName: "Leda",
@@ -237,7 +267,6 @@ describe("gemini service", () => {
 
     expect(audio.data.toString("utf8")).toBe("audio");
     expect(audio.mimeType).toBe("audio/mpeg");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://openrouter.ai/api/v1/audio/speech");
     expect(init.headers).toMatchObject({
@@ -254,9 +283,9 @@ describe("gemini service", () => {
     });
   });
 
-  it("sends LiteLLM TTS requests with Gemini-native slugs", async () => {
+  it("sends Aivene TTS requests with native model ids", async () => {
     fetchMock.mockResolvedValueOnce(
-      new Response(Buffer.from("litellm-audio"), {
+      new Response(Buffer.from("aivene-audio"), {
         status: 200,
         headers: {
           "Content-Type": "audio/mpeg"
@@ -266,114 +295,30 @@ describe("gemini service", () => {
 
     const service = createService(logger);
     const audio = await service.generateSpeech({
-      provider: "litellm",
+      provider: "aivene",
       fallbackProvider: "openrouter",
-      model: "google/gemini-3.1-flash-tts-preview",
-      text: "Halo semua, ini contoh LiteLLM TTS.",
-      voiceName: "Charon",
+      model: "tts-1-hd",
+      text: "Halo semua, ini contoh Aivene TTS.",
+      voiceName: "nova",
       speechRate: 1,
       deliveryHint: "jelas dan natural"
     });
 
-    expect(audio.data.toString("utf8")).toBe("litellm-audio");
+    expect(audio.data.toString("utf8")).toBe("aivene-audio");
     expect(audio.mimeType).toBe("audio/mpeg");
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("https://litellm.example/v1/audio/speech");
+    expect(url).toBe("https://api.aivene.test/v1/audio/speech");
     expect(init.headers).toMatchObject({
-      Authorization: "Bearer test-litellm-key",
+      Authorization: "Bearer test-aivene-key",
       "Content-Type": "application/json"
     });
     const payload = JSON.parse(String(init.body)) as Record<string, unknown>;
     expect(payload).toMatchObject({
-      model: "gemini/gemini-2.5-flash-preview-tts",
-      input: "Halo semua, ini contoh LiteLLM TTS.",
-      voice: "Charon",
+      model: "tts-1-hd",
+      input: "Halo semua, ini contoh Aivene TTS.",
+      voice: "nova",
       response_format: "mp3",
       speed: 1
     });
-  });
-
-  it("uses Gemini direct TTS when configured and requests audio output", async () => {
-    generateContentMock.mockResolvedValueOnce({
-      candidates: [
-        {
-          content: {
-            parts: [
-              {
-                inlineData: {
-                  data: Buffer.from("audio", "utf8").toString("base64"),
-                  mimeType: "audio/wav"
-                }
-              }
-            ]
-          }
-        }
-      ]
-    });
-
-    const service = createService(logger);
-    const audio = await service.generateSpeech({
-      provider: "gemini_direct",
-      fallbackProvider: "openrouter",
-      model: "google/gemini-3.1-flash-tts-preview",
-      text: "Halo semua, ini contoh Gemini direct.",
-      voiceName: "Leda",
-      speechRate: 1,
-      deliveryHint: "jelas dan profesional"
-    });
-
-    expect(audio.data.toString("utf8")).toBe("audio");
-    expect(audio.mimeType).toBe("audio/wav");
-    expect(generateContentMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(generateContentMock.mock.calls[0]?.[0]).toMatchObject({
-      model: "gemini-3.1-flash-tts-preview",
-      config: {
-        responseModalities: ["AUDIO"],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: "Leda"
-            }
-          }
-        }
-      }
-    });
-  });
-
-  it("builds English Gemini direct TTS prompts when requested", async () => {
-    generateContentMock.mockResolvedValueOnce({
-      candidates: [
-        {
-          content: {
-            parts: [
-              {
-                inlineData: {
-                  data: Buffer.from("audio", "utf8").toString("base64"),
-                  mimeType: "audio/wav"
-                }
-              }
-            ]
-          }
-        }
-      ]
-    });
-
-    const service = createService(logger);
-    await service.generateSpeech({
-      provider: "gemini_direct",
-      fallbackProvider: "openrouter",
-      model: "google/gemini-3.1-flash-tts-preview",
-      text: "Hello everyone, this is a quick sample.",
-      contentLanguage: "en-US",
-      voiceName: "Leda",
-      speechRate: 1,
-      deliveryHint: "warm and clear"
-    });
-
-    const payload = generateContentMock.mock.calls[0]?.[0] as {
-      contents?: Array<{ parts?: Array<{ text?: string }> }>;
-    };
-    expect(payload.contents?.[0]?.parts?.[0]?.text).toContain("Language: English (en-US).");
   });
 });

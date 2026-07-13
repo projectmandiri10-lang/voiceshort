@@ -6,7 +6,8 @@ import {
   getContentLabel,
   getGenderLabel,
   getPlatformLabel,
-  getScriptModeLabel
+  getScriptModeLabel,
+  getSubtitleModeLabel
 } from "../job-form-options";
 import type { AuthUser, ContentLanguage, GenerationSessionRecord } from "../types";
 import { formatDateTime, formatDurationSeconds, formatIdrCurrency } from "../user-locale";
@@ -300,6 +301,15 @@ export function JobsPage({
                 <div className="meta-card">
                   <span className="small">{copy.jobs.voiceGender}</span>
                   <strong>{getGenderLabel(locale, selected.voiceGender)}</strong>
+                </div>
+                <div className="meta-card">
+                  <span className="small">{copy.jobs.subtitleMode}</span>
+                  <strong>
+                    {getSubtitleModeLabel(
+                      locale,
+                      selected.includeSubtitles ? "with_subtitles" : "without_subtitles"
+                    )}
+                  </strong>
                 </div>
                 <div className="meta-card">
                   <span className="small">{copy.jobs.tone}</span>

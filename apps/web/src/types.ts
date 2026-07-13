@@ -33,9 +33,9 @@ export const SCRIPT_MODES = ["auto_analysis", "manual_script"] as const;
 export type ScriptMode = (typeof SCRIPT_MODES)[number];
 export const SUBTITLE_MODES = ["without_subtitles", "with_subtitles"] as const;
 export type SubtitleMode = (typeof SUBTITLE_MODES)[number];
-export const SCRIPT_AI_PROVIDERS = ["gemini_direct", "openrouter", "litellm"] as const;
+export const SCRIPT_AI_PROVIDERS = ["aivene", "openrouter"] as const;
 export type ScriptAiProvider = (typeof SCRIPT_AI_PROVIDERS)[number];
-export const TTS_AI_PROVIDERS = ["gemini_direct", "openrouter", "litellm"] as const;
+export const TTS_AI_PROVIDERS = ["aivene", "openrouter"] as const;
 export type TtsAiProvider = (typeof TTS_AI_PROVIDERS)[number];
 export type AiProvider = ScriptAiProvider;
 
@@ -111,6 +111,7 @@ export interface AdminUserRecord extends AuthUser {
 }
 
 export interface TtsVoiceOption {
+  provider: TtsAiProvider;
   voiceName: string;
   label: string;
   tone: string;

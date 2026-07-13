@@ -1,7 +1,5 @@
 begin;
-
 create extension if not exists pgcrypto;
-
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   email text not null unique,
@@ -15,7 +13,6 @@ create table if not exists public.profiles (
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
-
 create table if not exists public.app_settings (
   settings_key text primary key default 'default' check (settings_key = 'default'),
   script_model text not null,
@@ -28,7 +25,6 @@ create table if not exists public.app_settings (
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
-
 create table if not exists public.jobs (
   job_id text primary key,
   owner_user_id uuid references auth.users (id) on delete set null,
@@ -63,10 +59,8 @@ create table if not exists public.jobs (
   created_at timestamptz not null,
   updated_at timestamptz not null
 );
-
 create index if not exists jobs_owner_user_id_created_at_idx
   on public.jobs (owner_user_id, created_at desc);
-
 create or replace function public.touch_updated_at()
 returns trigger
 language plpgsql
@@ -76,7 +70,6 @@ begin
   return new;
 end;
 $$;
-
 create or replace function public.is_superadmin()
 returns boolean
 language sql
@@ -91,7 +84,6 @@ as $$
       and role = 'superadmin'
   );
 $$;
-
 create or replace function public.reserve_video_quota()
 returns public.profiles
 language plpgsql
@@ -127,7 +119,6 @@ begin
   return current_profile;
 end;
 $$;
-
 create or replace function public.release_video_quota()
 returns public.profiles
 language plpgsql
@@ -146,7 +137,6 @@ begin
   return current_profile;
 end;
 $$;
-
 create or replace function public.sync_profile_from_auth_user()
 returns trigger
 language plpgsql
@@ -216,31 +206,26 @@ begin
   return new;
 end;
 $$;
-
 drop trigger if exists profiles_touch_updated_at on public.profiles;
 create trigger profiles_touch_updated_at
 before update on public.profiles
 for each row
 execute function public.touch_updated_at();
-
 drop trigger if exists app_settings_touch_updated_at on public.app_settings;
 create trigger app_settings_touch_updated_at
 before update on public.app_settings
 for each row
 execute function public.touch_updated_at();
-
 drop trigger if exists jobs_touch_updated_at on public.jobs;
 create trigger jobs_touch_updated_at
 before update on public.jobs
 for each row
 execute function public.touch_updated_at();
-
 drop trigger if exists on_auth_user_changed on auth.users;
 create trigger on_auth_user_changed
 after insert or update on auth.users
 for each row
 execute function public.sync_profile_from_auth_user();
-
 insert into public.profiles (
   id,
   email,
@@ -293,18 +278,15 @@ set email = excluded.email,
     google_linked = excluded.google_linked,
     has_password = excluded.has_password,
     updated_at = timezone('utc', now());
-
 alter table public.profiles enable row level security;
 alter table public.app_settings enable row level security;
 alter table public.jobs enable row level security;
-
 drop policy if exists profiles_select_own_or_superadmin on public.profiles;
 create policy profiles_select_own_or_superadmin
 on public.profiles
 for select
 to authenticated
 using (id = auth.uid() or public.is_superadmin());
-
 drop policy if exists profiles_update_superadmin_only on public.profiles;
 create policy profiles_update_superadmin_only
 on public.profiles
@@ -312,14 +294,12 @@ for update
 to authenticated
 using (public.is_superadmin())
 with check (public.is_superadmin());
-
 drop policy if exists app_settings_select_superadmin_only on public.app_settings;
 create policy app_settings_select_superadmin_only
 on public.app_settings
 for select
 to authenticated
 using (public.is_superadmin());
-
 drop policy if exists app_settings_write_superadmin_only on public.app_settings;
 create policy app_settings_write_superadmin_only
 on public.app_settings
@@ -327,21 +307,18 @@ for all
 to authenticated
 using (public.is_superadmin())
 with check (public.is_superadmin());
-
 drop policy if exists jobs_select_owner_or_superadmin on public.jobs;
 create policy jobs_select_owner_or_superadmin
 on public.jobs
 for select
 to authenticated
 using (owner_user_id = auth.uid() or public.is_superadmin());
-
 drop policy if exists jobs_insert_owner_or_superadmin on public.jobs;
 create policy jobs_insert_owner_or_superadmin
 on public.jobs
 for insert
 to authenticated
 with check (owner_user_id = auth.uid() or public.is_superadmin());
-
 drop policy if exists jobs_update_owner_or_superadmin on public.jobs;
 create policy jobs_update_owner_or_superadmin
 on public.jobs
@@ -349,14 +326,12 @@ for update
 to authenticated
 using (owner_user_id = auth.uid() or public.is_superadmin())
 with check (owner_user_id = auth.uid() or public.is_superadmin());
-
 drop policy if exists jobs_delete_owner_or_superadmin on public.jobs;
 create policy jobs_delete_owner_or_superadmin
 on public.jobs
 for delete
 to authenticated
 using (owner_user_id = auth.uid() or public.is_superadmin());
-
 grant usage on schema public to authenticated, service_role;
 grant select, update on public.profiles to authenticated;
 grant select, insert, update on public.app_settings to authenticated;
@@ -367,7 +342,6 @@ grant all privileges on public.jobs to service_role;
 grant execute on function public.is_superadmin() to authenticated, service_role;
 grant execute on function public.reserve_video_quota() to authenticated, service_role;
 grant execute on function public.release_video_quota() to authenticated, service_role;
-
 insert into public.app_settings (
   settings_key,
   script_model,
@@ -383,7 +357,7 @@ insert into public.app_settings (
 values (
   'default',
   'gemini-3-flash-preview',
-  'google/gemini-3.1-flash-tts-preview',
+  'gemini-2.5-flash-preview-tts',
   'id-ID',
   60,
   'safe_marketing',
@@ -404,7 +378,6 @@ set script_model = excluded.script_model,
     concurrency = excluded.concurrency,
     gender_voices = excluded.gender_voices,
     updated_at = timezone('utc', now());
-
 insert into public.jobs (
   job_id,
   owner_user_id,
@@ -463,5 +436,4 @@ values (
   '2026-04-24T06:24:43.032Z'::timestamptz
 )
 on conflict (job_id) do nothing;
-
 commit;

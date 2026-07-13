@@ -2,7 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ABSOLUTE_MAX_VIDEO_SECONDS,
   DEFAULT_SETTINGS,
+  findDefaultVoiceForGender,
   findGenderVoiceSetting,
+  isKnownTtsVoiceName,
   normalizeScriptModel,
   normalizeTtsModel
 } from "../constants.js";
@@ -34,11 +36,11 @@ export class SettingsStore {
     }
 
     const nextScriptProvider =
-      scriptProvider === "openrouter" || scriptProvider === "gemini_direct" || scriptProvider === "litellm"
+      scriptProvider === "openrouter" || scriptProvider === "aivene"
         ? scriptProvider
         : settings.scriptProvider;
     const nextTtsProvider =
-      ttsProvider === "openrouter" || ttsProvider === "gemini_direct" || ttsProvider === "litellm"
+      ttsProvider === "openrouter" || ttsProvider === "aivene"
         ? ttsProvider
         : settings.ttsProvider;
 
@@ -52,21 +54,37 @@ export class SettingsStore {
   }
 
   private normalizeLegacySettings(settings: AppSettings): AppSettings {
+    const scriptProvider = settings.scriptProvider || DEFAULT_SETTINGS.scriptProvider;
+    const ttsProvider = settings.ttsProvider || DEFAULT_SETTINGS.ttsProvider;
     return {
       ...settings,
-      scriptProvider: settings.scriptProvider || DEFAULT_SETTINGS.scriptProvider,
+      scriptProvider,
       scriptFallbackProvider:
         settings.scriptFallbackProvider || DEFAULT_SETTINGS.scriptFallbackProvider,
       scriptModel: normalizeScriptModel(
         settings.scriptModel,
-        settings.scriptProvider || DEFAULT_SETTINGS.scriptProvider
+        scriptProvider
       ),
-      ttsProvider: settings.ttsProvider || DEFAULT_SETTINGS.ttsProvider,
+      ttsProvider,
       ttsFallbackProvider: settings.ttsFallbackProvider || DEFAULT_SETTINGS.ttsFallbackProvider,
       ttsModel: normalizeTtsModel(
         settings.ttsModel,
-        settings.ttsProvider || DEFAULT_SETTINGS.ttsProvider
-      )
+        ttsProvider
+      ),
+      genderVoices: DEFAULT_SETTINGS.genderVoices.map((fallbackVoice) => {
+        const selected = settings.genderVoices?.find((voice) => voice.gender === fallbackVoice.gender);
+        const fallbackProviderVoice = findDefaultVoiceForGender(ttsProvider, fallbackVoice.gender);
+        return {
+          gender: fallbackVoice.gender,
+          voiceName:
+            selected?.voiceName && isKnownTtsVoiceName(selected.voiceName, ttsProvider)
+              ? selected.voiceName
+              : fallbackProviderVoice.voiceName,
+          speechRate: Number.isFinite(Number(selected?.speechRate))
+            ? Number(selected?.speechRate)
+            : fallbackVoice.speechRate
+        };
+      })
     };
   }
 

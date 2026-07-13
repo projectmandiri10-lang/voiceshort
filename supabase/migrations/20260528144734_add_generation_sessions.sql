@@ -86,4 +86,4 @@ using (owner_user_id = auth.uid() or public.is_superadmin());
 grant select, insert, update, delete on public.generation_sessions to authenticated;
 grant all privileges on public.generation_sessions to service_role;
 
-commit;
+commit;;

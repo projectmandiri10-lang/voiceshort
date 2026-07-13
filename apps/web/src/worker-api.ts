@@ -1,9 +1,11 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
+  ALL_TTS_VOICES,
   ABSOLUTE_MAX_VIDEO_SECONDS,
   DEFAULT_SETTINGS,
+  DEFAULT_AIVENE_BASE_URL,
   GEMINI_EXCITED_PRESETS,
-  GEMINI_TTS_VOICES,
+  findDefaultVoiceForGender,
   findGenderVoiceSetting,
   findTtsVoiceByName,
   isKnownTtsVoiceName,
@@ -14,12 +16,10 @@ import {
 } from "./shared/constants";
 import {
   buildCaptionPrompt,
-  buildGeminiTtsPrompt,
   buildScriptPrompt,
   buildVisualBriefPrompt
 } from "./shared/prompt-builder";
 import {
-  ensureWavAudio,
   extractScriptText,
   extractSocialMetadata,
   extractVisualBrief
@@ -85,14 +85,12 @@ interface WorkerAssetBinding {
 
 export interface WorkerEnv {
   AI_PROVIDER?: string;
-  GEMINI_API_KEY?: string;
+  AIVENE_API_KEY?: string;
+  AIVENE_BASE_URL?: string;
+  AIVENE_SCRIPT_MODEL?: string;
+  AIVENE_TTS_MODEL?: string;
   OPENROUTER_API_KEY?: string;
   OPENROUTER_TTS_MODEL?: string;
-  LITELLM_BASE_URL?: string;
-  LITELLM_API_KEY?: string;
-  LITELLM_SECRET_KEY?: string;
-  LITELLM_SCRIPT_MODEL?: string;
-  LITELLM_TTS_MODEL?: string;
   SCRIPT_PROVIDER?: string;
   SCRIPT_FALLBACK_PROVIDER?: string;
   TTS_PROVIDER?: string;
@@ -152,6 +150,7 @@ interface GenerationSessionRow {
   social_platform: SocialPlatform;
   content_language?: ContentLanguage | null;
   script_mode?: ScriptMode | null;
+  include_subtitles?: boolean | null;
   voice_gender: JobVoiceGender;
   tone: string;
   cta_text: string | null;
@@ -233,7 +232,7 @@ interface AuthContext {
   serviceDb: SupabaseClient;
 }
 
-interface GeminiAudio {
+interface GeneratedAudio {
   bytes: Uint8Array;
   mimeType: string;
 }
@@ -292,15 +291,19 @@ function getRequiredEnv(env: WorkerEnv, key: keyof WorkerEnv): string {
   return value;
 }
 
-function getLiteLlmApiKey(env: WorkerEnv): string {
-  const value = String(env.LITELLM_API_KEY || env.LITELLM_SECRET_KEY || "").trim();
+function getAiveneApiKey(env: WorkerEnv): string {
+  const value = String(env.AIVENE_API_KEY || "").trim();
   if (!value) {
-    throw createHttpError(500, "LITELLM_API_KEY belum dikonfigurasi di sistem backend.");
+    throw createHttpError(500, "AIVENE_API_KEY belum dikonfigurasi di sistem backend.");
   }
   return value;
 }
 
-function resolveLiteLlmChatUrl(baseUrl: string): string {
+function resolveAiveneBaseUrl(env: WorkerEnv): string {
+  return trimTrailingSlash(String(env.AIVENE_BASE_URL || DEFAULT_AIVENE_BASE_URL).trim() || DEFAULT_AIVENE_BASE_URL);
+}
+
+function resolveAiveneChatUrl(baseUrl: string): string {
   const normalized = trimTrailingSlash(baseUrl);
   if (normalized.endsWith("/chat/completions")) {
     return normalized;
@@ -311,7 +314,7 @@ function resolveLiteLlmChatUrl(baseUrl: string): string {
   return `${normalized}/v1/chat/completions`;
 }
 
-function resolveLiteLlmSpeechUrl(baseUrl: string): string {
+function resolveAiveneSpeechUrl(baseUrl: string): string {
   const normalized = trimTrailingSlash(baseUrl);
   if (normalized.endsWith("/audio/speech")) {
     return normalized;
@@ -480,10 +483,12 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
       const selected = Array.isArray(source.genderVoices)
         ? source.genderVoices.find((voice) => voice.gender === fallbackVoice.gender)
         : undefined;
+      const activeTtsProvider = normalizeTtsProvider(source.ttsProvider, DEFAULT_SETTINGS.ttsProvider);
+      const fallbackProviderVoice = findDefaultVoiceForGender(activeTtsProvider, fallbackVoice.gender);
       const voiceName =
-        selected?.voiceName && isKnownTtsVoiceName(selected.voiceName)
+        selected?.voiceName && isKnownTtsVoiceName(selected.voiceName, activeTtsProvider)
           ? selected.voiceName
-          : fallbackVoice.voiceName;
+          : fallbackProviderVoice.voiceName;
       const speechRate = Number(selected?.speechRate);
       return {
         gender: fallbackVoice.gender,
@@ -508,26 +513,26 @@ function applyRuntimeSettingsEnvOverrides(settings: AppSettings, env: WorkerEnv)
     settings.ttsProvider
   );
   const scriptFallbackProvider = normalizeScriptProvider(
-    String(env.SCRIPT_FALLBACK_PROVIDER || (scriptProvider === "litellm" ? "openrouter" : "")).trim(),
+    String(env.SCRIPT_FALLBACK_PROVIDER || (scriptProvider === "aivene" ? "openrouter" : "")).trim(),
     settings.scriptFallbackProvider === scriptProvider
       ? scriptProvider === "openrouter"
-        ? "gemini_direct"
+        ? "aivene"
         : "openrouter"
       : settings.scriptFallbackProvider
   );
   const ttsFallbackProvider = normalizeTtsProvider(
-    String(env.TTS_FALLBACK_PROVIDER || (ttsProvider === "litellm" ? "openrouter" : "")).trim(),
+    String(env.TTS_FALLBACK_PROVIDER || (ttsProvider === "aivene" ? "openrouter" : "")).trim(),
     settings.ttsFallbackProvider === ttsProvider
       ? ttsProvider === "openrouter"
-        ? "gemini_direct"
+        ? "aivene"
         : "openrouter"
       : settings.ttsFallbackProvider
   );
   const scriptModelOverride =
-    scriptProvider === "litellm" ? String(env.LITELLM_SCRIPT_MODEL || "").trim() : "";
+    scriptProvider === "aivene" ? String(env.AIVENE_SCRIPT_MODEL || "").trim() : "";
   const ttsModelOverride =
-    ttsProvider === "litellm"
-      ? String(env.LITELLM_TTS_MODEL || "").trim()
+    ttsProvider === "aivene"
+      ? String(env.AIVENE_TTS_MODEL || "").trim()
       : ttsProvider === "openrouter"
         ? String(env.OPENROUTER_TTS_MODEL || "").trim()
         : "";
@@ -538,7 +543,7 @@ function applyRuntimeSettingsEnvOverrides(settings: AppSettings, env: WorkerEnv)
     scriptFallbackProvider:
       scriptFallbackProvider === scriptProvider
         ? scriptProvider === "openrouter"
-          ? "gemini_direct"
+          ? "aivene"
           : "openrouter"
         : scriptFallbackProvider,
     scriptModel: normalizeScriptModel(scriptModelOverride || settings.scriptModel, scriptProvider),
@@ -546,7 +551,7 @@ function applyRuntimeSettingsEnvOverrides(settings: AppSettings, env: WorkerEnv)
     ttsFallbackProvider:
       ttsFallbackProvider === ttsProvider
         ? ttsProvider === "openrouter"
-          ? "gemini_direct"
+          ? "aivene"
           : "openrouter"
         : ttsFallbackProvider,
     ttsModel: normalizeTtsModel(ttsModelOverride || settings.ttsModel, ttsProvider)
@@ -566,6 +571,7 @@ function mapGenerationSession(row: GenerationSessionRow): GenerationSessionRecor
     socialPlatform: row.social_platform,
     contentLanguage: row.content_language === "en-US" ? "en-US" : "id-ID",
     scriptMode: row.script_mode === "manual_script" ? "manual_script" : "auto_analysis",
+    includeSubtitles: Boolean(row.include_subtitles),
     voiceGender: row.voice_gender,
     tone: row.tone,
     ctaText: row.cta_text || undefined,
@@ -725,27 +731,6 @@ function parseSettingsInput(input: unknown): AppSettings {
   }
   const body = input as Record<string, unknown>;
   const genderVoices = Array.isArray(body.genderVoices) ? body.genderVoices : [];
-  const normalizedGenderVoices = DEFAULT_SETTINGS.genderVoices.map((fallbackVoice) => {
-    const selected = genderVoices.find((voice) => {
-      return (
-        voice &&
-        typeof voice === "object" &&
-        !Array.isArray(voice) &&
-        String((voice as Record<string, unknown>).gender || "") === fallbackVoice.gender
-      );
-    }) as Record<string, unknown> | undefined;
-
-    const voiceName = String(selected?.voiceName || fallbackVoice.voiceName).trim();
-    if (!isKnownTtsVoiceName(voiceName)) {
-      throw createHttpError(400, `Voice default untuk ${fallbackVoice.gender} tidak tersedia.`);
-    }
-    return {
-      gender: fallbackVoice.gender,
-      voiceName,
-      speechRate: assertSpeechRate(selected?.speechRate ?? fallbackVoice.speechRate)
-    };
-  });
-
   const scriptProvider = normalizeScriptProvider(
     String(body.scriptProvider || "").trim(),
     DEFAULT_SETTINGS.scriptProvider
@@ -768,6 +753,27 @@ function parseSettingsInput(input: unknown): AppSettings {
   if (ttsProvider === ttsFallbackProvider) {
     throw createHttpError(400, "Fallback provider TTS harus berbeda dari provider utama.");
   }
+  const normalizedGenderVoices = DEFAULT_SETTINGS.genderVoices.map((fallbackVoice) => {
+    const selected = genderVoices.find((voice) => {
+      return (
+        voice &&
+        typeof voice === "object" &&
+        !Array.isArray(voice) &&
+        String((voice as Record<string, unknown>).gender || "") === fallbackVoice.gender
+      );
+    }) as Record<string, unknown> | undefined;
+
+    const fallbackProviderVoice = findDefaultVoiceForGender(ttsProvider, fallbackVoice.gender);
+    const voiceName = String(selected?.voiceName || fallbackProviderVoice.voiceName).trim();
+    if (!isKnownTtsVoiceName(voiceName, ttsProvider)) {
+      throw createHttpError(400, `Voice default untuk ${fallbackVoice.gender} tidak tersedia pada provider ${ttsProvider}.`);
+    }
+    return {
+      gender: fallbackVoice.gender,
+      voiceName,
+      speechRate: assertSpeechRate(selected?.speechRate ?? fallbackVoice.speechRate)
+    };
+  });
 
   return {
     scriptProvider,
@@ -819,6 +825,7 @@ function parseGenerationSessionCreateInput(input: unknown): GenerationSessionCre
     scriptMode === "manual_script"
       ? assertString(body.manualScriptText, "Script manual", { max: 12000 }) || ""
       : assertString(body.manualScriptText, "Script manual", { required: false, max: 12000 });
+  const includeSubtitles = Boolean(body.includeSubtitles);
 
   return {
     title: assertString(body.title, "Judul", { max: 160 }) || "",
@@ -831,6 +838,7 @@ function parseGenerationSessionCreateInput(input: unknown): GenerationSessionCre
     socialPlatform: assertSocialPlatform(body.socialPlatform),
     contentLanguage: assertContentLanguage(body.contentLanguage),
     scriptMode,
+    includeSubtitles,
     voiceGender: assertVoiceGender(body.voiceGender),
     tone: assertString(body.tone, "Tone", { max: 80 }) || "",
     ctaText: assertString(body.ctaText, "CTA", { required: false, max: 200 }),
@@ -902,38 +910,35 @@ async function getSettings(serviceDb: SupabaseClient, env: WorkerEnv): Promise<A
   return applyRuntimeSettingsEnvOverrides(normalizeSettings(result.data), env);
 }
 
-async function callGemini(
+const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_TTS_URL = "https://openrouter.ai/api/v1/audio/speech";
+
+async function callAiveneText(
   env: WorkerEnv,
-  model: string,
   body: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(
-    `${trimTrailingSlash("https://generativelanguage.googleapis.com")}/v1beta/models/${encodeURIComponent(
-      model
-    )}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": getRequiredEnv(env, "GEMINI_API_KEY")
-      },
-      body: JSON.stringify(body)
-    }
-  );
+  const response = await fetch(resolveAiveneChatUrl(resolveAiveneBaseUrl(env)), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getAiveneApiKey(env)}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
 
   const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok) {
     const message =
       typeof (payload.error as { message?: unknown } | undefined)?.message === "string"
         ? String((payload.error as { message?: unknown }).message)
-        : `Gemini request gagal (${response.status}).`;
+        : typeof payload.message === "string"
+          ? payload.message
+          : `Aivene text request gagal (${response.status}).`;
     throw createHttpError(response.status === 429 ? 503 : response.status, message, payload);
   }
+
   return payload;
 }
-
-const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
-const OPENROUTER_TTS_URL = "https://openrouter.ai/api/v1/audio/speech";
 
 async function callOpenRouterText(
   env: WorkerEnv,
@@ -956,33 +961,6 @@ async function callOpenRouterText(
         : typeof payload.message === "string"
           ? payload.message
           : `OpenRouter text request gagal (${response.status}).`;
-    throw createHttpError(response.status === 429 ? 503 : response.status, message, payload);
-  }
-
-  return payload;
-}
-
-async function callLiteLlmText(
-  env: WorkerEnv,
-  body: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const response = await fetch(resolveLiteLlmChatUrl(getRequiredEnv(env, "LITELLM_BASE_URL")), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getLiteLlmApiKey(env)}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
-  });
-
-  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok) {
-    const message =
-      typeof (payload.error as { message?: unknown } | undefined)?.message === "string"
-        ? String((payload.error as { message?: unknown }).message)
-        : typeof payload.message === "string"
-          ? payload.message
-          : `LiteLLM text request gagal (${response.status}).`;
     throw createHttpError(response.status === 429 ? 503 : response.status, message, payload);
   }
 
@@ -1024,14 +1002,14 @@ async function callOpenRouterTts(
   return response;
 }
 
-async function callLiteLlmTts(
+async function callAiveneTts(
   env: WorkerEnv,
   body: Record<string, unknown>
 ): Promise<Response> {
-  const response = await fetch(resolveLiteLlmSpeechUrl(getRequiredEnv(env, "LITELLM_BASE_URL")), {
+  const response = await fetch(resolveAiveneSpeechUrl(resolveAiveneBaseUrl(env)), {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${getLiteLlmApiKey(env)}`,
+      Authorization: `Bearer ${getAiveneApiKey(env)}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify(body)
@@ -1052,7 +1030,7 @@ async function callLiteLlmTts(
         ? String((payload.error as { message?: unknown }).message)
         : typeof payload.message === "string"
           ? payload.message
-          : `LiteLLM TTS request gagal (${response.status}).`;
+          : `Aivene TTS request gagal (${response.status}).`;
     throw createHttpError(response.status === 429 ? 503 : response.status, message, payload);
   }
 
@@ -1076,18 +1054,7 @@ async function withRetry<T>(task: () => Promise<T>, attempts = 3): Promise<T> {
   throw lastError;
 }
 
-function buildGeminiFrameParts(
-  frames: GenerationSessionCreateInput["frames"]
-): Array<Record<string, unknown>> {
-  return frames.map((frame) => ({
-    inlineData: {
-      mimeType: frame.mimeType,
-      data: frame.base64Data
-    }
-  }));
-}
-
-function buildOpenRouterFrameParts(
+function buildOpenAiStyleFrameParts(
   frames: GenerationSessionCreateInput["frames"]
 ): Array<Record<string, unknown>> {
   return frames.map((frame) => ({
@@ -1134,39 +1101,6 @@ function chatPayloadToGeminiLike(payload: Record<string, unknown>): Record<strin
       }
     ]
   };
-}
-
-function extractGeminiAudio(response: Record<string, unknown>): GeminiAudio {
-  const candidates = Array.isArray(response.candidates) ? response.candidates : [];
-  const first = candidates[0] as { content?: { parts?: Array<Record<string, unknown>> } } | undefined;
-  const parts = Array.isArray(first?.content?.parts) ? first?.content?.parts : [];
-  for (const part of parts) {
-    const inlineData = part.inlineData as { data?: unknown; mimeType?: unknown } | undefined;
-    if (typeof inlineData?.data === "string") {
-      const normalized = inlineData.data.trim();
-      if (!normalized) {
-        continue;
-      }
-      return {
-        bytes: ensureWavAudio(
-          Uint8Array.from(atob(normalized), (char) => char.charCodeAt(0)),
-          typeof inlineData.mimeType === "string" && inlineData.mimeType.trim()
-            ? inlineData.mimeType.trim()
-            : "audio/wav"
-        ),
-        mimeType:
-          typeof inlineData.mimeType === "string" && inlineData.mimeType.trim()
-            ? inlineData.mimeType.trim().toLowerCase().includes("pcm") ||
-              inlineData.mimeType.trim().toLowerCase().includes("raw") ||
-              inlineData.mimeType.trim().toLowerCase().includes("l16")
-              ? "audio/wav"
-              : inlineData.mimeType.trim()
-            : "audio/wav"
-      };
-    }
-  }
-
-  throw createHttpError(502, "Gemini direct tidak mengembalikan audio.");
 }
 
 async function runWithProviderFallback<T, TProvider extends string>(input: {
@@ -1218,7 +1152,7 @@ async function generateTextWithProvider(
           role: "user",
           content: [
             { type: "text", text: input.prompt },
-            ...buildOpenRouterFrameParts(input.frames || [])
+            ...buildOpenAiStyleFrameParts(input.frames || [])
           ]
         }
       ]
@@ -1226,34 +1160,19 @@ async function generateTextWithProvider(
     return chatPayloadToGeminiLike(payload);
   }
 
-  if (provider === "litellm") {
-    const payload = await callLiteLlmText(env, {
-      model: normalizeScriptModel(model, provider),
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: input.prompt },
-            ...buildOpenRouterFrameParts(input.frames || [])
-          ]
-        }
-      ]
-    });
-    return chatPayloadToGeminiLike(payload);
-  }
-
-  const parts = [
-    ...(input.frames ? buildGeminiFrameParts(input.frames) : []),
-    { text: input.prompt }
-  ];
-  return await callGemini(env, normalizeScriptModel(model, provider), {
-    contents: [
+  const payload = await callAiveneText(env, {
+    model: normalizeScriptModel(model, provider),
+    messages: [
       {
         role: "user",
-        parts
+        content: [
+          { type: "text", text: input.prompt },
+          ...buildOpenAiStyleFrameParts(input.frames || [])
+        ]
       }
     ]
   });
+  return chatPayloadToGeminiLike(payload);
 }
 
 async function generateAudioWithProvider(
@@ -1267,10 +1186,10 @@ async function generateAudioWithProvider(
     contentLanguage: ContentLanguage;
     deliveryHint?: string;
   }
-): Promise<GeminiAudio> {
-  if (provider === "litellm") {
+): Promise<GeneratedAudio> {
+  if (provider === "aivene") {
     const response = await withRetry(() =>
-      callLiteLlmTts(env, {
+      callAiveneTts(env, {
         model: normalizeTtsModel(settings.ttsModel, provider),
         input: input.text.replace(/\s+/g, " ").trim(),
         voice: input.voiceName,
@@ -1300,35 +1219,7 @@ async function generateAudioWithProvider(
     };
   }
 
-  const response = await withRetry(() =>
-    callGemini(env, normalizeTtsModel(settings.ttsModel, provider), {
-      contents: [
-        {
-          parts: [
-            {
-              text: buildGeminiTtsPrompt({
-                text: input.text,
-                speechRate: input.speechRate,
-                contentLanguage: input.contentLanguage,
-                deliveryHint: input.deliveryHint
-              })
-            }
-          ]
-        }
-      ],
-      config: {
-        responseModalities: ["AUDIO"],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: input.voiceName
-            }
-          }
-        }
-      }
-    })
-  );
-  return extractGeminiAudio(response);
+  throw createHttpError(500, `Provider TTS ${provider} belum didukung.`);
 }
 
 async function createGenerationSession(
@@ -1441,6 +1332,7 @@ async function createGenerationSession(
     social_platform: input.socialPlatform,
     content_language: input.contentLanguage,
     script_mode: input.scriptMode,
+    include_subtitles: input.includeSubtitles,
     voice_gender: input.voiceGender,
     tone: input.tone,
     cta_text: input.ctaText ?? null,
@@ -1581,8 +1473,11 @@ async function synthesizeGenerationSessionTts(
     throw createHttpError(400, "Session ini belum memiliki naskah untuk TTS.");
   }
 
-  const voice = session.voice_name ? findTtsVoiceByName(session.voice_name) : undefined;
-  const voiceName = voice?.voiceName || session.voice_name || findGenderVoiceSetting(settings, session.voice_gender)?.voiceName;
+  const voice = session.voice_name ? findTtsVoiceByName(session.voice_name, settings.ttsProvider) : undefined;
+  const voiceName =
+    voice?.voiceName ||
+    findGenderVoiceSetting(settings, session.voice_gender)?.voiceName ||
+    findDefaultVoiceForGender(settings.ttsProvider, session.voice_gender).voiceName;
   if (!voiceName) {
     throw createHttpError(500, "Voice default session belum tersedia.");
   }
@@ -1634,9 +1529,9 @@ async function previewVoice(env: WorkerEnv, context: AuthContext, payload: Recor
   const contentLanguage =
     payload.contentLanguage === undefined ? "id-ID" : assertContentLanguage(payload.contentLanguage);
   const voiceName = assertString(payload.voiceName, "Voice name") || "";
-  const voice = findTtsVoiceByName(voiceName);
+  const voice = findTtsVoiceByName(voiceName, settings.ttsProvider);
   if (!voice) {
-    throw createHttpError(400, `Voice ${voiceName} tidak tersedia.`);
+    throw createHttpError(400, `Voice ${voiceName} tidak tersedia untuk provider ${settings.ttsProvider}.`);
   }
 
   const audio = await runWithProviderFallback({
@@ -2252,7 +2147,7 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
     if (route.path === "/api/tts/voices" && request.method === "GET") {
       return jsonResponse(
         {
-          voices: GEMINI_TTS_VOICES,
+          voices: ALL_TTS_VOICES,
           excitedPresets: GEMINI_EXCITED_PRESETS
         },
         { headers: buildCorsHeaders(request) }

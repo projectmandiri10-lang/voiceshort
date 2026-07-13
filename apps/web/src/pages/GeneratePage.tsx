@@ -30,9 +30,11 @@ import {
   getGenderLabel,
   getPlatformLabel,
   getScriptModeLabel,
+  getSubtitleModeLabel,
   getToneLabel,
   PLATFORM_OPTIONS,
   SCRIPT_MODE_OPTIONS,
+  SUBTITLE_MODE_OPTIONS,
   TONE_OPTIONS
 } from "../job-form-options";
 import { renderFinalVideoLocally } from "../local-render";
@@ -44,7 +46,8 @@ import type {
   GenerationSessionRecord,
   JobVoiceGender,
   ScriptMode,
-  SocialPlatform
+  SocialPlatform,
+  SubtitleMode
 } from "../types";
 import { CONTENT_TYPES } from "../types";
 import { formatIdrCurrency } from "../user-locale";
@@ -76,6 +79,7 @@ interface GenerateFormState {
   contentType: ContentType;
   socialPlatform: SocialPlatform;
   scriptMode: ScriptMode;
+  subtitleMode: SubtitleMode;
   manualScriptText: string;
   voiceGender: JobVoiceGender;
   tone: string;
@@ -107,6 +111,7 @@ function createInitialFormState(): GenerateFormState {
     contentType: DEFAULT_CONTENT_TYPE,
     socialPlatform: DEFAULT_SOCIAL_PLATFORM,
     scriptMode: DEFAULT_SCRIPT_MODE,
+    subtitleMode: "without_subtitles",
     manualScriptText: "",
     voiceGender: DEFAULT_VOICE_GENDER,
     tone: DEFAULT_TONE,
@@ -297,6 +302,7 @@ export function GeneratePage({
       sourceVideo: sourceVideoBlob,
       audioWavBlob: audioBlob,
       sourceVideoName,
+      subtitleText: session.includeSubtitles ? session.scriptText : undefined,
       onProgress: (ratio) => {
         setFlowState({
           phase: "rendering",
@@ -445,6 +451,7 @@ export function GeneratePage({
         socialPlatform: form.socialPlatform,
         contentLanguage: locale,
         scriptMode: form.scriptMode,
+        includeSubtitles: form.subtitleMode === "with_subtitles",
         manualScriptText: usesManualScript ? form.manualScriptText.trim() : undefined,
         voiceGender: form.voiceGender,
         tone: form.tone.trim(),
@@ -827,6 +834,32 @@ export function GeneratePage({
 
                 <div className="generate-field-row">
                   <label className="generate-field">
+                    <span className="generate-field-label">{copy.generate.subtitleMode}</span>
+                    <div className="generate-input-wrap">
+                      <select
+                        value={form.subtitleMode}
+                        onChange={(event) =>
+                          updateForm((current) => ({
+                            ...current,
+                            subtitleMode: event.target.value as SubtitleMode
+                          }))
+                        }
+                        disabled={formDisabled}
+                      >
+                        {SUBTITLE_MODE_OPTIONS.map((item) => (
+                          <option key={item} value={item}>
+                            {getSubtitleModeLabel(locale, item)}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="generate-input-icon" aria-hidden="true">
+                        <Video size={16} strokeWidth={2} />
+                      </span>
+                    </div>
+                    <p className="small generate-field-hint">{copy.generate.subtitleModeHint}</p>
+                  </label>
+
+                  <label className="generate-field">
                     <span className="generate-field-label">
                       {copy.generate.voiceGender} <span className="required-mark">*</span>
                     </span>
@@ -1077,6 +1110,20 @@ export function GeneratePage({
               <div>
                 <p className="generate-pipeline-title">{copy.generate.targetPlatform}</p>
                 <strong>{getPlatformLabel(locale, activeSession.socialPlatform)}</strong>
+              </div>
+            </div>
+            <div className="generate-pipeline-item">
+              <div className="generate-pipeline-icon generate-pipeline-icon-magenta">
+                <Video size={18} strokeWidth={2} />
+              </div>
+              <div>
+                <p className="generate-pipeline-title">{copy.generate.subtitleMode}</p>
+                <strong>
+                  {getSubtitleModeLabel(
+                    locale,
+                    activeSession.includeSubtitles ? "with_subtitles" : "without_subtitles"
+                  )}
+                </strong>
               </div>
             </div>
             {activeSession.scriptText ? (

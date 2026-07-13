@@ -2010,12 +2010,159 @@ button {
   margin: 0 0 14px;
 }
 
-.admin-user-grid {
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+.admin-users-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 430px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
 }
 
-.admin-user-card {
-  padding: 20px;
+.admin-users-sidebar,
+.admin-user-detail-panel {
+  min-width: 0;
+}
+
+.admin-users-sidebar {
+  position: sticky;
+  top: 18px;
+  max-height: calc(100vh - 120px);
+  overflow: hidden;
+}
+
+.admin-users-toolbar {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-search-field {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-search-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(1, 11, 19, 0.72);
+  color: var(--text-dim);
+}
+
+.admin-search-input-wrap:focus-within {
+  border-color: rgba(68, 227, 255, 0.42);
+  box-shadow: 0 0 0 1px rgba(68, 227, 255, 0.22);
+}
+
+.admin-search-input-wrap input {
+  padding: 14px 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.admin-users-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.admin-users-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.admin-users-list-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 6px;
+}
+
+.admin-user-list {
+  display: grid;
+  gap: 12px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.admin-user-list-item {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+    rgba(6, 17, 27, 0.88);
+  text-align: left;
+  color: inherit;
+  transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+}
+
+.admin-user-list-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(68, 227, 255, 0.24);
+  box-shadow: 0 18px 36px rgba(2, 10, 19, 0.2);
+}
+
+.admin-user-list-item.selected {
+  border-color: rgba(68, 227, 255, 0.42);
+  box-shadow: 0 0 0 1px rgba(68, 227, 255, 0.2), 0 24px 44px rgba(2, 10, 19, 0.26);
+}
+
+.admin-user-list-item.is-disabled {
+  opacity: 0.86;
+}
+
+.admin-user-list-top,
+.admin-user-list-foot,
+.admin-user-list-meta,
+.admin-user-detail-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-user-list-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.admin-user-list-meta {
+  flex-wrap: wrap;
+  color: var(--text-dim);
+  font-size: 0.84rem;
+}
+
+.admin-user-list-foot {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.admin-user-detail-panel {
+  padding: 22px;
+}
+
+.admin-user-detail-meta {
+  flex-wrap: wrap;
+  color: var(--text-dim);
+  font-size: 0.84rem;
+}
+
+.admin-user-empty {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .section-divider {
@@ -2084,6 +2231,34 @@ button {
 
 .admin-load-more {
   justify-self: start;
+}
+
+@media (max-width: 1100px) {
+  .admin-users-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-users-sidebar {
+    position: static;
+    max-height: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .admin-users-filter-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-users-list-summary,
+  .admin-user-list-top,
+  .admin-user-list-meta,
+  .admin-user-detail-meta {
+    flex-direction: column;
+  }
+
+  .admin-user-list-badges {
+    justify-content: flex-start;
+  }
 }
 
 .err-text,

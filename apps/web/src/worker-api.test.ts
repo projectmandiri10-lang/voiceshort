@@ -38,6 +38,7 @@ function buildSessionRow(overrides: Record<string, unknown> = {}) {
     social_platform: "instagram",
     content_language: "id-ID",
     script_mode: "auto_analysis",
+    include_subtitles: false,
     voice_gender: "female",
     tone: "natural",
     cta_text: null,
@@ -48,7 +49,7 @@ function buildSessionRow(overrides: Record<string, unknown> = {}) {
     script_text: "Script session",
     caption_text: "Caption session",
     hashtags: ["#tag1"],
-    voice_name: "Leda",
+    voice_name: "nova",
     speech_rate: 1,
     charged_amount_idr: 2000,
     error_message: null,
@@ -264,7 +265,7 @@ function openRouterTextResponse(text: string): Response {
   );
 }
 
-function liteLlmTextResponse(text: string): Response {
+function aiveneTextResponse(text: string): Response {
   return new Response(
     JSON.stringify({
       choices: [
@@ -486,10 +487,10 @@ describe("handleApiRequest", () => {
         settingsRow: {
           settings_key: "default",
           script_provider: "openrouter",
-          script_fallback_provider: "gemini_direct",
+          script_fallback_provider: "aivene",
           script_model: "google/gemini-2.5-flash-lite",
           tts_provider: "openrouter",
-          tts_fallback_provider: "gemini_direct",
+          tts_fallback_provider: "aivene",
           tts_model: "google/gemini-3.1-flash-tts-preview",
           language: "id-ID",
           max_video_seconds: 60,
@@ -528,6 +529,7 @@ describe("handleApiRequest", () => {
           socialPlatform: "youtube",
           contentLanguage: "id-ID",
           scriptMode: "manual_script",
+          includeSubtitles: true,
           manualScriptText: "Ini script manual final yang dipakai langsung.",
           voiceGender: "female",
           tone: "informatif",
@@ -536,7 +538,7 @@ describe("handleApiRequest", () => {
         })
       }),
       {
-        GEMINI_API_KEY: "gemini-key",
+        AIVENE_API_KEY: "aivene-key",
         OPENROUTER_API_KEY: "openrouter-key",
         GENERATE_PRICE_IDR: "2000",
         SUPABASE_URL: "https://project.supabase.co",
@@ -549,14 +551,22 @@ describe("handleApiRequest", () => {
     expect(insertCollector).toContainEqual(
       expect.objectContaining({
         script_mode: "manual_script",
+        include_subtitles: true,
         frame_count: 0,
         script_text: "Ini script manual final yang dipakai langsung."
       })
     );
     const body = (await response.json()) as {
-      session: { scriptMode: string; frameCount: number; scriptText?: string; contentLanguage: string };
+      session: {
+        scriptMode: string;
+        includeSubtitles: boolean;
+        frameCount: number;
+        scriptText?: string;
+        contentLanguage: string;
+      };
     };
     expect(body.session.scriptMode).toBe("manual_script");
+    expect(body.session.includeSubtitles).toBe(true);
     expect(body.session.frameCount).toBe(0);
     expect(body.session.scriptText).toBe("Ini script manual final yang dipakai langsung.");
     expect(body.session.contentLanguage).toBe("id-ID");
@@ -645,7 +655,7 @@ describe("handleApiRequest", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        liteLlmTextResponse(
+        aiveneTextResponse(
           JSON.stringify({
             summary: "Ringkasan video",
             hook: {
@@ -671,10 +681,10 @@ describe("handleApiRequest", () => {
         )
       )
       .mockResolvedValueOnce(
-        liteLlmTextResponse(JSON.stringify({ script: "Ini naskah singkat untuk video." }))
+        aiveneTextResponse(JSON.stringify({ script: "Ini naskah singkat untuk video." }))
       )
       .mockResolvedValueOnce(
-        liteLlmTextResponse(
+        aiveneTextResponse(
           JSON.stringify({
             caption: "Caption singkat untuk posting.",
             hashtags: ["#produk", "#promo"]
@@ -712,9 +722,8 @@ describe("handleApiRequest", () => {
         })
       }),
       {
-        GEMINI_API_KEY: "gemini-key",
-        LITELLM_BASE_URL: "https://litellm.example/v1",
-        LITELLM_API_KEY: "litellm-key",
+        AIVENE_BASE_URL: "https://api.aivene.test/v1",
+        AIVENE_API_KEY: "aivene-key",
         OPENROUTER_API_KEY: "openrouter-key",
         GENERATE_PRICE_IDR: "2500",
         SUPABASE_URL: "https://project.supabase.co",
@@ -748,10 +757,10 @@ describe("handleApiRequest", () => {
         settingsRow: {
           settings_key: "default",
           script_provider: "openrouter",
-          script_fallback_provider: "gemini_direct",
+          script_fallback_provider: "aivene",
           script_model: "google/gemini-2.5-flash-lite",
           tts_provider: "openrouter",
-          tts_fallback_provider: "gemini_direct",
+          tts_fallback_provider: "aivene",
           tts_model: "google/gemini-3.1-flash-tts-preview",
           language: "id-ID",
           max_video_seconds: 60,
@@ -831,7 +840,7 @@ describe("handleApiRequest", () => {
         })
       }),
       {
-        GEMINI_API_KEY: "gemini-key",
+        AIVENE_API_KEY: "aivene-key",
         OPENROUTER_API_KEY: "openrouter-key",
         GENERATE_PRICE_IDR: "2000",
         SUPABASE_URL: "https://project.supabase.co",
@@ -846,18 +855,18 @@ describe("handleApiRequest", () => {
     }
   });
 
-  it("supports LiteLLM as the script provider for visual brief, script, and caption", async () => {
+  it("supports Aivene as the script provider for visual brief, script, and caption", async () => {
     const rpcMock = vi.fn(async () => ({ data: {}, error: null }));
     createClientMock.mockReturnValue(
       buildServiceClient({
         rpcMock,
         settingsRow: {
           settings_key: "default",
-          script_provider: "litellm",
+          script_provider: "aivene",
           script_fallback_provider: "openrouter",
           script_model: "gemini-2.5-flash-lite",
           tts_provider: "openrouter",
-          tts_fallback_provider: "gemini_direct",
+          tts_fallback_provider: "aivene",
           tts_model: "google/gemini-3.1-flash-tts-preview",
           language: "id-ID",
           max_video_seconds: 60,
@@ -874,9 +883,9 @@ describe("handleApiRequest", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        liteLlmTextResponse(
+        aiveneTextResponse(
           JSON.stringify({
-            summary: "Ringkasan visual LiteLLM",
+            summary: "Ringkasan visual Aivene",
             hook: { startSec: 0, endSec: 2, reason: "Hook awal" },
             timeline: [
               {
@@ -896,13 +905,13 @@ describe("handleApiRequest", () => {
         )
       )
       .mockResolvedValueOnce(
-        liteLlmTextResponse(JSON.stringify({ script: "Ini script dari LiteLLM." }))
+        aiveneTextResponse(JSON.stringify({ script: "Ini script dari Aivene." }))
       )
       .mockResolvedValueOnce(
-        liteLlmTextResponse(
+        aiveneTextResponse(
           JSON.stringify({
-            caption: "Caption dari LiteLLM.",
-            hashtags: ["#litellm", "#voiceshort"]
+            caption: "Caption dari Aivene.",
+            hashtags: ["#aivene", "#voiceshort"]
           })
         )
       );
@@ -937,9 +946,8 @@ describe("handleApiRequest", () => {
         })
       }),
       {
-        GEMINI_API_KEY: "gemini-key",
-        LITELLM_BASE_URL: "https://litellm.example/v1",
-        LITELLM_API_KEY: "litellm-key",
+        AIVENE_BASE_URL: "https://api.aivene.test/v1",
+        AIVENE_API_KEY: "aivene-key",
         OPENROUTER_API_KEY: "openrouter-key",
         GENERATE_PRICE_IDR: "2000",
         SUPABASE_URL: "https://project.supabase.co",
@@ -951,10 +959,10 @@ describe("handleApiRequest", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     for (const [, init] of fetchMock.mock.calls as Array<[string, RequestInit]>) {
       expect(init.headers).toMatchObject({
-        Authorization: "Bearer litellm-key"
+        Authorization: "Bearer aivene-key"
       });
       const payload = JSON.parse(String(init.body));
-      expect(payload.model).toBe("gemini/gemini-2.5-flash-lite");
+      expect(payload.model).toBe("gemini-2.5-flash-lite");
     }
     const firstPayload = JSON.parse(
       String(((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1] || {}).body)
@@ -971,24 +979,24 @@ describe("handleApiRequest", () => {
       ])
     );
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      "https://litellm.example/v1/chat/completions",
-      "https://litellm.example/v1/chat/completions",
-      "https://litellm.example/v1/chat/completions"
+      "https://api.aivene.test/v1/chat/completions",
+      "https://api.aivene.test/v1/chat/completions",
+      "https://api.aivene.test/v1/chat/completions"
     ]);
   });
 
-  it("falls back to OpenRouter text generation when LiteLLM script calls fail", async () => {
+  it("falls back to OpenRouter text generation when Aivene script calls fail", async () => {
     const rpcMock = vi.fn(async () => ({ data: {}, error: null }));
     createClientMock.mockReturnValue(
       buildServiceClient({
         rpcMock,
         settingsRow: {
           settings_key: "default",
-          script_provider: "litellm",
+          script_provider: "aivene",
           script_fallback_provider: "openrouter",
           script_model: "gemini-2.5-flash-lite",
           tts_provider: "openrouter",
-          tts_fallback_provider: "gemini_direct",
+          tts_fallback_provider: "aivene",
           tts_model: "google/gemini-3.1-flash-tts-preview",
           language: "id-ID",
           max_video_seconds: 60,
@@ -1004,8 +1012,8 @@ describe("handleApiRequest", () => {
 
     let openRouterStage = 0;
     const fetchMock = vi.fn(async (url: string) => {
-      if (url.includes("litellm.example")) {
-        return new Response(JSON.stringify({ error: { message: "LiteLLM utama gagal" } }), {
+      if (url.includes("api.aivene.test")) {
+        return new Response(JSON.stringify({ error: { message: "Aivene utama gagal" } }), {
           status: 503,
           headers: {
             "Content-Type": "application/json"
@@ -1076,9 +1084,8 @@ describe("handleApiRequest", () => {
         })
       }),
       {
-        GEMINI_API_KEY: "gemini-key",
-        LITELLM_BASE_URL: "https://litellm.example/v1",
-        LITELLM_API_KEY: "litellm-key",
+        AIVENE_BASE_URL: "https://api.aivene.test/v1",
+        AIVENE_API_KEY: "aivene-key",
         OPENROUTER_API_KEY: "openrouter-key",
         GENERATE_PRICE_IDR: "2000",
         SUPABASE_URL: "https://project.supabase.co",
@@ -1087,23 +1094,23 @@ describe("handleApiRequest", () => {
     );
 
     expect(response.status).toBe(201);
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("litellm.example"))).toHaveLength(9);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("api.aivene.test"))).toHaveLength(9);
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("openrouter.ai/api/v1/chat/completions"))).toHaveLength(3);
     expect(warnSpy).toHaveBeenCalled();
   }, 10000);
 
-  it("returns a clear provider error when LiteLLM script primary and OpenRouter fallback both fail", async () => {
+  it("returns a clear provider error when Aivene script primary and OpenRouter fallback both fail", async () => {
     const rpcMock = vi.fn(async () => ({ data: {}, error: null }));
     createClientMock.mockReturnValue(
       buildServiceClient({
         rpcMock,
         settingsRow: {
           settings_key: "default",
-          script_provider: "litellm",
+          script_provider: "aivene",
           script_fallback_provider: "openrouter",
           script_model: "gemini-2.5-flash-lite",
           tts_provider: "openrouter",
-          tts_fallback_provider: "gemini_direct",
+          tts_fallback_provider: "aivene",
           tts_model: "google/gemini-3.1-flash-tts-preview",
           language: "id-ID",
           max_video_seconds: 60,
@@ -1118,8 +1125,8 @@ describe("handleApiRequest", () => {
     );
 
     const fetchMock = vi.fn(async (url: string) => {
-      const message = url.includes("litellm.example")
-        ? "LiteLLM script gagal"
+      const message = url.includes("api.aivene.test")
+        ? "Aivene script gagal"
         : "OpenRouter script gagal";
       return new Response(JSON.stringify({ error: { message } }), {
         status: 503,
@@ -1160,9 +1167,8 @@ describe("handleApiRequest", () => {
         })
       }),
       {
-        GEMINI_API_KEY: "gemini-key",
-        LITELLM_BASE_URL: "https://litellm.example/v1",
-        LITELLM_API_KEY: "litellm-key",
+        AIVENE_BASE_URL: "https://api.aivene.test/v1",
+        AIVENE_API_KEY: "aivene-key",
         OPENROUTER_API_KEY: "openrouter-key",
         GENERATE_PRICE_IDR: "2000",
         SUPABASE_URL: "https://project.supabase.co",
@@ -1176,26 +1182,26 @@ describe("handleApiRequest", () => {
       error?: Record<string, string>;
     };
     expect(body.message).toContain(
-      "Visual brief gagal pada provider utama (litellm) dan fallback (openrouter)."
+      "Visual brief gagal pada provider utama (aivene) dan fallback (openrouter)."
     );
     expect(body.error).toMatchObject({
-      primaryProvider: "litellm",
+      primaryProvider: "aivene",
       fallbackProvider: "openrouter"
     });
   });
 
-  it("falls back to OpenRouter text generation when Gemini direct script calls fail", async () => {
+  it("falls back to OpenRouter text generation when Aivene script calls fail with the default base URL", async () => {
     const rpcMock = vi.fn(async () => ({ data: {}, error: null }));
     createClientMock.mockReturnValue(
       buildServiceClient({
         rpcMock,
         settingsRow: {
           settings_key: "default",
-          script_provider: "gemini_direct",
+          script_provider: "aivene",
           script_fallback_provider: "openrouter",
           script_model: "gemini-2.5-flash-lite",
           tts_provider: "openrouter",
-          tts_fallback_provider: "gemini_direct",
+          tts_fallback_provider: "aivene",
           tts_model: "google/gemini-3.1-flash-tts-preview",
           language: "id-ID",
           max_video_seconds: 60,
@@ -1211,8 +1217,8 @@ describe("handleApiRequest", () => {
 
     let openRouterStage = 0;
     const fetchMock = vi.fn(async (url: string) => {
-      if (url.includes("generativelanguage.googleapis.com")) {
-        return new Response(JSON.stringify({ error: { message: "Gemini utama gagal" } }), {
+      if (url.includes("https://api.aivene.com/v1/chat/completions")) {
+        return new Response(JSON.stringify({ error: { message: "Aivene utama gagal" } }), {
           status: 503,
           headers: {
             "Content-Type": "application/json"
@@ -1283,7 +1289,7 @@ describe("handleApiRequest", () => {
         })
       }),
       {
-        GEMINI_API_KEY: "gemini-key",
+        AIVENE_API_KEY: "aivene-key",
         OPENROUTER_API_KEY: "openrouter-key",
         GENERATE_PRICE_IDR: "2000",
         SUPABASE_URL: "https://project.supabase.co",
@@ -1292,7 +1298,7 @@ describe("handleApiRequest", () => {
     );
 
     expect(response.status).toBe(201);
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("generativelanguage.googleapis.com"))).toHaveLength(9);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("https://api.aivene.com/v1/chat/completions"))).toHaveLength(9);
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("openrouter.ai/api/v1/chat/completions"))).toHaveLength(3);
     expect(warnSpy).toHaveBeenCalled();
   });
@@ -1303,19 +1309,19 @@ describe("handleApiRequest", () => {
       buildServiceClient({
         settingsRow: {
           settings_key: "default",
-          script_provider: "litellm",
+          script_provider: "aivene",
           script_fallback_provider: "openrouter",
-          script_model: "gemini/gemini-2.5-flash-lite",
-          tts_provider: "openrouter",
-          tts_fallback_provider: "gemini_direct",
-          tts_model: "google/gemini-3.1-flash-tts-preview",
+          script_model: "gemini-2.5-flash",
+          tts_provider: "aivene",
+          tts_fallback_provider: "openrouter",
+          tts_model: "tts-1-hd",
           language: "id-ID",
           max_video_seconds: 60,
           safety_mode: "safe_marketing",
           concurrency: 1,
           gender_voices: [
-            { gender: "male", voiceName: "Charon", speechRate: 1 },
-            { gender: "female", voiceName: "Leda", speechRate: 1 }
+            { gender: "male", voiceName: "echo", speechRate: 1 },
+            { gender: "female", voiceName: "nova", speechRate: 1 }
           ]
         },
         sessionRow: buildSessionRow({
@@ -1338,11 +1344,10 @@ describe("handleApiRequest", () => {
         }
       }),
       {
-        AI_PROVIDER: "litellm",
-        GEMINI_API_KEY: "gemini-key",
-        LITELLM_BASE_URL: "https://litellm.example/v1",
-        LITELLM_API_KEY: "litellm-key",
-        LITELLM_TTS_MODEL: "gemini/gemini-2.5-pro-preview-tts",
+        AI_PROVIDER: "aivene",
+        AIVENE_BASE_URL: "https://api.aivene.test/v1",
+        AIVENE_API_KEY: "aivene-key",
+        AIVENE_TTS_MODEL: "tts-1",
         OPENROUTER_API_KEY: "openrouter-key",
         SUPABASE_URL: "https://project.supabase.co",
         SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
@@ -1351,20 +1356,20 @@ describe("handleApiRequest", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("audio/mpeg");
-    expect(response.headers.get("X-Voice-Name")).toBe("Leda");
+    expect(response.headers.get("X-Voice-Name")).toBe("nova");
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://litellm.example/v1/audio/speech",
+      "https://api.aivene.test/v1/audio/speech",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          Authorization: "Bearer litellm-key"
+          Authorization: "Bearer aivene-key"
         })
       })
     );
     const init = ((fetchMock.mock.calls[0] as unknown as [string, RequestInit] | undefined)?.[1] || {}) as RequestInit;
     expect(JSON.parse(String(init.body))).toMatchObject({
-      model: "gemini/gemini-2.5-pro-preview-tts",
-      voice: "Leda",
+      model: "tts-1",
+      voice: "nova",
       response_format: "mp3",
       speed: 1
     });
@@ -1378,24 +1383,24 @@ describe("handleApiRequest", () => {
     expect(buffer.byteLength).toBeGreaterThan(0);
   });
 
-  it("falls back to OpenRouter for voice preview when LiteLLM TTS fails", async () => {
+  it("falls back to OpenRouter for voice preview when Aivene TTS fails", async () => {
     createClientMock.mockReturnValue(
       buildServiceClient({
         settingsRow: {
           settings_key: "default",
-          script_provider: "litellm",
+          script_provider: "aivene",
           script_fallback_provider: "openrouter",
-          script_model: "gemini/gemini-2.5-flash-lite",
-          tts_provider: "litellm",
+          script_model: "gemini-2.5-flash",
+          tts_provider: "aivene",
           tts_fallback_provider: "openrouter",
-          tts_model: "gemini/gemini-2.5-pro-preview-tts",
+          tts_model: "tts-1-hd",
           language: "id-ID",
           max_video_seconds: 60,
           safety_mode: "safe_marketing",
           concurrency: 1,
           gender_voices: [
-            { gender: "male", voiceName: "Charon", speechRate: 1 },
-            { gender: "female", voiceName: "Leda", speechRate: 1 }
+            { gender: "male", voiceName: "echo", speechRate: 1 },
+            { gender: "female", voiceName: "nova", speechRate: 1 }
           ]
         }
       })
@@ -1404,7 +1409,7 @@ describe("handleApiRequest", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { message: "LiteLLM TTS gagal" } }), {
+        new Response(JSON.stringify({ error: { message: "Aivene TTS gagal" } }), {
           status: 503,
           headers: {
             "Content-Type": "application/json"
@@ -1412,7 +1417,7 @@ describe("handleApiRequest", () => {
         })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { message: "LiteLLM TTS gagal" } }), {
+        new Response(JSON.stringify({ error: { message: "Aivene TTS gagal" } }), {
           status: 503,
           headers: {
             "Content-Type": "application/json"
@@ -1420,7 +1425,7 @@ describe("handleApiRequest", () => {
         })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { message: "LiteLLM TTS gagal" } }), {
+        new Response(JSON.stringify({ error: { message: "Aivene TTS gagal" } }), {
           status: 503,
           headers: {
             "Content-Type": "application/json"
@@ -1441,15 +1446,14 @@ describe("handleApiRequest", () => {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          voiceName: "Leda",
+          voiceName: "nova",
           text: "Halo, ini preview fallback.",
           speechRate: 1
         })
       }),
       {
-        GEMINI_API_KEY: "gemini-key",
-        LITELLM_BASE_URL: "https://litellm.example/v1",
-        LITELLM_API_KEY: "litellm-key",
+        AIVENE_BASE_URL: "https://api.aivene.test/v1",
+        AIVENE_API_KEY: "aivene-key",
         OPENROUTER_API_KEY: "openrouter-key",
         SUPABASE_URL: "https://project.supabase.co",
         SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
@@ -1458,7 +1462,7 @@ describe("handleApiRequest", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("audio/mpeg");
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("litellm.example/v1/audio/speech"))).toHaveLength(3);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("api.aivene.test/v1/audio/speech"))).toHaveLength(3);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("openrouter.ai/api/v1/audio/speech"))).toBe(true);
     expect(warnSpy).toHaveBeenCalled();
     const buffer = Buffer.from(await response.arrayBuffer());
@@ -1470,7 +1474,7 @@ describe("handleApiRequest", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { message: "LiteLLM TTS gagal" } }), {
+        new Response(JSON.stringify({ error: { message: "Aivene TTS gagal" } }), {
           status: 503,
           headers: {
             "Content-Type": "application/json"
@@ -1478,7 +1482,7 @@ describe("handleApiRequest", () => {
         })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { message: "LiteLLM TTS gagal" } }), {
+        new Response(JSON.stringify({ error: { message: "Aivene TTS gagal" } }), {
           status: 503,
           headers: {
             "Content-Type": "application/json"
@@ -1486,7 +1490,7 @@ describe("handleApiRequest", () => {
         })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { message: "LiteLLM TTS gagal" } }), {
+        new Response(JSON.stringify({ error: { message: "Aivene TTS gagal" } }), {
           status: 503,
           headers: {
             "Content-Type": "application/json"
@@ -1529,15 +1533,14 @@ describe("handleApiRequest", () => {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          voiceName: "Leda",
+          voiceName: "nova",
           text: "Halo, ini preview gagal.",
           speechRate: 1
         })
       }),
       {
-        GEMINI_API_KEY: "gemini-key",
-        LITELLM_BASE_URL: "https://litellm.example/v1",
-        LITELLM_API_KEY: "litellm-key",
+        AIVENE_BASE_URL: "https://api.aivene.test/v1",
+        AIVENE_API_KEY: "aivene-key",
         OPENROUTER_API_KEY: "openrouter-key",
         SUPABASE_URL: "https://project.supabase.co",
         SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
@@ -1549,9 +1552,9 @@ describe("handleApiRequest", () => {
       message: string;
       error?: Record<string, string>;
     };
-    expect(body.message).toContain("Voice preview TTS gagal pada provider utama (litellm) dan fallback (openrouter).");
+    expect(body.message).toContain("Voice preview TTS gagal pada provider utama (aivene) dan fallback (openrouter).");
     expect(body.error).toMatchObject({
-      primaryProvider: "litellm",
+      primaryProvider: "aivene",
       fallbackProvider: "openrouter"
     });
   });

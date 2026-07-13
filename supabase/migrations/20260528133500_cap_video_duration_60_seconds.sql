@@ -9,4 +9,4 @@ where max_video_seconds is not null
 
 alter table public.app_settings
 add constraint app_settings_max_video_seconds_check
-check (max_video_seconds between 10 and 60);
+check (max_video_seconds between 10 and 60);;

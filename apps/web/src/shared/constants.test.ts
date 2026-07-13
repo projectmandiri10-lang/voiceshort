@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_LITELLM_TTS_MODEL,
-  DEFAULT_LITELLM_SCRIPT_MODEL,
+  AIVENE_TTS_VOICES,
+  DEFAULT_AIVENE_SCRIPT_MODEL,
+  DEFAULT_AIVENE_TTS_MODEL,
   DEFAULT_OPENROUTER_TTS_MODEL,
   DEFAULT_SETTINGS,
+  OPENROUTER_TTS_VOICES,
+  findTtsVoiceByName,
   normalizeScriptModel,
   normalizeScriptProvider,
   normalizeTtsModel,
@@ -11,20 +14,18 @@ import {
 } from "./constants";
 
 describe("shared constants", () => {
-  it("defaults script routing to litellm", () => {
-    expect(DEFAULT_SETTINGS.scriptProvider).toBe("litellm");
+  it("defaults script routing to aivene", () => {
+    expect(DEFAULT_SETTINGS.scriptProvider).toBe("aivene");
     expect(DEFAULT_SETTINGS.scriptFallbackProvider).toBe("openrouter");
-    expect(DEFAULT_SETTINGS.scriptModel).toBe(DEFAULT_LITELLM_SCRIPT_MODEL);
+    expect(DEFAULT_SETTINGS.scriptModel).toBe(DEFAULT_AIVENE_SCRIPT_MODEL);
   });
 
-  it("normalizes Gemini slugs for litellm script models", () => {
-    expect(normalizeScriptModel("gemini-2.5-flash-lite", "litellm")).toBe(
-      "gemini/gemini-2.5-flash-lite"
+  it("normalizes script models for aivene and openrouter", () => {
+    expect(normalizeScriptModel("", "aivene")).toBe(DEFAULT_AIVENE_SCRIPT_MODEL);
+    expect(normalizeScriptModel("google/gemini-2.5-flash", "aivene")).toBe("gemini-2.5-flash");
+    expect(normalizeScriptModel("gemini/gemini-2.5-flash-lite", "openrouter")).toBe(
+      "google/gemini-2.5-flash-lite"
     );
-    expect(normalizeScriptModel("google/gemini-2.5-flash-lite", "litellm")).toBe(
-      "gemini/gemini-2.5-flash-lite"
-    );
-    expect(normalizeScriptModel("", "litellm")).toBe(DEFAULT_LITELLM_SCRIPT_MODEL);
   });
 
   it("normalizes Gemini slugs across litellm and openrouter fallback formats", () => {
@@ -37,12 +38,17 @@ describe("shared constants", () => {
   });
 
   it("keeps provider validation split between script and tts", () => {
-    expect(normalizeScriptProvider("litellm", "gemini_direct")).toBe("litellm");
-    expect(normalizeTtsProvider("litellm", "openrouter")).toBe("litellm");
+    expect(normalizeScriptProvider("aivene", "openrouter")).toBe("aivene");
+    expect(normalizeTtsProvider("aivene", "openrouter")).toBe("aivene");
     expect(normalizeTtsModel("", "openrouter")).toBe(DEFAULT_OPENROUTER_TTS_MODEL);
-    expect(normalizeTtsModel("", "litellm")).toBe(DEFAULT_LITELLM_TTS_MODEL);
-    expect(normalizeTtsModel("google/gemini-3.1-flash-tts-preview", "litellm")).toBe(
-      DEFAULT_LITELLM_TTS_MODEL
+    expect(normalizeTtsModel("", "aivene")).toBe(DEFAULT_AIVENE_TTS_MODEL);
+  });
+
+  it("keeps voice lookup provider-aware", () => {
+    expect(findTtsVoiceByName("nova", "aivene")).toEqual(AIVENE_TTS_VOICES.find((voice) => voice.voiceName === "nova"));
+    expect(findTtsVoiceByName("Leda", "openrouter")).toEqual(
+      OPENROUTER_TTS_VOICES.find((voice) => voice.voiceName === "Leda")
     );
+    expect(findTtsVoiceByName("Leda", "aivene")).toBeUndefined();
   });
 });

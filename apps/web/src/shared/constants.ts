@@ -5,6 +5,7 @@ import type {
   GenderVoiceSettings,
   JobVoiceGender,
   ScriptAiProvider,
+  TtsAiProvider,
   TtsVoiceOption
 } from "../types";
 
@@ -18,25 +19,25 @@ export const FINAL_VIDEO_MAX_DIMENSION = 1280;
 export const FINAL_AUDIO_BITRATE = "64k";
 export const FINAL_AUDIO_SAMPLE_RATE = 24000;
 export const FINAL_VOICE_LOUDNORM = "loudnorm=I=-14:TP=-1.0:LRA=11";
+
 export const AI_PROVIDER_LABEL: Record<AiProvider, string> = {
-  gemini_direct: "Gemini Direct",
-  openrouter: "OpenRouter",
-  litellm: "LiteLLM"
+  aivene: "Aivene",
+  openrouter: "OpenRouter"
 };
-export const DEFAULT_GEMINI_SCRIPT_MODEL = "gemini-2.5-flash-lite";
+
+export const DEFAULT_AIVENE_BASE_URL = "https://api.aivene.com/v1";
+export const DEFAULT_AIVENE_SCRIPT_MODEL = "gemini-2.5-pro";
 export const DEFAULT_OPENROUTER_SCRIPT_MODEL = "google/gemini-2.5-flash-lite";
-export const DEFAULT_LITELLM_SCRIPT_MODEL = "gemini/gemini-2.5-flash-lite";
-export const DEFAULT_GEMINI_TTS_MODEL = "gemini-3.1-flash-tts-preview";
+export const DEFAULT_AIVENE_TTS_MODEL = "tts-1-hd";
 export const DEFAULT_OPENROUTER_TTS_MODEL = "google/gemini-3.1-flash-tts-preview";
-export const DEFAULT_LITELLM_TTS_MODEL = "gemini/gemini-2.5-flash-preview-tts";
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  scriptProvider: "litellm",
+  scriptProvider: "aivene",
   scriptFallbackProvider: "openrouter",
-  scriptModel: DEFAULT_LITELLM_SCRIPT_MODEL,
-  ttsProvider: "litellm",
+  scriptModel: DEFAULT_AIVENE_SCRIPT_MODEL,
+  ttsProvider: "aivene",
   ttsFallbackProvider: "openrouter",
-  ttsModel: DEFAULT_LITELLM_TTS_MODEL,
+  ttsModel: DEFAULT_AIVENE_TTS_MODEL,
   taxRatePercent: 0,
   language: "id-ID",
   maxVideoSeconds: ABSOLUTE_MAX_VIDEO_SECONDS,
@@ -45,39 +46,39 @@ export const DEFAULT_SETTINGS: AppSettings = {
   genderVoices: [
     {
       gender: "male",
-      voiceName: "Charon",
+      voiceName: "echo",
       speechRate: 1
     },
     {
       gender: "female",
-      voiceName: "Leda",
+      voiceName: "nova",
       speechRate: 1
     }
   ]
 };
 
-const LEGACY_GEMINI_TTS_ALIASES = new Map<string, string>([
-  ["gemini-2.5-flash-preview-tts", DEFAULT_GEMINI_TTS_MODEL],
-  ["gemini-2.5-pro-preview-tts", DEFAULT_GEMINI_TTS_MODEL],
-  ["google/gemini-3.1-flash-tts-preview", DEFAULT_GEMINI_TTS_MODEL]
+const LEGACY_GEMINI_TTS_ALIASES = new Set<string>([
+  "",
+  "gemini-2.5-flash-preview-tts",
+  "gemini-2.5-pro-preview-tts",
+  "gemini-3.1-flash-tts-preview",
+  "google/gemini-3.1-flash-tts-preview",
+  "gemini/gemini-2.5-flash-preview-tts",
+  "gemini/gemini-2.5-pro-preview-tts"
 ]);
 
 export function normalizeScriptProvider(
   model: string | undefined,
   fallback: ScriptAiProvider
 ): ScriptAiProvider {
-  return model === "openrouter" || model === "gemini_direct" || model === "litellm"
-    ? model
-    : fallback;
+  return model === "aivene" || model === "openrouter" ? model : fallback;
 }
 
 export function normalizeTtsProvider(
   model: string | undefined,
   fallback: AppSettings["ttsProvider"]
 ): AppSettings["ttsProvider"] {
-  return model === "openrouter" || model === "gemini_direct" || model === "litellm"
-    ? model
-    : fallback;
+  return model === "aivene" || model === "openrouter" ? model : fallback;
 }
 
 export function normalizeAiProvider(model: string | undefined, fallback: AiProvider): AiProvider {
@@ -99,159 +100,117 @@ function collapseRepeatedGeminiPrefix(model: string): string {
   return normalized;
 }
 
-function ensureOpenRouterGeminiPrefix(model: string): string {
+function stripLiteLlmGeminiPrefix(model: string): string {
   const normalized = collapseRepeatedGeminiPrefix(model);
-  if (normalized.startsWith("gemini/")) {
-    return `google/${normalized.slice("gemini/".length)}`;
-  }
-  if (normalized.startsWith("google/gemini-")) {
-    return normalized;
-  }
+  return normalized.startsWith("gemini/gemini-") ? normalized.slice("gemini/".length) : normalized;
+}
+
+function normalizeAiveneGeminiModel(model: string): string {
+  return stripLiteLlmGeminiPrefix(stripGoogleGeminiPrefix(model));
+}
+
+function ensureOpenRouterGeminiPrefix(model: string): string {
+  const normalized = stripLiteLlmGeminiPrefix(stripGoogleGeminiPrefix(collapseRepeatedGeminiPrefix(model)));
   if (normalized.includes("/")) {
     return normalized;
   }
   return normalized.startsWith("gemini-") ? `google/${normalized}` : normalized;
 }
 
-function ensureLiteLlmGeminiPrefix(model: string): string {
-  const normalized = collapseRepeatedGeminiPrefix(model);
-  if (normalized.startsWith("google/gemini-")) {
-    return `gemini/${normalized.slice("google/".length)}`;
-  }
-  if (normalized.startsWith("gemini/")) {
-    return normalized;
-  }
-  if (normalized.startsWith("gemini-")) {
-    return `gemini/${normalized}`;
-  }
-  return normalized;
-}
-
 export function normalizeScriptModel(model: string, provider = DEFAULT_SETTINGS.scriptProvider): string {
   const trimmed = model.trim();
   if (!trimmed) {
-    if (provider === "openrouter") {
-      return DEFAULT_OPENROUTER_SCRIPT_MODEL;
-    }
-    if (provider === "litellm") {
-      return DEFAULT_LITELLM_SCRIPT_MODEL;
-    }
-    return DEFAULT_GEMINI_SCRIPT_MODEL;
+    return provider === "openrouter" ? DEFAULT_OPENROUTER_SCRIPT_MODEL : DEFAULT_AIVENE_SCRIPT_MODEL;
   }
   if (provider === "openrouter") {
     return ensureOpenRouterGeminiPrefix(trimmed);
   }
-  if (provider === "litellm") {
-    return ensureLiteLlmGeminiPrefix(trimmed);
-  }
-  return stripGoogleGeminiPrefix(trimmed);
+  return normalizeAiveneGeminiModel(trimmed);
 }
 
 export function normalizeTtsModel(model: string, provider = DEFAULT_SETTINGS.ttsProvider): string {
   const trimmed = model.trim();
-  const normalized = LEGACY_GEMINI_TTS_ALIASES.get(trimmed) || trimmed;
-  if (!normalized) {
-    if (provider === "openrouter") {
+  if (provider === "openrouter") {
+    if (!trimmed || LEGACY_GEMINI_TTS_ALIASES.has(trimmed)) {
       return DEFAULT_OPENROUTER_TTS_MODEL;
     }
-    if (provider === "litellm") {
-      return DEFAULT_LITELLM_TTS_MODEL;
-    }
-    return DEFAULT_GEMINI_TTS_MODEL;
+    return ensureOpenRouterGeminiPrefix(trimmed);
   }
-  if (provider === "openrouter") {
-    return ensureOpenRouterGeminiPrefix(normalized);
+
+  if (!trimmed || LEGACY_GEMINI_TTS_ALIASES.has(trimmed)) {
+    return DEFAULT_AIVENE_TTS_MODEL;
   }
-  if (provider === "litellm") {
-    return ensureLiteLlmGeminiPrefix(normalized === DEFAULT_GEMINI_TTS_MODEL ? DEFAULT_LITELLM_TTS_MODEL : normalized);
-  }
-  return stripGoogleGeminiPrefix(normalized);
+  return trimmed;
 }
 
-export const GEMINI_TTS_VOICES: TtsVoiceOption[] = [
-  { voiceName: "Zephyr", label: "Zephyr", tone: "Bright", gender: "neutral" },
-  { voiceName: "Puck", label: "Puck", tone: "Upbeat", gender: "male" },
-  { voiceName: "Charon", label: "Charon", tone: "Informative", gender: "male" },
-  { voiceName: "Kore", label: "Kore", tone: "Firm", gender: "female" },
-  { voiceName: "Fenrir", label: "Fenrir", tone: "Excitable", gender: "male" },
-  { voiceName: "Leda", label: "Leda", tone: "Youthful", gender: "female" },
-  { voiceName: "Orus", label: "Orus", tone: "Firm", gender: "male" },
-  { voiceName: "Aoede", label: "Aoede", tone: "Breezy", gender: "female" },
-  { voiceName: "Callirrhoe", label: "Callirrhoe", tone: "Easy-going", gender: "female" },
-  { voiceName: "Autonoe", label: "Autonoe", tone: "Bright", gender: "female" },
-  { voiceName: "Enceladus", label: "Enceladus", tone: "Breathy", gender: "neutral" },
-  { voiceName: "Iapetus", label: "Iapetus", tone: "Clear", gender: "male" },
-  { voiceName: "Umbriel", label: "Umbriel", tone: "Easy-going", gender: "neutral" },
-  { voiceName: "Algieba", label: "Algieba", tone: "Smooth", gender: "neutral" },
-  { voiceName: "Despina", label: "Despina", tone: "Smooth", gender: "female" },
-  { voiceName: "Erinome", label: "Erinome", tone: "Clear", gender: "female" },
-  { voiceName: "Algenib", label: "Algenib", tone: "Gravelly", gender: "male" },
-  { voiceName: "Rasalgethi", label: "Rasalgethi", tone: "Informative", gender: "male" },
-  { voiceName: "Laomedeia", label: "Laomedeia", tone: "Upbeat", gender: "female" },
-  { voiceName: "Achernar", label: "Achernar", tone: "Soft", gender: "female" },
-  { voiceName: "Alnilam", label: "Alnilam", tone: "Firm", gender: "male" },
-  { voiceName: "Schedar", label: "Schedar", tone: "Even", gender: "male" },
-  { voiceName: "Gacrux", label: "Gacrux", tone: "Mature", gender: "male" },
-  { voiceName: "Pulcherrima", label: "Pulcherrima", tone: "Forward", gender: "female" },
-  { voiceName: "Achird", label: "Achird", tone: "Friendly", gender: "neutral" },
-  { voiceName: "Zubenelgenubi", label: "Zubenelgenubi", tone: "Casual", gender: "neutral" },
-  { voiceName: "Vindemiatrix", label: "Vindemiatrix", tone: "Gentle", gender: "female" },
-  { voiceName: "Sadachbia", label: "Sadachbia", tone: "Lively", gender: "female" },
-  { voiceName: "Sadaltager", label: "Sadaltager", tone: "Knowledgeable", gender: "male" },
-  { voiceName: "Sulafat", label: "Sulafat", tone: "Warm", gender: "female" }
+export const AIVENE_TTS_VOICES: TtsVoiceOption[] = [
+  { provider: "aivene", voiceName: "alloy", label: "Alloy", tone: "Balanced", gender: "neutral" },
+  { provider: "aivene", voiceName: "echo", label: "Echo", tone: "Calm", gender: "male" },
+  { provider: "aivene", voiceName: "fable", label: "Fable", tone: "Expressive", gender: "neutral" },
+  { provider: "aivene", voiceName: "onyx", label: "Onyx", tone: "Authoritative", gender: "male" },
+  { provider: "aivene", voiceName: "nova", label: "Nova", tone: "Bright", gender: "female" },
+  { provider: "aivene", voiceName: "shimmer", label: "Shimmer", tone: "Soft", gender: "female" }
 ];
 
-export const GEMINI_EXCITED_PRESETS: ExcitedVoicePreset[] = [
-  {
-    presetId: "female_excited_v1",
-    label: "Excited Wanita V1",
-    version: "v1",
-    gender: "female",
-    voiceName: "Leda"
-  },
-  {
-    presetId: "female_excited_v2",
-    label: "Excited Wanita V2",
-    version: "v2",
-    gender: "female",
-    voiceName: "Autonoe"
-  },
-  {
-    presetId: "female_excited_v3",
-    label: "Excited Wanita V3",
-    version: "v3",
-    gender: "female",
-    voiceName: "Sadachbia"
-  },
-  {
-    presetId: "male_excited_v1",
-    label: "Excited Pria V1",
-    version: "v1",
-    gender: "male",
-    voiceName: "Fenrir"
-  },
-  {
-    presetId: "male_excited_v2",
-    label: "Excited Pria V2",
-    version: "v2",
-    gender: "male",
-    voiceName: "Puck"
-  },
-  {
-    presetId: "male_excited_v3",
-    label: "Excited Pria V3",
-    version: "v3",
-    gender: "male",
-    voiceName: "Orus"
+export const OPENROUTER_TTS_VOICES: TtsVoiceOption[] = [
+  { provider: "openrouter", voiceName: "Zephyr", label: "Zephyr", tone: "Bright", gender: "neutral" },
+  { provider: "openrouter", voiceName: "Puck", label: "Puck", tone: "Upbeat", gender: "male" },
+  { provider: "openrouter", voiceName: "Charon", label: "Charon", tone: "Informative", gender: "male" },
+  { provider: "openrouter", voiceName: "Kore", label: "Kore", tone: "Firm", gender: "female" },
+  { provider: "openrouter", voiceName: "Fenrir", label: "Fenrir", tone: "Excitable", gender: "male" },
+  { provider: "openrouter", voiceName: "Leda", label: "Leda", tone: "Youthful", gender: "female" },
+  { provider: "openrouter", voiceName: "Orus", label: "Orus", tone: "Firm", gender: "male" },
+  { provider: "openrouter", voiceName: "Aoede", label: "Aoede", tone: "Breezy", gender: "female" },
+  { provider: "openrouter", voiceName: "Callirrhoe", label: "Callirrhoe", tone: "Easy-going", gender: "female" },
+  { provider: "openrouter", voiceName: "Autonoe", label: "Autonoe", tone: "Bright", gender: "female" },
+  { provider: "openrouter", voiceName: "Enceladus", label: "Enceladus", tone: "Breathy", gender: "neutral" },
+  { provider: "openrouter", voiceName: "Iapetus", label: "Iapetus", tone: "Clear", gender: "male" },
+  { provider: "openrouter", voiceName: "Umbriel", label: "Umbriel", tone: "Easy-going", gender: "neutral" },
+  { provider: "openrouter", voiceName: "Algieba", label: "Algieba", tone: "Smooth", gender: "neutral" },
+  { provider: "openrouter", voiceName: "Despina", label: "Despina", tone: "Smooth", gender: "female" },
+  { provider: "openrouter", voiceName: "Erinome", label: "Erinome", tone: "Clear", gender: "female" },
+  { provider: "openrouter", voiceName: "Algenib", label: "Algenib", tone: "Gravelly", gender: "male" },
+  { provider: "openrouter", voiceName: "Rasalgethi", label: "Rasalgethi", tone: "Informative", gender: "male" },
+  { provider: "openrouter", voiceName: "Laomedeia", label: "Laomedeia", tone: "Upbeat", gender: "female" },
+  { provider: "openrouter", voiceName: "Achernar", label: "Achernar", tone: "Soft", gender: "female" },
+  { provider: "openrouter", voiceName: "Alnilam", label: "Alnilam", tone: "Firm", gender: "male" },
+  { provider: "openrouter", voiceName: "Schedar", label: "Schedar", tone: "Even", gender: "male" },
+  { provider: "openrouter", voiceName: "Gacrux", label: "Gacrux", tone: "Mature", gender: "male" },
+  { provider: "openrouter", voiceName: "Pulcherrima", label: "Pulcherrima", tone: "Forward", gender: "female" },
+  { provider: "openrouter", voiceName: "Achird", label: "Achird", tone: "Friendly", gender: "neutral" },
+  { provider: "openrouter", voiceName: "Zubenelgenubi", label: "Zubenelgenubi", tone: "Casual", gender: "neutral" },
+  { provider: "openrouter", voiceName: "Vindemiatrix", label: "Vindemiatrix", tone: "Gentle", gender: "female" },
+  { provider: "openrouter", voiceName: "Sadachbia", label: "Sadachbia", tone: "Lively", gender: "female" },
+  { provider: "openrouter", voiceName: "Sadaltager", label: "Sadaltager", tone: "Knowledgeable", gender: "male" },
+  { provider: "openrouter", voiceName: "Sulafat", label: "Sulafat", tone: "Warm", gender: "female" }
+];
+
+export const ALL_TTS_VOICES: TtsVoiceOption[] = [...AIVENE_TTS_VOICES, ...OPENROUTER_TTS_VOICES];
+export const GEMINI_EXCITED_PRESETS: ExcitedVoicePreset[] = [];
+
+export function findDefaultVoiceForGender(provider: TtsAiProvider, gender: JobVoiceGender): TtsVoiceOption {
+  const fallback = ALL_TTS_VOICES[0];
+  if (!fallback) {
+    throw new Error("Katalog voice kosong.");
   }
-];
-
-export function findTtsVoiceByName(voiceName: string): TtsVoiceOption | undefined {
-  return GEMINI_TTS_VOICES.find((voice) => voice.voiceName === voiceName);
+  return (
+    ALL_TTS_VOICES.find(
+      (voice) => voice.provider === provider && (voice.gender === gender || voice.gender === "neutral")
+    ) || fallback
+  );
 }
 
-export function isKnownTtsVoiceName(voiceName: string): boolean {
-  return Boolean(findTtsVoiceByName(voiceName));
+export function findTtsVoiceByName(
+  voiceName: string,
+  provider?: TtsAiProvider
+): TtsVoiceOption | undefined {
+  return ALL_TTS_VOICES.find(
+    (voice) => voice.voiceName === voiceName && (!provider || voice.provider === provider)
+  );
+}
+
+export function isKnownTtsVoiceName(voiceName: string, provider?: TtsAiProvider): boolean {
+  return Boolean(findTtsVoiceByName(voiceName, provider));
 }
 
 export function findGenderVoiceSetting(

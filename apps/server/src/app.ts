@@ -14,7 +14,7 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import mime from "mime-types";
 import { nanoid } from "nanoid";
-import { GEMINI_EXCITED_PRESETS, GEMINI_TTS_VOICES, MAX_UPLOAD_BYTES, findTtsVoiceByName } from "./constants.js";
+import { ALL_TTS_VOICES, GEMINI_EXCITED_PRESETS, MAX_UPLOAD_BYTES, findTtsVoiceByName } from "./constants.js";
 import type { AuthService } from "./services/auth-service.js";
 import type { SpeechService } from "./services/ai-service.js";
 import { getDepositPackage, type BillingService } from "./services/billing-service.js";
@@ -810,7 +810,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   app.get("/api/tts/voices", async () => {
     return {
-      voices: GEMINI_TTS_VOICES,
+      voices: ALL_TTS_VOICES,
       excitedPresets: GEMINI_EXCITED_PRESETS
     };
   });
@@ -829,15 +829,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       return sendNormalizedError(reply, error, "Input preview voice tidak valid.");
     }
 
-    const voice = findTtsVoiceByName(payload.voiceName);
-    if (!voice) {
-      return reply.code(400).send({
-        message: `Voice ${payload.voiceName} tidak tersedia.`
-      });
-    }
-
     try {
       const settings = await options.settingsStore.get();
+      const voice = findTtsVoiceByName(payload.voiceName, settings.ttsProvider);
+      if (!voice) {
+        return reply.code(400).send({
+          message: `Voice ${payload.voiceName} tidak tersedia untuk provider ${settings.ttsProvider}.`
+        });
+      }
       const contentLanguage = payload.contentLanguage === "en-US" ? "en-US" : "id-ID";
       const sampleText =
         payload.text ||

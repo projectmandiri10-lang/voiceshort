@@ -32,11 +32,11 @@ describe("api error handling", () => {
       vi.fn(async () =>
         new Response(
           JSON.stringify({
-            message: "Visual brief gagal pada provider utama (litellm) dan fallback (openrouter).",
+            message: "Visual brief gagal pada provider utama (aivene) dan fallback (openrouter).",
             error: {
-              primaryProvider: "litellm",
+              primaryProvider: "aivene",
               fallbackProvider: "openrouter",
-              primaryError: "LiteLLM script gagal",
+              primaryError: "Aivene script gagal",
               fallbackError: "OpenRouter script gagal"
             }
           }),
@@ -83,7 +83,7 @@ describe("api error handling", () => {
     expect(captured).toMatchObject({
       status: 503,
       message:
-        "Visual brief gagal pada provider utama (litellm) dan fallback (openrouter). (Provider utama litellm: LiteLLM script gagal | Provider fallback openrouter: OpenRouter script gagal)"
+        "Visual brief gagal pada provider utama (aivene) dan fallback (openrouter). (Provider utama aivene: Aivene script gagal | Provider fallback openrouter: OpenRouter script gagal)"
     });
     expect((captured as Error).message).not.toContain("[object Object]");
   });

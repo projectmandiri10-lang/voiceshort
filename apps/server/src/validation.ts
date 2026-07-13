@@ -31,7 +31,7 @@ const optionalTextSchema = z.union([z.string(), z.undefined(), z.null()]).transf
 });
 const emailSchema = z.string().trim().email().transform((value) => value.toLowerCase());
 const passwordSchema = z.string().min(8).max(100);
-const aiProviderSchema = z.enum(["gemini_direct", "openrouter", "litellm"]);
+const aiProviderSchema = z.enum(["aivene", "openrouter"]);
 const contentLanguageSchema = z.enum(["id-ID", "en-US"]);
 
 const genderVoiceSchema = z.object({
@@ -151,6 +151,11 @@ export function parseSettings(input: unknown): AppSettings {
   const sorted = [...result.genderVoices].sort(
     (a, b) => GENDER_ORDER.indexOf(a.gender) - GENDER_ORDER.indexOf(b.gender)
   );
+  for (const voice of sorted) {
+    if (!isKnownTtsVoiceName(voice.voiceName, ttsProvider)) {
+      throw new Error(`Voice default untuk provider ${ttsProvider} tidak tersedia.`);
+    }
+  }
   return {
     ...result,
     scriptProvider,

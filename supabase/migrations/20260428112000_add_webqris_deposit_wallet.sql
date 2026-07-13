@@ -1,8 +1,6 @@
 create extension if not exists pgcrypto with schema extensions;
-
 alter table public.profiles
   add column if not exists wallet_balance_idr integer not null default 0;
-
 create table if not exists public.payment_orders (
   id uuid primary key default gen_random_uuid(),
   owner_user_id uuid not null references auth.users(id) on delete cascade,
@@ -25,17 +23,13 @@ create table if not exists public.payment_orders (
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
-
 create unique index if not exists payment_orders_provider_merchant_order_id_uidx
   on public.payment_orders(provider, merchant_order_id);
-
 create unique index if not exists payment_orders_webqris_invoice_id_uidx
   on public.payment_orders(webqris_invoice_id)
   where webqris_invoice_id is not null;
-
 create index if not exists payment_orders_owner_created_at_idx
   on public.payment_orders(owner_user_id, created_at desc);
-
 create table if not exists public.wallet_ledger (
   id uuid primary key default gen_random_uuid(),
   owner_user_id uuid not null references auth.users(id) on delete cascade,
@@ -49,14 +43,11 @@ create table if not exists public.wallet_ledger (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default timezone('utc', now())
 );
-
 create unique index if not exists wallet_ledger_entry_source_uidx
   on public.wallet_ledger(entry_type, source_type, source_id)
   where source_id is not null;
-
 create index if not exists wallet_ledger_owner_created_at_idx
   on public.wallet_ledger(owner_user_id, created_at desc);
-
 create table if not exists public.webhook_events (
   id uuid primary key default gen_random_uuid(),
   provider text not null default 'webqris' check (provider = 'webqris'),
@@ -71,10 +62,8 @@ create table if not exists public.webhook_events (
   created_at timestamptz not null default timezone('utc', now()),
   processed_at timestamptz
 );
-
 create index if not exists webhook_events_invoice_created_at_idx
   on public.webhook_events(invoice_id, created_at desc);
-
 create or replace function public.credit_wallet_from_payment(
   order_id uuid,
   webhook_payload jsonb default '{}'::jsonb
@@ -161,7 +150,6 @@ begin
   return updated_order;
 end;
 $$;
-
 create or replace function public.reserve_generate_credit(job_id text)
 returns public.profiles
 language plpgsql
@@ -234,7 +222,6 @@ begin
   return current_profile;
 end;
 $$;
-
 create or replace function public.refund_generate_credit(
   job_id text,
   reason text default 'Refund generate voice over'
@@ -320,32 +307,27 @@ begin
   return current_profile;
 end;
 $$;
-
 alter table public.payment_orders enable row level security;
 alter table public.wallet_ledger enable row level security;
 alter table public.webhook_events enable row level security;
-
 drop policy if exists payment_orders_select_owner_or_superadmin on public.payment_orders;
 create policy payment_orders_select_owner_or_superadmin
 on public.payment_orders
 for select
 to authenticated
 using (owner_user_id = auth.uid() or public.is_superadmin());
-
 drop policy if exists wallet_ledger_select_owner_or_superadmin on public.wallet_ledger;
 create policy wallet_ledger_select_owner_or_superadmin
 on public.wallet_ledger
 for select
 to authenticated
 using (owner_user_id = auth.uid() or public.is_superadmin());
-
 drop policy if exists webhook_events_no_user_access on public.webhook_events;
 create policy webhook_events_no_user_access
 on public.webhook_events
 for select
 to authenticated
 using (public.is_superadmin());
-
 grant select on public.payment_orders to authenticated;
 grant select on public.wallet_ledger to authenticated;
 grant select on public.webhook_events to authenticated;

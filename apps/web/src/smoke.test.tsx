@@ -1,11 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import * as adminUsersExport from "./admin-users-export";
 import { DepositPage } from "./pages/DepositPage";
 import { GeneratePage } from "./pages/GeneratePage";
 import { JobsPage } from "./pages/JobsPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import type { AuthUser, GenerationSessionRecord } from "./types";
+import type { AdminUserRecord, AuthUser, GenerationSessionRecord } from "./types";
 import * as api from "./api";
 import * as frameExtractor from "./frame-extractor";
 import * as generationCache from "./generation-cache";
@@ -91,6 +92,10 @@ vi.mock("./generation-cache", () => ({
   upsertCachedSessionAssets: vi.fn(async () => undefined)
 }));
 
+vi.mock("./admin-users-export", () => ({
+  exportAdminUsersWorkbook: vi.fn()
+}));
+
 const activeUser: AuthUser = {
   id: "user-creator",
   email: "creator@test.dev",
@@ -127,12 +132,78 @@ const adminUser: AuthUser = {
   assignedPackageCode: null
 };
 
+const managedAdminUsers: AdminUserRecord[] = [
+  {
+    id: "user-bunga",
+    email: "bunga.makassar17@gmail.com",
+    displayName: "Bunga Indah",
+    role: "user",
+    subscriptionStatus: "inactive",
+    videoQuotaTotal: 10,
+    videoQuotaUsed: 10,
+    videoQuotaRemaining: 0,
+    walletBalanceIdr: 0,
+    generatePriceIdr: 2_000,
+    generateCreditsRemaining: 0,
+    isUnlimited: false,
+    disabledAt: "2026-07-02T09:00:00.000Z",
+    disabledReason: "Dinonaktifkan oleh admin",
+    assignedPackageCode: null,
+    createdAt: "2026-06-01T09:00:00.000Z",
+    updatedAt: "2026-07-02T09:00:00.000Z",
+    googleLinked: true,
+    hasPassword: false
+  },
+  {
+    id: "user-raka",
+    email: "raka.saleh@gmail.com",
+    displayName: "Raka Saleh",
+    role: "user",
+    subscriptionStatus: "active",
+    videoQuotaTotal: 25,
+    videoQuotaUsed: 5,
+    videoQuotaRemaining: 20,
+    walletBalanceIdr: 10_000,
+    generatePriceIdr: 2_000,
+    generateCreditsRemaining: 5,
+    isUnlimited: false,
+    disabledAt: null,
+    disabledReason: null,
+    assignedPackageCode: "10_video",
+    createdAt: "2026-06-15T09:00:00.000Z",
+    updatedAt: "2026-07-03T08:30:00.000Z",
+    googleLinked: false,
+    hasPassword: true
+  },
+  {
+    id: "user-jho",
+    email: "jho.j80@gmail.com",
+    displayName: "jho.j80",
+    role: "superadmin",
+    subscriptionStatus: "active",
+    videoQuotaTotal: 1000,
+    videoQuotaUsed: 0,
+    videoQuotaRemaining: 1000,
+    walletBalanceIdr: 2_000_000,
+    generatePriceIdr: 2_000,
+    generateCreditsRemaining: null,
+    isUnlimited: true,
+    disabledAt: null,
+    disabledReason: null,
+    assignedPackageCode: null,
+    createdAt: "2026-05-01T09:00:00.000Z",
+    updatedAt: "2026-07-03T10:00:00.000Z",
+    googleLinked: true,
+    hasPassword: true
+  }
+];
+
 const mockSettings = {
-  scriptProvider: "litellm" as const,
+  scriptProvider: "aivene" as const,
   scriptFallbackProvider: "openrouter" as const,
-  scriptModel: "gemini/gemini-2.5-flash-lite",
+  scriptModel: "gemini-2.5-flash",
   ttsProvider: "openrouter" as const,
-  ttsFallbackProvider: "gemini_direct" as const,
+  ttsFallbackProvider: "aivene" as const,
   ttsModel: "google/gemini-3.1-flash-tts-preview",
   taxRatePercent: 0,
   language: "id-ID" as const,
@@ -156,12 +227,14 @@ const mockSettings = {
 const mockVoices = {
   voices: [
     {
+      provider: "openrouter" as const,
       voiceName: "Leda",
       label: "Leda",
       tone: "Youthful",
       gender: "female" as const
     },
     {
+      provider: "openrouter" as const,
       voiceName: "Charon",
       label: "Charon",
       tone: "Informative",
@@ -186,6 +259,7 @@ function buildSession(
     socialPlatform: "instagram",
     contentLanguage: "id-ID",
     scriptMode: "auto_analysis",
+    includeSubtitles: false,
     voiceGender: "female",
     tone: "natural",
     ctaText: "cek detailnya sekarang",
@@ -330,6 +404,9 @@ describe("web smoke", () => {
     expect((screen.getByLabelText(/^Mode Generate/i) as HTMLSelectElement).value).toBe(
       "auto_analysis"
     );
+    expect((screen.getByLabelText(/^Subtitle Video/i) as HTMLSelectElement).value).toBe(
+      "without_subtitles"
+    );
     expect(screen.getByLabelText(/^Judul/i)).toBeTruthy();
     expect(screen.getAllByText(/Flat per proses/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Proses Video/i })).toBeTruthy();
@@ -378,9 +455,68 @@ describe("web smoke", () => {
       expect(localRender.renderFinalVideoLocally).toHaveBeenCalledTimes(1);
       expect(api.completeGenerationSession).toHaveBeenCalledTimes(1);
     });
+    expect(api.createGenerationSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includeSubtitles: false
+      })
+    );
     expect(await screen.findByRole("heading", { name: /^Final video siap$/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Unduh Final MP4/i })).toBeTruthy();
     expect(onRefreshSession).toHaveBeenCalled();
+  });
+
+  it("allows generating with burned subtitles when enabled in the form", async () => {
+    const createdSession = buildSession({
+      sessionId: "session-subtitle-1",
+      includeSubtitles: true,
+      status: "ready_for_audio"
+    });
+    vi.mocked(api.createGenerationSession).mockResolvedValue({
+      session: createdSession
+    });
+    vi.mocked(generationCache.listCachedSessionIds).mockResolvedValue([]);
+
+    render(
+      <GeneratePage
+        locale="id-ID"
+        currentUser={activeUser}
+        onRefreshSession={vi.fn(async () => undefined)}
+        onViewJobs={vi.fn()}
+      />
+    );
+
+    const file = new File(["video-subtitle"], "subtitle.mp4", { type: "video/mp4" });
+    fireEvent.change(screen.getByLabelText(/^Video/i), {
+      target: { files: [file] }
+    });
+    await waitFor(() => {
+      expect(videoDuration.readVideoDuration).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.change(screen.getByLabelText(/^Judul/i), {
+      target: { value: "Voice Over Subtitle" }
+    });
+    fireEvent.change(screen.getByLabelText(/Brief \/ Deskripsi/i), {
+      target: { value: "Narasi untuk video dengan subtitle aktif." }
+    });
+    fireEvent.change(screen.getByLabelText(/^Subtitle Video/i), {
+      target: { value: "with_subtitles" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Proses Video/i }));
+
+    await waitFor(() => {
+      expect(api.createGenerationSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          includeSubtitles: true
+        })
+      );
+      expect(localRender.renderFinalVideoLocally).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subtitleText: createdSession.scriptText
+        })
+      );
+    });
   });
 
   it("submits manual script mode without frame extraction", async () => {
@@ -496,7 +632,7 @@ describe("web smoke", () => {
     render(<SettingsPage />);
 
     expect(await screen.findByRole("heading", { name: /Pengaturan Layanan/i })).toBeTruthy();
-    expect(screen.getAllByRole("option", { name: /LiteLLM/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("option", { name: /Aivene/i }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getAllByRole("button", { name: /Preview Suara/i })[0]!);
 
     await waitFor(() => {
@@ -564,7 +700,7 @@ describe("web smoke", () => {
   it("renders admin navigation for superadmin", async () => {
     vi.mocked(api.fetchSession).mockResolvedValue(adminUser);
     vi.mocked(api.fetchGenerationSessions).mockResolvedValue([]);
-    vi.mocked(api.fetchAdminUsers).mockResolvedValue([]);
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(managedAdminUsers);
     vi.mocked(api.fetchAdminTransactions).mockResolvedValue({
       items: [
         {
@@ -603,7 +739,110 @@ describe("web smoke", () => {
       ).toBeTruthy();
     });
 
+    expect(screen.getByLabelText(/^Cari user$/i)).toBeTruthy();
+    expect(screen.getByRole("listitem", { name: /Pilih user jho\.j80/i })).toBeTruthy();
+    expect(screen.queryByText(/^Buat user baru$/i)).toBeNull();
+
     fireEvent.click(screen.getByRole("button", { name: /^Transaksi$/i }));
     expect(await screen.findByText(/Deposit WebQRIS berhasil/i)).toBeTruthy();
+  });
+
+  it("filters, exports, and opens create mode for admin users", async () => {
+    vi.mocked(api.fetchSession).mockResolvedValue(adminUser);
+    vi.mocked(api.fetchGenerationSessions).mockResolvedValue([]);
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(managedAdminUsers);
+
+    render(<App />);
+
+    expect(await screen.findByText(/^Jho$/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Admin$/i }));
+
+    const listPanel = await screen.findByLabelText(/List user admin/i);
+    fireEvent.change(within(listPanel).getByLabelText(/^Cari user$/i), {
+      target: { value: "bunga" }
+    });
+
+    expect(screen.getByRole("listitem", { name: /Pilih user Bunga Indah/i })).toBeTruthy();
+    expect(screen.queryByRole("listitem", { name: /Pilih user jho\.j80/i })).toBeNull();
+
+    fireEvent.click(within(listPanel).getByRole("button", { name: /Export Excel/i }));
+
+    expect(adminUsersExport.exportAdminUsersWorkbook).toHaveBeenCalledWith({
+      filteredUsers: [managedAdminUsers[0]],
+      allUsers: managedAdminUsers
+    });
+
+    fireEvent.click(within(listPanel).getByRole("button", { name: /Reset Filter/i }));
+    fireEvent.change(within(listPanel).getByLabelText(/Filter role/i), {
+      target: { value: "superadmin" }
+    });
+
+    expect(screen.getByRole("listitem", { name: /Pilih user jho\.j80/i })).toBeTruthy();
+    expect(screen.queryByRole("listitem", { name: /Pilih user Bunga Indah/i })).toBeNull();
+
+    fireEvent.click(within(listPanel).getByRole("button", { name: /Tambah User/i }));
+
+    expect(await screen.findByText(/^Buat user baru$/i)).toBeTruthy();
+    expect(screen.getByLabelText(/Password Awal/i)).toBeTruthy();
+  });
+
+  it("keeps save, disable, and grant actions wired to the existing admin APIs", async () => {
+    const editableUser = managedAdminUsers[1]!;
+    vi.mocked(api.fetchSession).mockResolvedValue(adminUser);
+    vi.mocked(api.fetchGenerationSessions).mockResolvedValue([]);
+    vi.mocked(api.fetchAdminUsers).mockResolvedValue(managedAdminUsers);
+    vi.mocked(api.updateAdminUser).mockResolvedValue({
+      ...editableUser,
+      displayName: "Raka Final"
+    });
+    vi.mocked(api.disableAdminUser).mockResolvedValue({
+      ...editableUser,
+      disabledAt: "2026-07-04T08:00:00.000Z",
+      disabledReason: "Dinonaktifkan oleh admin"
+    });
+    vi.mocked(api.grantAdminUserPackage).mockResolvedValue({
+      ...editableUser,
+      walletBalanceIdr: 20_000,
+      generateCreditsRemaining: 10,
+      assignedPackageCode: "10_video"
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText(/^Jho$/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Admin$/i }));
+    fireEvent.click(await screen.findByRole("listitem", { name: /Pilih user Raka Saleh/i }));
+
+    const detailPanel = await screen.findByLabelText(/Detail user admin/i);
+    fireEvent.change(within(detailPanel).getByLabelText(/^Nama$/i), {
+      target: { value: "Raka Final" }
+    });
+    fireEvent.click(within(detailPanel).getByRole("button", { name: /Simpan User/i }));
+
+    await waitFor(() => {
+      expect(api.updateAdminUser).toHaveBeenCalledWith(
+        "raka.saleh@gmail.com",
+        expect.objectContaining({
+          displayName: "Raka Final"
+        })
+      );
+    });
+
+    fireEvent.click(within(detailPanel).getByRole("button", { name: /Nonaktifkan User/i }));
+
+    await waitFor(() => {
+      expect(api.disableAdminUser).toHaveBeenCalledWith("raka.saleh@gmail.com");
+    });
+
+    fireEvent.click(within(detailPanel).getByRole("button", { name: /Tambahkan Saldo/i }));
+
+    await waitFor(() => {
+      expect(api.grantAdminUserPackage).toHaveBeenCalledWith(
+        "raka.saleh@gmail.com",
+        expect.objectContaining({
+          packageCode: "10_video"
+        })
+      );
+    });
   });
 });

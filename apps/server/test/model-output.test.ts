@@ -34,12 +34,12 @@ describe("model output parser", () => {
       choices: [
         {
           message: {
-            content: [{ type: "text", text: "Script dari LiteLLM." }]
+            content: [{ type: "text", text: "Script dari Aivene." }]
           }
         }
       ]
     };
-    expect(extractScriptText(response)).toBe("Script dari LiteLLM.");
+    expect(extractScriptText(response)).toBe("Script dari Aivene.");
   });
 
   it("extracts base64 audio", () => {
