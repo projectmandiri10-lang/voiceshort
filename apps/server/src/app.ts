@@ -831,7 +831,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
     try {
       const settings = await options.settingsStore.get();
-      const voice = findTtsVoiceByName(payload.voiceName, settings.ttsProvider);
+      const voice = findTtsVoiceByName(payload.voiceName, settings.ttsProvider, settings.ttsModel);
       if (!voice) {
         return reply.code(400).send({
           message: `Voice ${payload.voiceName} tidak tersedia untuk provider ${settings.ttsProvider}.`

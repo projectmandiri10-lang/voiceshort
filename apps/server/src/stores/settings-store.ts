@@ -4,6 +4,7 @@ import {
   DEFAULT_SETTINGS,
   findDefaultVoiceForGender,
   findGenderVoiceSetting,
+  findTtsVoiceByName,
   isKnownTtsVoiceName,
   normalizeScriptModel,
   normalizeTtsModel
@@ -43,19 +44,36 @@ export class SettingsStore {
       ttsProvider === "openrouter" || ttsProvider === "aivene"
         ? ttsProvider
         : settings.ttsProvider;
+    const nextTtsModel = normalizeTtsModel(ttsModel || settings.ttsModel, nextTtsProvider);
 
     return {
       ...settings,
       scriptProvider: nextScriptProvider,
       scriptModel: normalizeScriptModel(scriptModel || settings.scriptModel, nextScriptProvider),
       ttsProvider: nextTtsProvider,
-      ttsModel: normalizeTtsModel(ttsModel || settings.ttsModel, nextTtsProvider)
+      ttsModel: nextTtsModel,
+      genderVoices: DEFAULT_SETTINGS.genderVoices.map((fallbackVoice) => {
+        const selected = settings.genderVoices.find((voice) => voice.gender === fallbackVoice.gender);
+        const fallbackProviderVoice = findDefaultVoiceForGender(nextTtsProvider, fallbackVoice.gender, nextTtsModel);
+        return {
+          gender: fallbackVoice.gender,
+          voiceName:
+            selected?.voiceName && isKnownTtsVoiceName(selected.voiceName, nextTtsProvider, nextTtsModel)
+              ? findTtsVoiceByName(selected.voiceName, nextTtsProvider, nextTtsModel)?.voiceName ||
+                fallbackProviderVoice.voiceName
+              : fallbackProviderVoice.voiceName,
+          speechRate: Number.isFinite(Number(selected?.speechRate))
+            ? Number(selected?.speechRate)
+            : fallbackVoice.speechRate
+        };
+      })
     };
   }
 
   private normalizeLegacySettings(settings: AppSettings): AppSettings {
     const scriptProvider = settings.scriptProvider || DEFAULT_SETTINGS.scriptProvider;
     const ttsProvider = settings.ttsProvider || DEFAULT_SETTINGS.ttsProvider;
+    const normalizedTtsModel = normalizeTtsModel(settings.ttsModel, ttsProvider);
     return {
       ...settings,
       scriptProvider,
@@ -67,18 +85,16 @@ export class SettingsStore {
       ),
       ttsProvider,
       ttsFallbackProvider: settings.ttsFallbackProvider || DEFAULT_SETTINGS.ttsFallbackProvider,
-      ttsModel: normalizeTtsModel(
-        settings.ttsModel,
-        ttsProvider
-      ),
+      ttsModel: normalizedTtsModel,
       genderVoices: DEFAULT_SETTINGS.genderVoices.map((fallbackVoice) => {
         const selected = settings.genderVoices?.find((voice) => voice.gender === fallbackVoice.gender);
-        const fallbackProviderVoice = findDefaultVoiceForGender(ttsProvider, fallbackVoice.gender);
+        const fallbackProviderVoice = findDefaultVoiceForGender(ttsProvider, fallbackVoice.gender, normalizedTtsModel);
         return {
           gender: fallbackVoice.gender,
           voiceName:
-            selected?.voiceName && isKnownTtsVoiceName(selected.voiceName, ttsProvider)
-              ? selected.voiceName
+            selected?.voiceName && isKnownTtsVoiceName(selected.voiceName, ttsProvider, normalizedTtsModel)
+              ? findTtsVoiceByName(selected.voiceName, ttsProvider, normalizedTtsModel)?.voiceName ||
+                fallbackProviderVoice.voiceName
               : fallbackProviderVoice.voiceName,
           speechRate: Number.isFinite(Number(selected?.speechRate))
             ? Number(selected?.speechRate)

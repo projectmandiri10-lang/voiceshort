@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Gauge, Mic2, Save } from "lucide-react";
-import { fetchSettings, fetchTtsVoices, previewTtsVoice, updateSettings } from "../api";
-import { AI_PROVIDER_LABEL } from "../shared/constants";
+import { fetchSettings, previewTtsVoice, updateSettings } from "../api";
+import { AI_PROVIDER_LABEL, getTtsVoices } from "../shared/constants";
 import {
   SCRIPT_AI_PROVIDERS,
   TTS_AI_PROVIDERS,
@@ -25,10 +25,6 @@ function voiceMatchesGender(voice: TtsVoiceOption, gender: JobVoiceGender): bool
   return voice.gender === gender || voice.gender === "neutral";
 }
 
-function voiceMatchesProvider(voice: TtsVoiceOption, provider: TtsAiProvider): boolean {
-  return voice.provider === provider;
-}
-
 function setProvider(
   settings: AppSettings,
   key: "scriptProvider" | "scriptFallbackProvider",
@@ -47,28 +43,24 @@ function setTtsProvider(
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [voiceOptions, setVoiceOptions] = useState<TtsVoiceOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [previewLoading, setPreviewLoading] = useState<JobVoiceGender | null>(null);
   const [previewPaths, setPreviewPaths] = useState<Partial<Record<JobVoiceGender, string>>>({});
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [voiceCatalogError, setVoiceCatalogError] = useState("");
 
   useEffect(() => {
     let mounted = true;
 
     const load = async () => {
       try {
-        const [loadedSettings, voiceData] = await Promise.all([fetchSettings(), fetchTtsVoices()]);
+        const loadedSettings = await fetchSettings();
         if (!mounted) {
           return;
         }
         setSettings(loadedSettings);
-        setVoiceOptions(Array.isArray(voiceData.voices) ? voiceData.voices : []);
         setError("");
-        setVoiceCatalogError("");
       } catch (loadError) {
         if (mounted) {
           setError((loadError as Error).message);
@@ -110,7 +102,7 @@ export function SettingsPage() {
       return;
     }
 
-    const nextVoiceOptions = voiceOptions.filter((voice) => voiceMatchesProvider(voice, value));
+    const nextVoiceOptions = getTtsVoices(value, settings.ttsModel);
     const nextGenderVoices = settings.genderVoices.map((voiceConfig) => {
       const current = nextVoiceOptions.find((voice) => voice.voiceName === voiceConfig.voiceName);
       if (current) {
@@ -126,6 +118,36 @@ export function SettingsPage() {
 
     setSettings({
       ...setTtsProvider(settings, key, value),
+      genderVoices: nextGenderVoices
+    });
+  };
+
+  const onTtsModelChange = (value: string) => {
+    if (!settings) {
+      return;
+    }
+    const nextVoiceOptions = getTtsVoices(settings.ttsProvider, value);
+    const nextGenderVoices = settings.genderVoices.map((voiceConfig) => {
+      const current = nextVoiceOptions.find(
+        (voice) => voice.voiceName.toLowerCase() === voiceConfig.voiceName.toLowerCase()
+      );
+      if (current) {
+        return {
+          ...voiceConfig,
+          voiceName: current.voiceName
+        };
+      }
+      const fallback =
+        nextVoiceOptions.find((voice) => voiceMatchesGender(voice, voiceConfig.gender)) || nextVoiceOptions[0];
+      return {
+        ...voiceConfig,
+        voiceName: fallback?.voiceName || voiceConfig.voiceName
+      };
+    });
+
+    setSettings({
+      ...settings,
+      ttsModel: value,
       genderVoices: nextGenderVoices
     });
   };
@@ -183,6 +205,8 @@ export function SettingsPage() {
       setPreviewLoading(null);
     }
   };
+
+  const activeVoiceOptions = settings ? getTtsVoices(settings.ttsProvider, settings.ttsModel) : [];
 
   if (loading || !settings) {
     return (
@@ -354,7 +378,7 @@ export function SettingsPage() {
                 Model TTS
                 <input
                   value={settings.ttsModel}
-                  onChange={(event) => setSettings({ ...settings, ttsModel: event.target.value })}
+                  onChange={(event) => onTtsModelChange(event.target.value)}
                 />
               </label>
 
@@ -369,10 +393,7 @@ export function SettingsPage() {
         <div className="style-grid">
           {(["male", "female"] as JobVoiceGender[]).map((gender) => {
             const selected = findVoiceConfig(settings, gender);
-            const options = voiceOptions.filter(
-              (voice) =>
-                voiceMatchesProvider(voice, settings.ttsProvider) && voiceMatchesGender(voice, gender)
-            );
+            const options = activeVoiceOptions.filter((voice) => voiceMatchesGender(voice, gender));
             return (
               <article className="style-card" key={gender}>
                 <div className="row-head">
@@ -385,7 +406,7 @@ export function SettingsPage() {
                     Pilihan Suara
                     <select
                       value={selected?.voiceName ?? ""}
-                      disabled={!selected || !voiceOptions.length}
+                      disabled={!selected || !activeVoiceOptions.length}
                       onChange={(event) => onGenderVoiceChange(gender, "voiceName", event.target.value)}
                     >
                       {options.map((voice) => (
@@ -394,9 +415,6 @@ export function SettingsPage() {
                         </option>
                       ))}
                     </select>
-                    {voiceCatalogError ? (
-                      <span className="small err-inline">Gagal memuat katalog voice: {voiceCatalogError}</span>
-                    ) : null}
                   </label>
 
                   <label>

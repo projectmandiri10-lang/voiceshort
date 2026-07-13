@@ -21,11 +21,17 @@ describe("validation", () => {
       scriptModel: "google/gemini-2.5-pro",
       ttsProvider: "aivene",
       ttsFallbackProvider: "openrouter",
-      ttsModel: "google/gemini-3.1-flash-tts-preview"
+      ttsModel: "google/gemini-3.1-flash-tts-preview",
+      genderVoices: [
+        { gender: "male", voiceName: "Iapetus", speechRate: 1 },
+        { gender: "female", voiceName: "Leda", speechRate: 1 }
+      ]
     });
 
     expect(parsed.scriptModel).toBe("gemini-2.5-pro");
-    expect(parsed.ttsModel).toBe("tts-1-hd");
+    expect(parsed.ttsModel).toBe("gemini-2.5-pro-tts");
+    expect(parsed.genderVoices[0]?.voiceName).toBe("iapetus");
+    expect(parsed.genderVoices[1]?.voiceName).toBe("leda");
   });
 
   it("rejects identical primary and fallback providers", () => {

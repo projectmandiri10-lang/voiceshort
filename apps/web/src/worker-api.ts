@@ -257,6 +257,7 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
 
 function buildCorsHeaders(request: Request): Record<string, string> {
   const origin = request.headers.get("origin") || "*";
+
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Headers": "authorization, content-type, x-webhook-signature, x-signature",
@@ -454,6 +455,11 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
         genderVoices: Array.isArray(row.gender_voices) ? row.gender_voices : DEFAULT_SETTINGS.genderVoices
       }
     : DEFAULT_SETTINGS;
+  const activeTtsProvider = normalizeTtsProvider(source.ttsProvider, DEFAULT_SETTINGS.ttsProvider);
+  const activeTtsModel = normalizeTtsModel(
+    String(source.ttsModel || DEFAULT_SETTINGS.ttsModel).trim() || DEFAULT_SETTINGS.ttsModel,
+    activeTtsProvider
+  );
 
   return {
     scriptProvider: normalizeScriptProvider(source.scriptProvider, DEFAULT_SETTINGS.scriptProvider),
@@ -472,7 +478,7 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
     ),
     ttsModel: normalizeTtsModel(
       String(source.ttsModel || DEFAULT_SETTINGS.ttsModel).trim() || DEFAULT_SETTINGS.ttsModel,
-      normalizeTtsProvider(source.ttsProvider, DEFAULT_SETTINGS.ttsProvider)
+      activeTtsProvider
     ),
     taxRatePercent: normalizeTaxRatePercent(source.taxRatePercent ?? DEFAULT_SETTINGS.taxRatePercent),
     language: "id-ID",
@@ -483,11 +489,11 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
       const selected = Array.isArray(source.genderVoices)
         ? source.genderVoices.find((voice) => voice.gender === fallbackVoice.gender)
         : undefined;
-      const activeTtsProvider = normalizeTtsProvider(source.ttsProvider, DEFAULT_SETTINGS.ttsProvider);
-      const fallbackProviderVoice = findDefaultVoiceForGender(activeTtsProvider, fallbackVoice.gender);
+      const fallbackProviderVoice = findDefaultVoiceForGender(activeTtsProvider, fallbackVoice.gender, activeTtsModel);
       const voiceName =
-        selected?.voiceName && isKnownTtsVoiceName(selected.voiceName, activeTtsProvider)
-          ? selected.voiceName
+        selected?.voiceName && isKnownTtsVoiceName(selected.voiceName, activeTtsProvider, activeTtsModel)
+          ? findTtsVoiceByName(selected.voiceName, activeTtsProvider, activeTtsModel)?.voiceName ||
+            fallbackProviderVoice.voiceName
           : fallbackProviderVoice.voiceName;
       const speechRate = Number(selected?.speechRate);
       return {
@@ -536,6 +542,7 @@ function applyRuntimeSettingsEnvOverrides(settings: AppSettings, env: WorkerEnv)
       : ttsProvider === "openrouter"
         ? String(env.OPENROUTER_TTS_MODEL || "").trim()
         : "";
+  const nextTtsModel = normalizeTtsModel(ttsModelOverride || settings.ttsModel, ttsProvider);
 
   return {
     ...settings,
@@ -554,7 +561,20 @@ function applyRuntimeSettingsEnvOverrides(settings: AppSettings, env: WorkerEnv)
           ? "aivene"
           : "openrouter"
         : ttsFallbackProvider,
-    ttsModel: normalizeTtsModel(ttsModelOverride || settings.ttsModel, ttsProvider)
+    ttsModel: nextTtsModel,
+    genderVoices: DEFAULT_SETTINGS.genderVoices.map((fallbackVoice) => {
+      const selected = settings.genderVoices.find((voice) => voice.gender === fallbackVoice.gender);
+      const fallbackProviderVoice = findDefaultVoiceForGender(ttsProvider, fallbackVoice.gender, nextTtsModel);
+      return {
+        gender: fallbackVoice.gender,
+        voiceName:
+          selected?.voiceName && isKnownTtsVoiceName(selected.voiceName, ttsProvider, nextTtsModel)
+            ? findTtsVoiceByName(selected.voiceName, ttsProvider, nextTtsModel)?.voiceName ||
+              fallbackProviderVoice.voiceName
+            : fallbackProviderVoice.voiceName,
+        speechRate: selected?.speechRate ?? fallbackVoice.speechRate
+      };
+    })
   };
 }
 
@@ -753,6 +773,10 @@ function parseSettingsInput(input: unknown): AppSettings {
   if (ttsProvider === ttsFallbackProvider) {
     throw createHttpError(400, "Fallback provider TTS harus berbeda dari provider utama.");
   }
+  const normalizedTtsModel = normalizeTtsModel(
+    assertString(body.ttsModel, "TTS model") || DEFAULT_SETTINGS.ttsModel,
+    ttsProvider
+  );
   const normalizedGenderVoices = DEFAULT_SETTINGS.genderVoices.map((fallbackVoice) => {
     const selected = genderVoices.find((voice) => {
       return (
@@ -763,14 +787,15 @@ function parseSettingsInput(input: unknown): AppSettings {
       );
     }) as Record<string, unknown> | undefined;
 
-    const fallbackProviderVoice = findDefaultVoiceForGender(ttsProvider, fallbackVoice.gender);
-    const voiceName = String(selected?.voiceName || fallbackProviderVoice.voiceName).trim();
-    if (!isKnownTtsVoiceName(voiceName, ttsProvider)) {
+    const fallbackProviderVoice = findDefaultVoiceForGender(ttsProvider, fallbackVoice.gender, normalizedTtsModel);
+    const requestedVoiceName = String(selected?.voiceName || fallbackProviderVoice.voiceName).trim();
+    const matchedVoice = findTtsVoiceByName(requestedVoiceName, ttsProvider, normalizedTtsModel);
+    if (!matchedVoice) {
       throw createHttpError(400, `Voice default untuk ${fallbackVoice.gender} tidak tersedia pada provider ${ttsProvider}.`);
     }
     return {
       gender: fallbackVoice.gender,
-      voiceName,
+      voiceName: matchedVoice.voiceName,
       speechRate: assertSpeechRate(selected?.speechRate ?? fallbackVoice.speechRate)
     };
   });
@@ -784,10 +809,7 @@ function parseSettingsInput(input: unknown): AppSettings {
     ),
     ttsProvider,
     ttsFallbackProvider,
-    ttsModel: normalizeTtsModel(
-      assertString(body.ttsModel, "TTS model") || DEFAULT_SETTINGS.ttsModel,
-      ttsProvider
-    ),
+    ttsModel: normalizedTtsModel,
     taxRatePercent: assertTaxRatePercent(body.taxRatePercent ?? DEFAULT_SETTINGS.taxRatePercent),
     language: "id-ID",
     maxVideoSeconds: Math.max(
@@ -1187,12 +1209,14 @@ async function generateAudioWithProvider(
     deliveryHint?: string;
   }
 ): Promise<GeneratedAudio> {
+  const providerVoice = findTtsVoiceByName(input.voiceName, provider, settings.ttsModel);
+  const resolvedVoiceName = providerVoice?.voiceName || input.voiceName;
   if (provider === "aivene") {
     const response = await withRetry(() =>
       callAiveneTts(env, {
         model: normalizeTtsModel(settings.ttsModel, provider),
         input: input.text.replace(/\s+/g, " ").trim(),
-        voice: input.voiceName,
+        voice: resolvedVoiceName,
         response_format: "mp3",
         speed: input.speechRate
       })
@@ -1208,7 +1232,7 @@ async function generateAudioWithProvider(
       callOpenRouterTts(env, {
         model: normalizeTtsModel(settings.ttsModel, provider),
         input: input.text.replace(/\s+/g, " ").trim(),
-        voice: input.voiceName,
+        voice: resolvedVoiceName,
         response_format: "mp3",
         speed: input.speechRate
       })
@@ -1473,11 +1497,13 @@ async function synthesizeGenerationSessionTts(
     throw createHttpError(400, "Session ini belum memiliki naskah untuk TTS.");
   }
 
-  const voice = session.voice_name ? findTtsVoiceByName(session.voice_name, settings.ttsProvider) : undefined;
+  const voice = session.voice_name
+    ? findTtsVoiceByName(session.voice_name, settings.ttsProvider, settings.ttsModel)
+    : undefined;
   const voiceName =
     voice?.voiceName ||
     findGenderVoiceSetting(settings, session.voice_gender)?.voiceName ||
-    findDefaultVoiceForGender(settings.ttsProvider, session.voice_gender).voiceName;
+    findDefaultVoiceForGender(settings.ttsProvider, session.voice_gender, settings.ttsModel).voiceName;
   if (!voiceName) {
     throw createHttpError(500, "Voice default session belum tersedia.");
   }
@@ -1529,7 +1555,7 @@ async function previewVoice(env: WorkerEnv, context: AuthContext, payload: Recor
   const contentLanguage =
     payload.contentLanguage === undefined ? "id-ID" : assertContentLanguage(payload.contentLanguage);
   const voiceName = assertString(payload.voiceName, "Voice name") || "";
-  const voice = findTtsVoiceByName(voiceName, settings.ttsProvider);
+  const voice = findTtsVoiceByName(voiceName, settings.ttsProvider, settings.ttsModel);
   if (!voice) {
     throw createHttpError(400, `Voice ${voiceName} tidak tersedia untuk provider ${settings.ttsProvider}.`);
   }

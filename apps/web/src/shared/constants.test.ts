@@ -42,13 +42,15 @@ describe("shared constants", () => {
     expect(normalizeTtsProvider("aivene", "openrouter")).toBe("aivene");
     expect(normalizeTtsModel("", "openrouter")).toBe(DEFAULT_OPENROUTER_TTS_MODEL);
     expect(normalizeTtsModel("", "aivene")).toBe(DEFAULT_AIVENE_TTS_MODEL);
+    expect(normalizeTtsModel("gemini-2.5-pro-tts", "openrouter")).toBe(DEFAULT_OPENROUTER_TTS_MODEL);
   });
 
-  it("keeps voice lookup provider-aware", () => {
+  it("keeps voice lookup provider and model aware", () => {
     expect(findTtsVoiceByName("nova", "aivene")).toEqual(AIVENE_TTS_VOICES.find((voice) => voice.voiceName === "nova"));
     expect(findTtsVoiceByName("Leda", "openrouter")).toEqual(
       OPENROUTER_TTS_VOICES.find((voice) => voice.voiceName === "Leda")
     );
-    expect(findTtsVoiceByName("Leda", "aivene")).toBeUndefined();
+    expect(findTtsVoiceByName("Leda", "aivene", "gemini-2.5-pro-tts")?.voiceName).toBe("leda");
+    expect(findTtsVoiceByName("alloy", "aivene", "gemini-2.5-pro-tts")).toBeUndefined();
   });
 });

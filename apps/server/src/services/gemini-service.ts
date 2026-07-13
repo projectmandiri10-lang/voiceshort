@@ -13,6 +13,7 @@ import type {
 import { withRetry } from "../utils/retry.js";
 import {
   DEFAULT_AIVENE_BASE_URL,
+  findTtsVoiceByName,
   normalizeScriptModel,
   normalizeTtsModel
 } from "../constants.js";
@@ -275,6 +276,8 @@ export class GeminiService implements AiService {
   private async generateAiveneSpeech(
     input: GenerateSpeechInput
   ): Promise<{ data: Buffer; mimeType: string }> {
+    const resolvedModel = normalizeTtsModel(input.model, "aivene");
+    const resolvedVoiceName = findTtsVoiceByName(input.voiceName, "aivene", resolvedModel)?.voiceName || input.voiceName;
     const response = await fetch(resolveAiveneSpeechEndpoint(this.aiveneBaseUrl || DEFAULT_AIVENE_BASE_URL), {
       method: "POST",
       headers: {
@@ -282,9 +285,9 @@ export class GeminiService implements AiService {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: normalizeTtsModel(input.model, "aivene"),
+        model: resolvedModel,
         input: normalizeSpeechText(input.text),
-        voice: input.voiceName,
+        voice: resolvedVoiceName,
         response_format: "mp3",
         speed: input.speechRate
       })
@@ -304,6 +307,9 @@ export class GeminiService implements AiService {
   private async generateOpenRouterSpeech(
     input: GenerateSpeechInput
   ): Promise<{ data: Buffer; mimeType: string }> {
+    const resolvedModel = normalizeTtsModel(input.model, "openrouter");
+    const resolvedVoiceName =
+      findTtsVoiceByName(input.voiceName, "openrouter", resolvedModel)?.voiceName || input.voiceName;
     const response = await fetch(OPENROUTER_TTS_ENDPOINT, {
       method: "POST",
       headers: {
@@ -311,9 +317,9 @@ export class GeminiService implements AiService {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: normalizeTtsModel(input.model, "openrouter"),
+        model: resolvedModel,
         input: normalizeSpeechText(input.text),
-        voice: input.voiceName,
+        voice: resolvedVoiceName,
         response_format: "mp3",
         speed: input.speechRate
       })

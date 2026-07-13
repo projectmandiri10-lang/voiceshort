@@ -10,8 +10,8 @@
     "TTS_PROVIDER": "aivene",
     "TTS_FALLBACK_PROVIDER": "openrouter",
     "AIVENE_BASE_URL": "https://api.aivene.com/v1",
-    "AIVENE_SCRIPT_MODEL": "gemini-2.5-pro",
-    "AIVENE_TTS_MODEL": "tts-1-hd",
+    "AIVENE_SCRIPT_MODEL": "gemini-3.1-pro",
+    "AIVENE_TTS_MODEL": "gemini-2.5-pro-tts",
     "OPENROUTER_TTS_MODEL": "google/gemini-3.1-flash-tts-preview",
     "SUPABASE_URL": "https://sluloqncvxbuyoybcacb.supabase.co",
     "GENERATE_PRICE_IDR": "2000"

@@ -3,6 +3,7 @@ import { CONTENT_TYPES } from "./content-config.js";
 import {
   ABSOLUTE_MAX_VIDEO_SECONDS,
   DEFAULT_SETTINGS,
+  findTtsVoiceByName,
   GENDER_ORDER,
   isKnownTtsVoiceName,
   normalizeAiProvider,
@@ -148,11 +149,12 @@ export function parseSettings(input: unknown): AppSettings {
   if (ttsProvider === ttsFallbackProvider) {
     throw new Error("Fallback provider TTS harus berbeda dari provider utama.");
   }
+  const normalizedTtsModel = normalizeTtsModel(result.ttsModel, ttsProvider);
   const sorted = [...result.genderVoices].sort(
     (a, b) => GENDER_ORDER.indexOf(a.gender) - GENDER_ORDER.indexOf(b.gender)
   );
   for (const voice of sorted) {
-    if (!isKnownTtsVoiceName(voice.voiceName, ttsProvider)) {
+    if (!isKnownTtsVoiceName(voice.voiceName, ttsProvider, normalizedTtsModel)) {
       throw new Error(`Voice default untuk provider ${ttsProvider} tidak tersedia.`);
     }
   }
@@ -163,9 +165,12 @@ export function parseSettings(input: unknown): AppSettings {
     scriptModel: normalizeScriptModel(result.scriptModel, scriptProvider),
     ttsProvider,
     ttsFallbackProvider,
-    ttsModel: normalizeTtsModel(result.ttsModel, ttsProvider),
+    ttsModel: normalizedTtsModel,
     taxRatePercent: Math.round(result.taxRatePercent * 100) / 100,
-    genderVoices: sorted
+    genderVoices: sorted.map((voice) => ({
+      ...voice,
+      voiceName: findTtsVoiceByName(voice.voiceName, ttsProvider, normalizedTtsModel)?.voiceName || voice.voiceName
+    }))
   };
 }
 
