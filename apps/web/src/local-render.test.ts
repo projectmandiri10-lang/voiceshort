@@ -30,4 +30,37 @@ describe("buildFinalMuxArgs", () => {
     expect(args.join(" ")).toContain("drawtext=");
     expect(args.join(" ")).toContain("between(t,");
   });
+
+  it("fits large voice duration gaps instead of trimming or padding raw narration", () => {
+    const tooShort = buildFinalMuxArgs({
+      sourceVideoPath: "source.mp4",
+      voiceWavPath: "voice.wav",
+      outputVideoPath: "final.mp4",
+      targetDurationSec: 40,
+      voiceDurationSec: 25
+    }).join(" ");
+    const tooLong = buildFinalMuxArgs({
+      sourceVideoPath: "source.mp4",
+      voiceWavPath: "voice.wav",
+      outputVideoPath: "final.mp4",
+      targetDurationSec: 40,
+      voiceDurationSec: 58
+    }).join(" ");
+
+    expect(tooShort).toContain("atempo=0.625000");
+    expect(tooLong).toContain("atempo=1.450000");
+  });
+
+  it("chains tempo filters for extreme manual-script duration gaps", () => {
+    const args = buildFinalMuxArgs({
+      sourceVideoPath: "source.mp4",
+      voiceWavPath: "voice.wav",
+      outputVideoPath: "final.mp4",
+      targetDurationSec: 60,
+      voiceDurationSec: 5
+    }).join(" ");
+
+    expect(args.match(/atempo=0\.5/g)).toHaveLength(3);
+    expect(args).toContain("atempo=0.666667");
+  });
 });

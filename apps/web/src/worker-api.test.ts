@@ -1383,6 +1383,63 @@ describe("handleApiRequest", () => {
     expect(buffer.byteLength).toBeGreaterThan(0);
   });
 
+  it("retimes an automatic session script from the measured TTS duration", async () => {
+    const updates: unknown[] = [];
+    createClientMock.mockReturnValue(
+      buildServiceClient({
+        sessionRow: buildSessionRow({
+          script_mode: "auto_analysis",
+          script_text: "Naskah lama yang terlalu pendek.",
+          video_duration_sec: 42
+        }),
+        updateCollector: updates
+      })
+    );
+    const fetchMock = vi.fn(async () =>
+      aiveneTextResponse("Naskah revisi yang lebih panjang dan sesuai durasi video.")
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(
+      new Request("https://voiceshort.example/api/generation-sessions/session-1/retime", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token-123",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ actualDurationSec: 30 })
+      }),
+      {
+        AIVENE_API_KEY: "aivene-key",
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.aivene.com/v1/chat/completions",
+      expect.objectContaining({ method: "POST" })
+    );
+    const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const requestBody = JSON.parse(String(firstCall[1].body));
+    const promptText = requestBody.messages[0].content[0].text;
+    expect(promptText).toContain("Durasi audio saat ini 30.00 detik");
+    expect(promptText).toContain("Target video 42.00 detik");
+    expect(updates).toContainEqual(
+      expect.objectContaining({
+        script_text: "Naskah revisi yang lebih panjang dan sesuai durasi video.",
+        status: "ready_for_audio",
+        error_message: null
+      })
+    );
+    const body = (await response.json()) as { session: { scriptText?: string } };
+    expect(body.session.scriptText).toBe(
+      "Naskah revisi yang lebih panjang dan sesuai durasi video."
+    );
+  });
+
   it("falls back to OpenRouter for voice preview when Aivene TTS fails", async () => {
     createClientMock.mockReturnValue(
       buildServiceClient({

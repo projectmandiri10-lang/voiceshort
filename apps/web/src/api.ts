@@ -7,6 +7,7 @@ import type {
   GenerationSessionCompleteInput,
   GenerationSessionCreateInput,
   GenerationSessionCreateResult,
+  GenerationSessionRetimeInput,
   GenerationSessionRecord,
   PreviewVoiceResult,
   TtsVoiceOption
@@ -669,6 +670,21 @@ export async function fetchGenerationSessionAudio(sessionId: string): Promise<Bl
   return await apiFetchBlob(`/api/generation-sessions/${encodeURIComponent(sessionId)}/tts`, {
     method: "POST"
   });
+}
+
+export async function retimeGenerationSession(
+  sessionId: string,
+  input: GenerationSessionRetimeInput
+): Promise<GenerationSessionRecord> {
+  const result = await apiFetch<{ session: GenerationSessionRecord }>(
+    `/api/generation-sessions/${encodeURIComponent(sessionId)}/retime`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }
+  );
+  return result.session;
 }
 
 export async function completeGenerationSession(

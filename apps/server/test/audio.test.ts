@@ -49,4 +49,18 @@ describe("audio utils", () => {
     expect(filterGraph).not.toContain("atempo=");
     expect(filterGraph).toContain("atrim=0:30.000");
   });
+
+  it("chains tempo filters when the remaining duration gap is extreme", () => {
+    const args = buildFinalVideoFfmpegArgs({
+      sourceVideoPath: "/tmp/source.mp4",
+      voiceWavPath: "/tmp/voice.wav",
+      outputVideoPath: "/tmp/final.mp4",
+      targetDurationSec: 60,
+      voiceDurationSec: 5
+    });
+
+    const filterGraph = args[args.indexOf("-filter_complex") + 1];
+    expect(filterGraph.match(/atempo=0\.5/g)).toHaveLength(3);
+    expect(filterGraph).toContain("atempo=0.666667");
+  });
 });

@@ -11,7 +11,7 @@ function toPlainArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 }
 
 function buildAtempoFilter(targetFactor: number): string {
-  let factor = Math.max(0.25, Math.min(4, targetFactor));
+  let factor = Math.max(0.01, targetFactor);
   const filters: string[] = [];
 
   while (factor > 2) {
@@ -106,7 +106,7 @@ export function buildFinalMuxArgs(input: {
     ? buildSubtitleFilterChain(input.subtitleText, safeTargetDurationSec)
     : "";
   const tempoFilter =
-    durationDiff > EXACT_DURATION_FIT_THRESHOLD_SEC && tempoFactor >= 0.85 && tempoFactor <= 1.18
+    durationDiff > EXACT_DURATION_FIT_THRESHOLD_SEC
       ? `${buildAtempoFilter(tempoFactor)},`
       : "";
   const audioFilter = `${tempoFilter}${FINAL_VOICE_LOUDNORM},atrim=0:${targetDurationText},apad=pad_dur=${targetDurationText}`;

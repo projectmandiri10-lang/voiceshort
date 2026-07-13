@@ -21,7 +21,8 @@ import {
   createGenerationSession,
   failGenerationSession,
   fetchGenerationSession,
-  fetchGenerationSessionAudio
+  fetchGenerationSessionAudio,
+  retimeGenerationSession
 } from "../api";
 import { extractFramesFromVideo } from "../frame-extractor";
 import { getCachedSessionAssets, upsertCachedSessionAssets } from "../generation-cache";
@@ -38,6 +39,7 @@ import {
   TONE_OPTIONS
 } from "../job-form-options";
 import { renderFinalVideoLocally } from "../local-render";
+import { readBlobDuration } from "../media-utils";
 import { listCachedSessionIds } from "../generation-cache";
 import type {
   AuthUser,
@@ -54,12 +56,14 @@ import { formatIdrCurrency } from "../user-locale";
 import { getUserCopy } from "../user-copy";
 import { readVideoDuration } from "../video-duration";
 import { calculateEstimatedChargeIdr, formatVideoDuration } from "../utils/billing";
+import { needsScriptRetiming } from "../voice-timing";
 
 const DEFAULT_CONTENT_TYPE: ContentType = "affiliate";
 const DEFAULT_SOCIAL_PLATFORM: SocialPlatform = "instagram";
 const DEFAULT_VOICE_GENDER: JobVoiceGender = "female";
 const DEFAULT_SCRIPT_MODE: ScriptMode = "auto_analysis";
 const DEFAULT_TONE = "natural";
+const MAX_SCRIPT_RETIMING_ATTEMPTS = 2;
 
 interface GeneratePageProps {
   locale: ContentLanguage;
@@ -347,13 +351,53 @@ export function GeneratePage({
     }
   };
 
+  const prepareDurationMatchedAudio = async (
+    session: GenerationSessionRecord,
+    initialAudio?: Blob
+  ): Promise<{ session: GenerationSessionRecord; audioBlob: Blob }> => {
+    let currentSession = session;
+    let audioBlob = initialAudio || (await fetchGenerationSessionAudio(session.sessionId));
+
+    for (let attempt = 0; attempt < MAX_SCRIPT_RETIMING_ATTEMPTS; attempt += 1) {
+      const actualDurationSec = await readBlobDuration(audioBlob, "audio");
+      if (
+        currentSession.scriptMode === "manual_script" ||
+        !needsScriptRetiming(actualDurationSec, currentSession.videoDurationSec)
+      ) {
+        return { session: currentSession, audioBlob };
+      }
+
+      setFlowState({
+        phase: "generating",
+        label: `Menyesuaikan durasi voice over (${attempt + 1}/${MAX_SCRIPT_RETIMING_ATTEMPTS})...`,
+        percent: 58 + attempt * 5
+      });
+      currentSession = await retimeGenerationSession(currentSession.sessionId, {
+        actualDurationSec
+      });
+      setActiveSession(currentSession);
+
+      setFlowState({
+        phase: "synthesizing",
+        label: copy.generate.fetchingAudio,
+        percent: 61 + attempt * 5
+      });
+      audioBlob = await fetchGenerationSessionAudio(currentSession.sessionId);
+    }
+
+    return { session: currentSession, audioBlob };
+  };
+
   const continueRenderFromCache = async (session: GenerationSessionRecord) => {
     const cache = await getCachedSessionAssets(session.sessionId);
     if (!cache?.sourceVideoBlob) {
       throw new Error("Draft video lokal untuk session ini tidak ditemukan di perangkat ini.");
     }
 
-    let audioBlob = cache.audioBlob;
+    let audioBlob =
+      cache.audioBlob && cache.audioScriptText === session.scriptText
+        ? cache.audioBlob
+        : undefined;
     if (!audioBlob) {
       setFlowState({
         phase: "synthesizing",
@@ -361,15 +405,22 @@ export function GeneratePage({
         percent: 54
       });
       audioBlob = await fetchGenerationSessionAudio(session.sessionId);
-      await upsertCachedSessionAssets({
-        ...cache,
-        audioBlob,
-        audioMimeType: audioBlob.type || "audio/wav",
-        updatedAt: new Date().toISOString()
-      });
     }
+    const prepared = await prepareDurationMatchedAudio(session, audioBlob);
+    await upsertCachedSessionAssets({
+      ...cache,
+      audioBlob: prepared.audioBlob,
+      audioMimeType: prepared.audioBlob.type || "audio/wav",
+      audioScriptText: prepared.session.scriptText,
+      updatedAt: new Date().toISOString()
+    });
 
-    await runLocalRender(session, cache.sourceVideoBlob, cache.sourceVideoName, audioBlob);
+    await runLocalRender(
+      prepared.session,
+      cache.sourceVideoBlob,
+      cache.sourceVideoName,
+      prepared.audioBlob
+    );
   };
 
   const onSubmit = async (event: FormEvent) => {
@@ -488,7 +539,8 @@ export function GeneratePage({
         label: copy.generate.fetchingAudio,
         percent: 54
       });
-      const audioBlob = await fetchGenerationSessionAudio(session.sessionId);
+      const prepared = await prepareDurationMatchedAudio(session);
+      const audioBlob = prepared.audioBlob;
       await upsertCachedSessionAssets({
         sessionId: session.sessionId,
         sourceVideoBlob: form.video,
@@ -496,10 +548,11 @@ export function GeneratePage({
         sourceVideoType: form.video.type || "video/mp4",
         audioBlob,
         audioMimeType: audioBlob.type || "audio/wav",
+        audioScriptText: prepared.session.scriptText,
         updatedAt: new Date().toISOString()
       });
 
-      await runLocalRender(session, form.video, form.video.name, audioBlob);
+      await runLocalRender(prepared.session, form.video, form.video.name, audioBlob);
 
       setForm((current) => ({
         ...createInitialFormState(),

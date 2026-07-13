@@ -99,7 +99,7 @@ async function runFfmpeg(args: string[]): Promise<void> {
 }
 
 function buildAtempoFilter(targetFactor: number): string {
-  let factor = Math.max(0.25, Math.min(4, targetFactor));
+  let factor = Math.max(0.01, targetFactor);
   const filters: string[] = [];
 
   while (factor > 2) {
@@ -140,10 +140,10 @@ export function buildFinalVideoFfmpegArgs(input: {
   const targetDurationText = safeTargetDurationSec.toFixed(3);
   const videoFilter = buildVideoCompressionFilter();
   const tempoFilter =
-    durationDiff > EXACT_DURATION_FIT_THRESHOLD_SEC && tempoFactor >= 0.85 && tempoFactor <= 1.18
+    durationDiff > EXACT_DURATION_FIT_THRESHOLD_SEC
       ? `${buildAtempoFilter(tempoFactor)},`
       : "";
-  // Koreksi tempo sangat kecil membantu membuat audio jatuh pas di durasi video tanpa mengubah karakter suara secara terasa.
+  // Script retiming handles large gaps first; this guarantees the final audio still lands exactly on target.
   const audioFilter = `${tempoFilter}${FINAL_VOICE_LOUDNORM},atrim=0:${targetDurationText},apad=pad_dur=${targetDurationText}`;
   const filterGraph = `[0:v:0]${videoFilter}[vout];[1:a]${audioFilter}[aout]`;
 

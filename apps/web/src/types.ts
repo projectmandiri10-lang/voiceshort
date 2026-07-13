@@ -214,6 +214,10 @@ export interface GenerationSessionCompleteInput {
   localFileName?: string;
 }
 
+export interface GenerationSessionRetimeInput {
+  actualDurationSec: number;
+}
+
 export interface PreviewVoiceResult {
   voiceName: string;
   audioUrl: string;
@@ -226,6 +230,7 @@ export interface CachedGenerationSessionRecord {
   sourceVideoBlob: Blob;
   audioBlob?: Blob;
   audioMimeType?: string;
+  audioScriptText?: string;
   renderedVideoBlob?: Blob;
   renderFileName?: string;
   updatedAt: string;

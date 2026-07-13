@@ -16,6 +16,7 @@ import {
 } from "./shared/constants";
 import {
   buildCaptionPrompt,
+  buildScriptRetimingPrompt,
   buildScriptPrompt,
   buildVisualBriefPrompt
 } from "./shared/prompt-builder";
@@ -1550,6 +1551,80 @@ async function synthesizeGenerationSessionTts(
   });
 }
 
+async function retimeGenerationSessionScript(
+  env: WorkerEnv,
+  context: AuthContext,
+  sessionId: string,
+  actualDurationSec: number
+): Promise<GenerationSessionRecord> {
+  if (!Number.isFinite(actualDurationSec) || actualDurationSec <= 0) {
+    throw createHttpError(400, "Durasi audio TTS tidak valid.");
+  }
+
+  const session = await getGenerationSessionForUser(context, sessionId);
+  if (session.script_mode === "manual_script") {
+    throw createHttpError(400, "Script manual tidak boleh diubah otomatis untuk penyesuaian durasi.");
+  }
+  if (!session.script_text?.trim()) {
+    throw createHttpError(400, "Session ini belum memiliki naskah untuk disesuaikan.");
+  }
+
+  const settings = await getSettings(context.serviceDb, env);
+  const revisedScript = await runWithProviderFallback({
+    stage: "Script duration retiming",
+    primaryProvider: settings.scriptProvider,
+    fallbackProvider: settings.scriptFallbackProvider,
+    task: (provider) =>
+      withRetry(() =>
+        generateTextWithProvider(env, provider, settings.scriptModel, {
+          prompt: buildScriptRetimingPrompt({
+            settings,
+            title: session.title,
+            description: session.description,
+            contentType: session.content_type,
+            socialPlatform: session.social_platform,
+            contentLanguage: session.content_language === "en-US" ? "en-US" : "id-ID",
+            voiceGender: session.voice_gender,
+            tone: session.tone,
+            videoDurationSec: session.video_duration_sec,
+            frameCount: session.frame_count,
+            ctaText: session.cta_text || undefined,
+            referenceLink: session.reference_link || undefined,
+            currentScriptText: session.script_text || "",
+            actualDurationSec
+          })
+        }).then((response) => {
+          const script = extractScriptText(response);
+          if (!script) {
+            throw createHttpError(502, "Provider AI mengembalikan revisi naskah kosong.");
+          }
+          return script;
+        })
+      )
+  });
+
+  const result = await context.serviceDb
+    .from("generation_sessions")
+    .update({
+      script_text: revisedScript,
+      status: "ready_for_audio",
+      error_message: null,
+      render_summary: {
+        ...(session.render_summary || {}),
+        lastMeasuredVoiceDurationSec: Number(actualDurationSec.toFixed(3)),
+        targetVoiceDurationSec: Number(session.video_duration_sec.toFixed(3)),
+        scriptRetimedAt: nowIso()
+      }
+    })
+    .eq("session_id", sessionId)
+    .select("*")
+    .single<GenerationSessionRow>();
+  if (result.error || !result.data) {
+    throw result.error || createHttpError(500, "Revisi naskah durasi tidak bisa disimpan.");
+  }
+  return mapGenerationSession(result.data);
+}
+
 async function previewVoice(env: WorkerEnv, context: AuthContext, payload: Record<string, unknown>): Promise<Response> {
   const settings = await getSettings(context.serviceDb, env);
   const contentLanguage =
@@ -2329,6 +2404,21 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
       const headers = new Headers(response.headers);
       Object.entries(buildCorsHeaders(request)).forEach(([key, value]) => headers.set(key, value));
       return new Response(response.body, { status: response.status, headers });
+    }
+
+    if (route.parts[0] === "api" && route.parts[1] === "generation-sessions" && route.parts[3] === "retime" && request.method === "POST") {
+      const payload = (await parseJsonRequest(request)) as Record<string, unknown>;
+      return jsonResponse(
+        {
+          session: await retimeGenerationSessionScript(
+            env,
+            context,
+            route.parts[2] || "",
+            Number(payload.actualDurationSec)
+          )
+        },
+        { headers: buildCorsHeaders(request) }
+      );
     }
 
     if (route.parts[0] === "api" && route.parts[1] === "generation-sessions" && route.parts[3] === "complete" && request.method === "POST") {

@@ -29,6 +29,11 @@ export interface ScriptPromptInput extends PromptInput {
   visualBrief?: VisualBrief;
 }
 
+export interface ScriptRetimingPromptInput extends PromptInput {
+  currentScriptText: string;
+  actualDurationSec: number;
+}
+
 export interface CaptionPromptInput extends PromptInput {
   scriptText: string;
   scriptMode?: ScriptMode;
@@ -114,6 +119,21 @@ function estimateWordRange(durationSec: number): {
   const min = Math.max(10, Math.round(safeDuration * MIN_NARRATION_WORDS_PER_SECOND));
   const max = Math.max(min + 5, Math.round(safeDuration * MAX_NARRATION_WORDS_PER_SECOND));
   return { min, target, max };
+}
+
+function countWordsLoose(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function estimateTargetWordsFromObservedPace(input: ScriptRetimingPromptInput): number | undefined {
+  const words = countWordsLoose(input.currentScriptText);
+  if (!words) {
+    return undefined;
+  }
+  const wordsPerSecond = words / Math.max(1, input.actualDurationSec);
+  return Number.isFinite(wordsPerSecond) && wordsPerSecond > 0
+    ? Math.max(10, Math.round(wordsPerSecond * Math.max(1, input.videoDurationSec)))
+    : undefined;
 }
 
 function estimateVisualBeatRange(durationSec: number): {
@@ -462,6 +482,52 @@ export function buildScriptPrompt(input: ScriptPromptInput): string {
     ...buildVisualSourceLines(input, input.visualBrief),
     "",
     "Bangun satu naskah final saja tanpa markdown, tanpa penomoran, dan tanpa penjelasan tambahan."
+  ].join("\n");
+}
+
+export function buildScriptRetimingPrompt(input: ScriptRetimingPromptInput): string {
+  const words = estimateWordRange(input.videoDurationSec);
+  const currentWordCount = countWordsLoose(input.currentScriptText);
+  const observedTarget = estimateTargetWordsFromObservedPace(input);
+  const durationGapSec = Math.abs(input.actualDurationSec - input.videoDurationSec).toFixed(2);
+  const isTooLong = input.actualDurationSec > input.videoDurationSec;
+
+  if (input.contentLanguage === "en-US") {
+    return [
+      "You are a voice over script editor for short-form video.",
+      "Revise the existing script so its spoken duration matches the target video without lowering narrative quality.",
+      `- Current audio: ${input.actualDurationSec.toFixed(2)} seconds. Target video: ${input.videoDurationSec.toFixed(2)} seconds.`,
+      `- The gap is ${durationGapSec} seconds; ${isTooLong ? "shorten the script" : "extend the script"}.`,
+      `- Current length: ${currentWordCount} words.`,
+      observedTarget
+        ? `- Based on the measured voice pace, target about ${observedTarget} words.`
+        : `- Target about ${words.target} words (range ${words.min}-${words.max}).`,
+      "- Preserve the hook, visual order, tone, CTA, and all accurate facts.",
+      "- Do not add unsupported claims, visual details, or assumptions.",
+      "- Make the ending land naturally at the target; avoid a silent tail or a cut-off sentence.",
+      ...buildContextLines(input),
+      "Current script:",
+      input.currentScriptText,
+      "Return one revised script only, with no markdown or notes."
+    ].join("\n");
+  }
+
+  return [
+    "Anda adalah editor naskah voice over video pendek.",
+    "Revisi naskah agar durasi pembacaannya sesuai dengan video tanpa menurunkan kualitas narasi.",
+    `- Durasi audio saat ini ${input.actualDurationSec.toFixed(2)} detik. Target video ${input.videoDurationSec.toFixed(2)} detik.`,
+    `- Selisih ${durationGapSec} detik; ${isTooLong ? "pendekkan naskah" : "panjangkan naskah"}.`,
+    `- Panjang naskah saat ini ${currentWordCount} kata.`,
+    observedTarget
+      ? `- Berdasarkan pace suara yang terukur, targetkan sekitar ${observedTarget} kata.`
+      : `- Targetkan sekitar ${words.target} kata (rentang ${words.min}-${words.max}).`,
+    "- Pertahankan hook, urutan visual, tone, CTA, dan semua fakta yang sudah akurat.",
+    "- Jangan menambah klaim, detail visual, atau asumsi yang tidak didukung.",
+    "- Buat akhir narasi jatuh natural di durasi target; jangan menyisakan hening panjang atau kalimat terpotong.",
+    ...buildContextLines(input),
+    "Naskah saat ini:",
+    input.currentScriptText,
+    "Kembalikan satu naskah revisi saja tanpa markdown atau catatan."
   ].join("\n");
 }
 

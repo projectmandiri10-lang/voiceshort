@@ -11,6 +11,7 @@ import * as api from "./api";
 import * as frameExtractor from "./frame-extractor";
 import * as generationCache from "./generation-cache";
 import * as localRender from "./local-render";
+import * as mediaUtils from "./media-utils";
 import * as videoDuration from "./video-duration";
 
 function setNavigatorLanguage(language: string) {
@@ -46,6 +47,7 @@ vi.mock("./api", async () => {
     login: vi.fn(),
     logout: vi.fn(),
     previewTtsVoice: vi.fn(),
+    retimeGenerationSession: vi.fn(),
     register: vi.fn(),
     startGoogleLogin: vi.fn(),
     subscribeToAuthState: vi.fn(() => () => undefined),
@@ -84,6 +86,11 @@ vi.mock("./frame-extractor", () => ({
 vi.mock("./local-render", () => ({
   buildFinalMuxArgs: vi.fn(),
   renderFinalVideoLocally: vi.fn(async () => new Blob(["video"], { type: "video/mp4" }))
+}));
+
+vi.mock("./media-utils", () => ({
+  blobToBase64: vi.fn(),
+  readBlobDuration: vi.fn(async () => 42)
 }));
 
 vi.mock("./generation-cache", () => ({
@@ -417,11 +424,20 @@ describe("web smoke", () => {
       sessionId: "session-101",
       status: "ready_for_audio"
     });
+    const retimedSession = buildSession({
+      sessionId: "session-101",
+      status: "ready_for_audio",
+      scriptText: "Script session yang sudah disesuaikan dengan durasi video."
+    });
     const onRefreshSession = vi.fn(async () => undefined);
     vi.mocked(api.createGenerationSession).mockResolvedValue({
       session: createdSession
     });
     vi.mocked(generationCache.listCachedSessionIds).mockResolvedValue([]);
+    vi.mocked(mediaUtils.readBlobDuration)
+      .mockResolvedValueOnce(30)
+      .mockResolvedValueOnce(42);
+    vi.mocked(api.retimeGenerationSession).mockResolvedValue(retimedSession);
 
     render(
       <GeneratePage
@@ -452,6 +468,9 @@ describe("web smoke", () => {
       expect(frameExtractor.extractFramesFromVideo).toHaveBeenCalledTimes(1);
       expect(api.createGenerationSession).toHaveBeenCalledTimes(1);
       expect(api.fetchGenerationSessionAudio).toHaveBeenCalledWith("session-101");
+      expect(api.retimeGenerationSession).toHaveBeenCalledWith("session-101", {
+        actualDurationSec: 30
+      });
       expect(localRender.renderFinalVideoLocally).toHaveBeenCalledTimes(1);
       expect(api.completeGenerationSession).toHaveBeenCalledTimes(1);
     });
@@ -459,6 +478,9 @@ describe("web smoke", () => {
       expect.objectContaining({
         includeSubtitles: false
       })
+    );
+    expect(localRender.renderFinalVideoLocally).toHaveBeenCalledWith(
+      expect.objectContaining({ subtitleText: undefined })
     );
     expect(await screen.findByRole("heading", { name: /^Final video siap$/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Unduh Final MP4/i })).toBeTruthy();
