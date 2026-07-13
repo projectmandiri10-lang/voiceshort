@@ -28,12 +28,12 @@ describe("shared constants", () => {
     );
   });
 
-  it("normalizes Gemini slugs across litellm and openrouter fallback formats", () => {
+  it("normalizes repeated Gemini prefixes across aivene and openrouter formats", () => {
     expect(normalizeScriptModel("gemini/gemini-3-flash-preview", "openrouter")).toBe(
       "google/gemini-3-flash-preview"
     );
-    expect(normalizeScriptModel("gemini/gemini/gemini-3.1-pro-preview", "litellm")).toBe(
-      "gemini/gemini-3.1-pro-preview"
+    expect(normalizeScriptModel("gemini/gemini/gemini-3.1-pro-preview", "aivene")).toBe(
+      "gemini-3.1-pro-preview"
     );
   });
 
