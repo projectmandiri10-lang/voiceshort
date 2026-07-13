@@ -1,262 +1,124 @@
 export const CONTENT_TYPES = [
-  "affiliate",
-  "video-marketing",
-  "komedi",
-  "informasi",
-  "hiburan",
-  "gaul",
-  "cerita",
-  "review-produk",
-  "edukasi",
-  "motivasi",
-  "promosi-event"
+  "affiliate", "video-marketing", "komedi", "informasi", "hiburan", "gaul",
+  "cerita", "review-produk", "edukasi", "motivasi", "promosi-event"
 ] as const;
-
 export type ContentType = (typeof CONTENT_TYPES)[number];
 
-export const SOCIAL_PLATFORMS = [
-  "facebook",
-  "tiktok",
-  "youtube",
-  "shopee",
-  "instagram",
-  "lainnya"
-] as const;
+export const SOCIAL_PLATFORMS = ["facebook", "tiktok", "youtube", "shopee", "instagram", "lainnya"] as const;
 export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
-
-export const VOICE_GENDERS = ["male", "female"] as const;
-export type JobVoiceGender = (typeof VOICE_GENDERS)[number];
-export type VoiceGender = JobVoiceGender | "neutral";
 export const CONTENT_LANGUAGES = ["id-ID", "en-US"] as const;
 export type ContentLanguage = (typeof CONTENT_LANGUAGES)[number];
-export const SCRIPT_MODES = ["auto_analysis", "manual_script"] as const;
-export type ScriptMode = (typeof SCRIPT_MODES)[number];
 export const SUBTITLE_MODES = ["without_subtitles", "with_subtitles"] as const;
 export type SubtitleMode = (typeof SUBTITLE_MODES)[number];
 export const SCRIPT_AI_PROVIDERS = ["aivene", "openrouter"] as const;
 export type ScriptAiProvider = (typeof SCRIPT_AI_PROVIDERS)[number];
-export const TTS_AI_PROVIDERS = ["aivene", "openrouter"] as const;
-export type TtsAiProvider = (typeof TTS_AI_PROVIDERS)[number];
 export type AiProvider = ScriptAiProvider;
-
 export type UserRole = "user" | "superadmin";
 export type SubscriptionStatus = "active" | "inactive";
 export type AssignedPackageCode = "10_video" | "50_video" | "100_video" | "custom";
-
-export interface GenderVoiceSettings {
-  gender: JobVoiceGender;
-  voiceName: string;
-  speechRate: number;
-}
 
 export interface AppSettings {
   scriptProvider: ScriptAiProvider;
   scriptFallbackProvider: ScriptAiProvider;
   scriptModel: string;
-  ttsProvider: TtsAiProvider;
-  ttsFallbackProvider: TtsAiProvider;
-  ttsModel: string;
   taxRatePercent: number;
   language: "id-ID";
   maxVideoSeconds: number;
   safetyMode: "safe_marketing";
   concurrency: 1;
-  genderVoices: GenderVoiceSettings[];
 }
 
 export interface AdminTransactionRecord {
-  transactionId: string;
-  kind: "payment" | "generate" | "refund" | "admin";
-  status: string;
-  occurredAt: string;
-  ownerUserId: string;
-  ownerEmail: string;
-  grossAmountIdr: number;
-  walletImpactIdr: number;
-  balanceAfterIdr: number | null;
-  taxRatePercent: number;
-  taxAmountIdr: number;
-  netAmountIdr: number;
-  entryType?: string | null;
-  sourceType?: string | null;
-  description: string;
-  paymentMethod?: string | null;
-  merchantOrderId?: string | null;
-  invoiceId?: string | null;
+  transactionId: string; kind: "payment" | "generate" | "refund" | "admin"; status: string;
+  occurredAt: string; ownerUserId: string; ownerEmail: string; grossAmountIdr: number;
+  walletImpactIdr: number; balanceAfterIdr: number | null; taxRatePercent: number;
+  taxAmountIdr: number; netAmountIdr: number; entryType?: string | null;
+  sourceType?: string | null; description: string; paymentMethod?: string | null;
+  merchantOrderId?: string | null; invoiceId?: string | null;
 }
 
 export interface AuthUser {
-  id: string;
-  email: string;
-  displayName: string;
-  role: UserRole;
-  subscriptionStatus: SubscriptionStatus;
-  videoQuotaTotal: number;
-  videoQuotaUsed: number;
-  videoQuotaRemaining: number | null;
-  walletBalanceIdr: number;
-  generatePriceIdr: number;
-  generateCreditsRemaining: number | null;
-  isUnlimited: boolean;
-  disabledAt?: string | null;
-  disabledReason?: string | null;
-  assignedPackageCode?: AssignedPackageCode | null;
+  id: string; email: string; displayName: string; role: UserRole;
+  subscriptionStatus: SubscriptionStatus; videoQuotaTotal: number; videoQuotaUsed: number;
+  videoQuotaRemaining: number | null; walletBalanceIdr: number; generatePriceIdr: number;
+  generateCreditsRemaining: number | null; isUnlimited: boolean; disabledAt?: string | null;
+  disabledReason?: string | null; assignedPackageCode?: AssignedPackageCode | null;
 }
 
 export interface AdminUserRecord extends AuthUser {
-  createdAt: string;
-  updatedAt: string;
-  googleLinked: boolean;
-  hasPassword: boolean;
+  createdAt: string; updatedAt: string; googleLinked: boolean; hasPassword: boolean;
 }
 
-export interface TtsVoiceOption {
-  provider: TtsAiProvider;
-  voiceName: string;
-  label: string;
-  tone: string;
-  gender: VoiceGender;
-}
-
-export interface ExcitedVoicePreset {
-  presetId: string;
-  label: string;
-  version: string;
-  gender: JobVoiceGender;
-  voiceName: string;
-}
-
-export type GenerationSessionStatus =
-  | "creating"
-  | "ready_for_audio"
-  | "ready_for_render"
-  | "completed"
-  | "failed";
+export type GenerationSessionStatus = "creating" | "ready_for_voice_upload" | "completed" | "failed";
 
 export interface GenerationSessionRenderSummary {
-  finalDurationSec?: number;
-  finalSizeBytes?: number;
-  renderedAt?: string;
-  localFileName?: string;
-  lastClientError?: string;
+  finalDurationSec?: number; finalSizeBytes?: number; renderedAt?: string;
+  localFileName?: string; lastClientError?: string;
 }
 
-export interface GenerationSessionRecord {
-  sessionId: string;
-  createdAt: string;
-  updatedAt: string;
-  completedAt?: string | null;
-  ownerEmail?: string;
-  title: string;
-  description: string;
-  contentType: ContentType;
-  socialPlatform: SocialPlatform;
-  contentLanguage: ContentLanguage;
-  scriptMode: ScriptMode;
-  includeSubtitles?: boolean;
-  voiceGender: JobVoiceGender;
-  tone: string;
-  ctaText?: string;
-  referenceLink?: string;
-  videoDurationSec: number;
-  frameCount: number;
-  status: GenerationSessionStatus;
-  scriptText?: string;
-  captionText?: string;
+export interface VisualBriefHook { startSec: number; endSec: number; reason: string; }
+export interface VisualBriefTimelineItem {
+  startSec: number; endSec: number; primaryVisual: string; action: string;
+  onScreenText: string[]; narrationFocus: string; avoidClaims: string[];
+}
+export interface VisualBrief {
+  summary: string; hook: VisualBriefHook; timeline: VisualBriefTimelineItem[];
+  mustMention: string[]; mustAvoid: string[]; uncertainties: string[];
+}
+
+export interface AiStudioPackage {
+  sceneText: string;
+  sampleContextText: string;
+  scriptText: string;
+  captionText: string;
   hashtags: string[];
-  voiceName?: string;
-  speechRate?: number;
-  chargedAmountIdr: number;
-  errorMessage?: string;
-  renderSummary?: GenerationSessionRenderSummary;
+}
+
+export interface GenerationSessionRecord extends AiStudioPackage {
+  sessionId: string; createdAt: string; updatedAt: string; completedAt?: string | null;
+  ownerEmail?: string; title: string; description: string; contentType: ContentType;
+  socialPlatform: SocialPlatform; contentLanguage: ContentLanguage; includeSubtitles?: boolean;
+  tone: string; ctaText?: string; referenceLink?: string; videoDurationSec: number;
+  frameCount: number; status: GenerationSessionStatus; visualBrief?: VisualBrief;
+  chargedAmountIdr: number; errorMessage?: string; renderSummary?: GenerationSessionRenderSummary;
 }
 
 export interface ExtractedFrame {
-  index: number;
-  timestampSec: number;
-  mimeType: "image/jpeg";
-  base64Data: string;
-  dataUrl: string;
-  width: number;
-  height: number;
+  index: number; timestampSec: number; mimeType: "image/jpeg"; base64Data: string;
+  dataUrl: string; width: number; height: number;
 }
 
 export interface GenerationSessionCreateInput {
-  title: string;
-  description: string;
-  contentType: ContentType;
-  socialPlatform: SocialPlatform;
-  contentLanguage: ContentLanguage;
-  scriptMode: ScriptMode;
-  includeSubtitles?: boolean;
-  voiceGender: JobVoiceGender;
-  tone: string;
-  ctaText?: string;
-  referenceLink?: string;
-  manualScriptText?: string;
-  videoDurationSec: number;
-  frames: Array<{
-    timestampSec: number;
-    mimeType: "image/jpeg";
-    base64Data: string;
-    width: number;
-    height: number;
-  }>;
+  title: string; description: string; contentType: ContentType; socialPlatform: SocialPlatform;
+  contentLanguage: ContentLanguage; includeSubtitles?: boolean; tone: string;
+  ctaText?: string; referenceLink?: string; videoDurationSec: number;
+  frames: Array<{ timestampSec: number; mimeType: "image/jpeg"; base64Data: string; width: number; height: number }>;
 }
-
-export interface GenerationSessionCreateResult {
-  session: GenerationSessionRecord;
-}
-
-export interface GenerationSessionCompleteInput {
-  finalDurationSec: number;
-  finalSizeBytes: number;
-  localFileName?: string;
-}
-
-export interface GenerationSessionRetimeInput {
-  actualDurationSec: number;
-}
-
-export interface PreviewVoiceResult {
-  voiceName: string;
-  audioUrl: string;
-}
+export interface GenerationSessionCreateResult { session: GenerationSessionRecord; }
+export interface GenerationSessionCompleteInput { finalDurationSec: number; finalSizeBytes: number; localFileName?: string; }
 
 export interface CachedGenerationSessionRecord {
-  sessionId: string;
-  sourceVideoName: string;
-  sourceVideoType: string;
-  sourceVideoBlob: Blob;
-  audioBlob?: Blob;
-  audioMimeType?: string;
-  audioScriptText?: string;
-  renderedVideoBlob?: Blob;
-  renderFileName?: string;
-  updatedAt: string;
+  sessionId: string; sourceVideoName: string; sourceVideoType: string; sourceVideoBlob: Blob;
+  audioBlob?: Blob; audioMimeType?: string; audioScriptText?: string;
+  renderedVideoBlob?: Blob; renderFileName?: string; updatedAt: string;
 }
 
-export interface VisualBriefHook {
-  startSec: number;
-  endSec: number;
-  reason: string;
+export interface DepositPackage {
+  code: "10_video" | "50_video" | "100_video"; label: string; payAmountIdr: number;
+  creditAmountIdr: number; bonusAmountIdr: number; generateCredits: number;
 }
-
-export interface VisualBriefTimelineItem {
-  startSec: number;
-  endSec: number;
-  primaryVisual: string;
-  action: string;
-  onScreenText: string[];
-  narrationFocus: string;
-  avoidClaims: string[];
+export interface PaymentOrder {
+  id: string; packageCode: DepositPackage["code"]; payAmountIdr: number; creditAmountIdr: number;
+  taxRatePercent: number; taxAmountIdr: number; netAmountIdr: number; merchantOrderId: string;
+  webqrisInvoiceId?: string | null; qrisPayload?: string | null; uniqueCode?: number | null;
+  totalAmountIdr?: number | null; status: "pending" | "paid" | "expired" | "failed" | "canceled";
+  expiredAt: string; paidAt?: string | null; paymentMethod?: string | null;
 }
-
-export interface VisualBrief {
-  summary: string;
-  hook: VisualBriefHook;
-  timeline: VisualBriefTimelineItem[];
-  mustMention: string[];
-  mustAvoid: string[];
-  uncertainties: string[];
+export interface WalletLedgerEntry {
+  id: string; amountIdr: number; balanceAfterIdr: number; entryType: string; sourceType: string;
+  sourceId: string; description: string; metadata: Record<string, unknown>; createdAt: string;
+}
+export interface WalletSummary {
+  walletBalanceIdr: number; generatePriceIdr: number; generateCreditsRemaining: number | null;
+  isUnlimited: boolean; packages: DepositPackage[]; recentLedger: WalletLedgerEntry[]; recentTopups: PaymentOrder[];
 }

@@ -1,9 +1,7 @@
-import { SCRIPT_MODES, SOCIAL_PLATFORMS, SUBTITLE_MODES } from "./types";
+import { SOCIAL_PLATFORMS, SUBTITLE_MODES } from "./types";
 import type {
   ContentLanguage,
   ContentType,
-  JobVoiceGender,
-  ScriptMode,
   SocialPlatform,
   SubtitleMode
 } from "./types";
@@ -56,17 +54,6 @@ const PLATFORM_LABELS: Record<ContentLanguage, Record<SocialPlatform, string>> =
   }
 };
 
-const SCRIPT_MODE_LABELS: Record<ContentLanguage, Record<ScriptMode, string>> = {
-  "id-ID": {
-    auto_analysis: "Analisa Otomatis",
-    manual_script: "Script Manual"
-  },
-  "en-US": {
-    auto_analysis: "Auto Analysis",
-    manual_script: "Manual Script"
-  }
-};
-
 const SUBTITLE_MODE_LABELS: Record<ContentLanguage, Record<SubtitleMode, string>> = {
   "id-ID": {
     without_subtitles: "Tanpa Subtitle",
@@ -75,17 +62,6 @@ const SUBTITLE_MODE_LABELS: Record<ContentLanguage, Record<SubtitleMode, string>
   "en-US": {
     without_subtitles: "Without Subtitles",
     with_subtitles: "With Subtitles"
-  }
-};
-
-const GENDER_LABELS: Record<ContentLanguage, Record<JobVoiceGender, string>> = {
-  "id-ID": {
-    male: "Pria",
-    female: "Wanita"
-  },
-  "en-US": {
-    male: "Male",
-    female: "Female"
   }
 };
 
@@ -111,7 +87,6 @@ const TONE_LABELS: Record<ContentLanguage, Record<string, string>> = {
 };
 
 export const PLATFORM_OPTIONS: SocialPlatform[] = [...SOCIAL_PLATFORMS];
-export const SCRIPT_MODE_OPTIONS: ScriptMode[] = [...SCRIPT_MODES];
 export const SUBTITLE_MODE_OPTIONS: SubtitleMode[] = [...SUBTITLE_MODES];
 export const TONE_OPTIONS = [
   "natural",
@@ -124,23 +99,15 @@ export const TONE_OPTIONS = [
 ] as const;
 
 export function getContentLabel(locale: ContentLanguage, value: ContentType): string {
-  return CONTENT_LABELS[locale][value];
+  return CONTENT_LABELS[locale][value] || value;
 }
 
 export function getPlatformLabel(locale: ContentLanguage, value: SocialPlatform): string {
-  return PLATFORM_LABELS[locale][value];
-}
-
-export function getScriptModeLabel(locale: ContentLanguage, value: ScriptMode): string {
-  return SCRIPT_MODE_LABELS[locale][value];
+  return PLATFORM_LABELS[locale][value] || value;
 }
 
 export function getSubtitleModeLabel(locale: ContentLanguage, value: SubtitleMode): string {
-  return SUBTITLE_MODE_LABELS[locale][value];
-}
-
-export function getGenderLabel(locale: ContentLanguage, value: JobVoiceGender): string {
-  return GENDER_LABELS[locale][value];
+  return SUBTITLE_MODE_LABELS[locale][value] || value;
 }
 
 export function getToneLabel(locale: ContentLanguage, value: string): string {

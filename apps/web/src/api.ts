@@ -3,14 +3,10 @@ import type {
   AdminUserRecord,
   AppSettings,
   AuthUser,
-  ExcitedVoicePreset,
   GenerationSessionCompleteInput,
   GenerationSessionCreateInput,
   GenerationSessionCreateResult,
-  GenerationSessionRetimeInput,
-  GenerationSessionRecord,
-  PreviewVoiceResult,
-  TtsVoiceOption
+  GenerationSessionRecord
 } from "./types";
 import { isSupabaseAuthReady, supabase } from "./supabase";
 import { getRuntimeConfig } from "./runtime-config";
@@ -303,30 +299,6 @@ async function apiFetch<T>(
     }
   });
   return await parseResponse<T>(response);
-}
-
-async function apiFetchBlob(
-  path: string,
-  init?: RequestInit,
-  options?: { requireAuth?: boolean }
-): Promise<Blob> {
-  const requireAuth = options?.requireAuth ?? true;
-  const accessToken = await getAccessToken();
-  if (requireAuth && !accessToken) {
-    throw new ApiError(401, "Silakan login terlebih dahulu.");
-  }
-
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      ...(init?.headers || {})
-    }
-  });
-  if (!response.ok) {
-    await parseResponse(response);
-  }
-  return await response.blob();
 }
 
 export async function startGoogleLogin(returnTo = "/"): Promise<void> {
@@ -666,27 +638,6 @@ export async function fetchGenerationSession(sessionId: string): Promise<Generat
   return result.session;
 }
 
-export async function fetchGenerationSessionAudio(sessionId: string): Promise<Blob> {
-  return await apiFetchBlob(`/api/generation-sessions/${encodeURIComponent(sessionId)}/tts`, {
-    method: "POST"
-  });
-}
-
-export async function retimeGenerationSession(
-  sessionId: string,
-  input: GenerationSessionRetimeInput
-): Promise<GenerationSessionRecord> {
-  const result = await apiFetch<{ session: GenerationSessionRecord }>(
-    `/api/generation-sessions/${encodeURIComponent(sessionId)}/retime`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input)
-    }
-  );
-  return result.session;
-}
-
 export async function completeGenerationSession(
   sessionId: string,
   input: GenerationSessionCompleteInput
@@ -719,32 +670,4 @@ export async function failGenerationSession(
     }
   );
   return result.session;
-}
-
-export async function fetchTtsVoices(): Promise<{
-  voices: TtsVoiceOption[];
-  excitedPresets: ExcitedVoicePreset[];
-}> {
-  return await apiFetch<{
-    voices: TtsVoiceOption[];
-    excitedPresets: ExcitedVoicePreset[];
-  }>("/api/tts/voices", undefined, { requireAuth: false });
-}
-
-export async function previewTtsVoice(input: {
-  voiceName: string;
-  speechRate: number;
-  text?: string;
-}): Promise<PreviewVoiceResult> {
-  const blob = await apiFetchBlob("/api/tts/preview", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(input)
-  });
-  return {
-    voiceName: input.voiceName,
-    audioUrl: URL.createObjectURL(blob)
-  };
 }

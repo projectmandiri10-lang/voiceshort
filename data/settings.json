@@ -1,20 +1,9 @@
 {
-  "scriptModel": "gemini-2.5-flash-lite",
-  "ttsModel": "google/gemini-3.1-flash-tts-preview",
+  "scriptProvider": "aivene",
+  "scriptFallbackProvider": "openrouter",
+  "scriptModel": "gemini-3.1-pro",
   "language": "id-ID",
   "maxVideoSeconds": 60,
   "safetyMode": "safe_marketing",
-  "concurrency": 1,
-  "genderVoices": [
-    {
-      "gender": "male",
-      "voiceName": "Charon",
-      "speechRate": 1
-    },
-    {
-      "gender": "female",
-      "voiceName": "Leda",
-      "speechRate": 1
-    }
-  ]
+  "concurrency": 1
 }

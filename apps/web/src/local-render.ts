@@ -39,6 +39,11 @@ function buildVideoCompressionFilter(): string {
   ].join(",");
 }
 
+export function resolveUploadedAudioPath(fileName?: string): string {
+  const extension = /\.(wav|mp3|m4a|mp4|ogg)$/i.exec(fileName || "")?.[1]?.toLowerCase() || "wav";
+  return `uploaded-voice.${extension}`;
+}
+
 function escapeDrawtextText(input: string): string {
   return input
     .replace(/\\/g, "\\\\")
@@ -153,6 +158,7 @@ export function buildFinalMuxArgs(input: {
 export async function renderFinalVideoLocally(input: {
   sourceVideo: File | Blob;
   audioWavBlob: Blob;
+  audioFileName?: string;
   sourceVideoName?: string;
   subtitleText?: string;
   onLog?: (message: string) => void;
@@ -180,7 +186,8 @@ export async function renderFinalVideoLocally(input: {
   const sourceVideoPath = input.sourceVideoName?.toLowerCase().endsWith(".mp4")
     ? input.sourceVideoName
     : "source.mp4";
-  const voicePath = "voice.wav";
+  const audioName = input.audioFileName || (input.audioWavBlob instanceof File ? input.audioWavBlob.name : "");
+  const voicePath = resolveUploadedAudioPath(audioName);
   const outputPath = "final.mp4";
 
   await ffmpeg.writeFile(sourceVideoPath, await fetchFile(input.sourceVideo));

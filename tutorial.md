@@ -1,58 +1,13 @@
-# Fallback: Backend Node di Google Cloud Run
+# Tutorial Workflow Voice Upload
 
-Status panduan ini dicek pada `28 Mei 2026`.
+1. Masuk ke aplikasi dan buka **Generate**.
+2. Upload video, isi judul dan deskripsi, lalu sesuaikan kategori, platform, tone, subtitle, CTA, dan link.
+3. Klik **Analisa Video**. Tunggu sampai Scene, Sample Context, dan Naskah muncul.
+4. Klik **Salin Semua**, lalu buka Google AI Studio melalui tombol aplikasi.
+5. Tempel setiap bagian ke field yang sesuai. Instruksi Scene meminta audio selesai natural tepat pada durasi video.
+6. Generate voice di AI Studio dan simpan sebagai WAV, MP3, M4A, MP4 audio, atau OGG.
+7. Upload voice ke aplikasi. Pastikan nama file dan perbandingan durasi tampil.
+8. Klik **Gabungkan Voice dengan Video**. Penyesuaian durasi berjalan otomatis tanpa dialog tambahan.
+9. Setelah render selesai, download MP4 dan salin caption, hashtag, serta link jika tersedia.
 
-Arsitektur utama repo sekarang adalah **Cloudflare Worker penuh**. Dokumen ini hanya dipakai jika nanti Anda memutuskan kembali ke backend Node karena membutuhkan:
-
-- penyimpanan video asli/final di server
-- final MP4 lintas perangkat
-- render video di backend
-- validasi media server-side
-
-Untuk kebutuhan itu, fallback yang direkomendasikan adalah **Google Cloud Run**, bukan OCI.
-
-## 1. Kapan memakai Cloud Run
-
-Pilih jalur ini jika Anda ingin:
-
-- `apps/web` tetap di Cloudflare
-- `apps/server` aktif lagi sebagai backend Node
-- `ffmpeg` dan `ffprobe` berjalan di container
-- hasil render disimpan server-side
-
-## 2. Env minimum backend
-
-```txt
-AIVENE_API_KEY=your_aivene_api_key
-AIVENE_BASE_URL=https://api.aivene.com/v1
-AIVENE_SCRIPT_MODEL=gemini-2.5-pro
-AIVENE_TTS_MODEL=tts-1-hd
-OPENROUTER_API_KEY=your_openrouter_api_key
-OPENROUTER_TTS_MODEL=google/gemini-3.1-flash-tts-preview
-SUPABASE_URL=https://project-ref.supabase.co
-SUPABASE_ANON_KEY=your_publishable_or_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-APP_STORAGE_ROOT=/tmp/voiceshort
-WEB_ORIGIN=https://your-frontend.workers.dev
-APP_WEB_URL=https://your-frontend.workers.dev
-APP_PROD_WEB_URL=https://your-frontend.workers.dev
-ADDITIONAL_REDIRECT_URLS=https://your-frontend.workers.dev
-APP_API_URL=https://your-cloud-run-service-url
-```
-
-## 3. Build dan Container
-
-```bash
-npm install
-npm run build -w apps/server
-```
-
-Deploykan `apps/server` dalam container Node yang juga menyediakan `ffmpeg` dan `ffprobe`.
-
-## 4. Catatan Penting
-
-- Cloud Run adalah fallback, bukan jalur default repo ini
-- flow `generation_sessions` Worker tetap tidak otomatis berubah menjadi flow backend render
-- jika Anda pindah ke Cloud Run nanti, API dan frontend kemungkinan perlu disesuaikan lagi
-
-Untuk deploy default saat ini, gunakan `tutorial-cloudflare-workers-frontend.md`.
+Gunakan **Riwayat** untuk melanjutkan session pada browser/perangkat yang sama. Aset lokal tidak tersedia di perangkat lain.

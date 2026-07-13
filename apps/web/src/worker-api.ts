@@ -1,34 +1,22 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
-  ALL_TTS_VOICES,
   ABSOLUTE_MAX_VIDEO_SECONDS,
   DEFAULT_SETTINGS,
   DEFAULT_AIVENE_BASE_URL,
-  GEMINI_EXCITED_PRESETS,
-  findDefaultVoiceForGender,
-  findGenderVoiceSetting,
-  findTtsVoiceByName,
-  isKnownTtsVoiceName,
   normalizeScriptModel,
-  normalizeScriptProvider,
-  normalizeTtsProvider,
-  normalizeTtsModel
+  normalizeScriptProvider
 } from "./shared/constants";
 import {
-  buildCaptionPrompt,
-  buildScriptRetimingPrompt,
-  buildScriptPrompt,
+  buildAiStudioPackagePrompt,
   buildVisualBriefPrompt
 } from "./shared/prompt-builder";
 import {
-  extractScriptText,
-  extractSocialMetadata,
+  extractAiStudioPackage,
   extractVisualBrief
 } from "./shared/model-output";
 import {
   CONTENT_LANGUAGES,
   CONTENT_TYPES,
-  SCRIPT_MODES,
   SOCIAL_PLATFORMS,
   type AdminTransactionRecord,
   type AdminUserRecord,
@@ -42,12 +30,8 @@ import {
   type GenerationSessionCreateInput,
   type GenerationSessionRecord,
   type GenerationSessionStatus,
-  type JobVoiceGender,
   type ScriptAiProvider,
-  type ScriptMode,
   type SocialPlatform,
-  type TtsAiProvider,
-  type TtsVoiceOption,
   type VisualBrief,
   type UserRole
 } from "./types";
@@ -89,13 +73,9 @@ export interface WorkerEnv {
   AIVENE_API_KEY?: string;
   AIVENE_BASE_URL?: string;
   AIVENE_SCRIPT_MODEL?: string;
-  AIVENE_TTS_MODEL?: string;
   OPENROUTER_API_KEY?: string;
-  OPENROUTER_TTS_MODEL?: string;
   SCRIPT_PROVIDER?: string;
   SCRIPT_FALLBACK_PROVIDER?: string;
-  TTS_PROVIDER?: string;
-  TTS_FALLBACK_PROVIDER?: string;
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
@@ -130,15 +110,11 @@ interface AppSettingsRow {
   script_provider?: AppSettings["scriptProvider"];
   script_fallback_provider?: AppSettings["scriptFallbackProvider"];
   script_model: string;
-  tts_provider?: AppSettings["ttsProvider"];
-  tts_fallback_provider?: AppSettings["ttsFallbackProvider"];
-  tts_model: string;
   tax_rate_percent?: number | string | null;
   language: "id-ID";
   max_video_seconds: number;
   safety_mode: "safe_marketing";
   concurrency: 1;
-  gender_voices: AppSettings["genderVoices"];
 }
 
 interface GenerationSessionRow {
@@ -150,20 +126,19 @@ interface GenerationSessionRow {
   content_type: ContentType;
   social_platform: SocialPlatform;
   content_language?: ContentLanguage | null;
-  script_mode?: ScriptMode | null;
   include_subtitles?: boolean | null;
-  voice_gender: JobVoiceGender;
   tone: string;
   cta_text: string | null;
   reference_link: string | null;
   video_duration_sec: number;
   frame_count: number;
   status: GenerationSessionStatus;
+  visual_brief: VisualBrief | null;
+  scene_text: string | null;
+  sample_context_text: string | null;
   script_text: string | null;
   caption_text: string | null;
   hashtags: string[] | null;
-  voice_name: string | null;
-  speech_rate: number | null;
   charged_amount_idr: number;
   error_message: string | null;
   render_summary: Record<string, unknown> | null;
@@ -231,11 +206,6 @@ interface AuthContext {
   accessToken: string;
   user: AuthUser;
   serviceDb: SupabaseClient;
-}
-
-interface GeneratedAudio {
-  bytes: Uint8Array;
-  mimeType: string;
 }
 
 function nowIso(): string {
@@ -314,17 +284,6 @@ function resolveAiveneChatUrl(baseUrl: string): string {
     return `${normalized}/chat/completions`;
   }
   return `${normalized}/v1/chat/completions`;
-}
-
-function resolveAiveneSpeechUrl(baseUrl: string): string {
-  const normalized = trimTrailingSlash(baseUrl);
-  if (normalized.endsWith("/audio/speech")) {
-    return normalized;
-  }
-  if (normalized.endsWith("/v1")) {
-    return `${normalized}/audio/speech`;
-  }
-  return `${normalized}/v1/audio/speech`;
 }
 
 function getGeneratePriceIdr(env: WorkerEnv): number {
@@ -442,25 +401,13 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
           DEFAULT_SETTINGS.scriptFallbackProvider
         ),
         scriptModel: row.script_model,
-        ttsProvider: normalizeTtsProvider(row.tts_provider, DEFAULT_SETTINGS.ttsProvider),
-        ttsFallbackProvider: normalizeTtsProvider(
-          row.tts_fallback_provider,
-          DEFAULT_SETTINGS.ttsFallbackProvider
-        ),
-        ttsModel: row.tts_model,
         taxRatePercent: normalizeTaxRatePercent(row.tax_rate_percent),
         language: row.language,
         maxVideoSeconds: row.max_video_seconds,
         safetyMode: row.safety_mode,
-        concurrency: row.concurrency,
-        genderVoices: Array.isArray(row.gender_voices) ? row.gender_voices : DEFAULT_SETTINGS.genderVoices
+        concurrency: row.concurrency
       }
     : DEFAULT_SETTINGS;
-  const activeTtsProvider = normalizeTtsProvider(source.ttsProvider, DEFAULT_SETTINGS.ttsProvider);
-  const activeTtsModel = normalizeTtsModel(
-    String(source.ttsModel || DEFAULT_SETTINGS.ttsModel).trim() || DEFAULT_SETTINGS.ttsModel,
-    activeTtsProvider
-  );
 
   return {
     scriptProvider: normalizeScriptProvider(source.scriptProvider, DEFAULT_SETTINGS.scriptProvider),
@@ -472,40 +419,11 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
       String(source.scriptModel || DEFAULT_SETTINGS.scriptModel).trim() || DEFAULT_SETTINGS.scriptModel,
       normalizeScriptProvider(source.scriptProvider, DEFAULT_SETTINGS.scriptProvider)
     ),
-    ttsProvider: normalizeTtsProvider(source.ttsProvider, DEFAULT_SETTINGS.ttsProvider),
-    ttsFallbackProvider: normalizeTtsProvider(
-      source.ttsFallbackProvider,
-      DEFAULT_SETTINGS.ttsFallbackProvider
-    ),
-    ttsModel: normalizeTtsModel(
-      String(source.ttsModel || DEFAULT_SETTINGS.ttsModel).trim() || DEFAULT_SETTINGS.ttsModel,
-      activeTtsProvider
-    ),
     taxRatePercent: normalizeTaxRatePercent(source.taxRatePercent ?? DEFAULT_SETTINGS.taxRatePercent),
     language: "id-ID",
     maxVideoSeconds: Math.max(10, Math.min(ABSOLUTE_MAX_VIDEO_SECONDS, Math.trunc(source.maxVideoSeconds || DEFAULT_SETTINGS.maxVideoSeconds))),
     safetyMode: "safe_marketing",
-    concurrency: 1,
-    genderVoices: DEFAULT_SETTINGS.genderVoices.map((fallbackVoice) => {
-      const selected = Array.isArray(source.genderVoices)
-        ? source.genderVoices.find((voice) => voice.gender === fallbackVoice.gender)
-        : undefined;
-      const fallbackProviderVoice = findDefaultVoiceForGender(activeTtsProvider, fallbackVoice.gender, activeTtsModel);
-      const voiceName =
-        selected?.voiceName && isKnownTtsVoiceName(selected.voiceName, activeTtsProvider, activeTtsModel)
-          ? findTtsVoiceByName(selected.voiceName, activeTtsProvider, activeTtsModel)?.voiceName ||
-            fallbackProviderVoice.voiceName
-          : fallbackProviderVoice.voiceName;
-      const speechRate = Number(selected?.speechRate);
-      return {
-        gender: fallbackVoice.gender,
-        voiceName,
-        speechRate:
-          Number.isFinite(speechRate) && speechRate >= 0.7 && speechRate <= 1.3
-            ? speechRate
-            : fallbackVoice.speechRate
-      };
-    })
+    concurrency: 1
   };
 }
 
@@ -515,10 +433,6 @@ function applyRuntimeSettingsEnvOverrides(settings: AppSettings, env: WorkerEnv)
     String(env.SCRIPT_PROVIDER || aiProvider || "").trim(),
     settings.scriptProvider
   );
-  const ttsProvider = normalizeTtsProvider(
-    String(env.TTS_PROVIDER || aiProvider || "").trim(),
-    settings.ttsProvider
-  );
   const scriptFallbackProvider = normalizeScriptProvider(
     String(env.SCRIPT_FALLBACK_PROVIDER || (scriptProvider === "aivene" ? "openrouter" : "")).trim(),
     settings.scriptFallbackProvider === scriptProvider
@@ -527,24 +441,8 @@ function applyRuntimeSettingsEnvOverrides(settings: AppSettings, env: WorkerEnv)
         : "openrouter"
       : settings.scriptFallbackProvider
   );
-  const ttsFallbackProvider = normalizeTtsProvider(
-    String(env.TTS_FALLBACK_PROVIDER || (ttsProvider === "aivene" ? "openrouter" : "")).trim(),
-    settings.ttsFallbackProvider === ttsProvider
-      ? ttsProvider === "openrouter"
-        ? "aivene"
-        : "openrouter"
-      : settings.ttsFallbackProvider
-  );
   const scriptModelOverride =
     scriptProvider === "aivene" ? String(env.AIVENE_SCRIPT_MODEL || "").trim() : "";
-  const ttsModelOverride =
-    ttsProvider === "aivene"
-      ? String(env.AIVENE_TTS_MODEL || "").trim()
-      : ttsProvider === "openrouter"
-        ? String(env.OPENROUTER_TTS_MODEL || "").trim()
-        : "";
-  const nextTtsModel = normalizeTtsModel(ttsModelOverride || settings.ttsModel, ttsProvider);
-
   return {
     ...settings,
     scriptProvider,
@@ -554,28 +452,7 @@ function applyRuntimeSettingsEnvOverrides(settings: AppSettings, env: WorkerEnv)
           ? "aivene"
           : "openrouter"
         : scriptFallbackProvider,
-    scriptModel: normalizeScriptModel(scriptModelOverride || settings.scriptModel, scriptProvider),
-    ttsProvider,
-    ttsFallbackProvider:
-      ttsFallbackProvider === ttsProvider
-        ? ttsProvider === "openrouter"
-          ? "aivene"
-          : "openrouter"
-        : ttsFallbackProvider,
-    ttsModel: nextTtsModel,
-    genderVoices: DEFAULT_SETTINGS.genderVoices.map((fallbackVoice) => {
-      const selected = settings.genderVoices.find((voice) => voice.gender === fallbackVoice.gender);
-      const fallbackProviderVoice = findDefaultVoiceForGender(ttsProvider, fallbackVoice.gender, nextTtsModel);
-      return {
-        gender: fallbackVoice.gender,
-        voiceName:
-          selected?.voiceName && isKnownTtsVoiceName(selected.voiceName, ttsProvider, nextTtsModel)
-            ? findTtsVoiceByName(selected.voiceName, ttsProvider, nextTtsModel)?.voiceName ||
-              fallbackProviderVoice.voiceName
-            : fallbackProviderVoice.voiceName,
-        speechRate: selected?.speechRate ?? fallbackVoice.speechRate
-      };
-    })
+    scriptModel: normalizeScriptModel(scriptModelOverride || settings.scriptModel, scriptProvider)
   };
 }
 
@@ -591,20 +468,19 @@ function mapGenerationSession(row: GenerationSessionRow): GenerationSessionRecor
     contentType: row.content_type,
     socialPlatform: row.social_platform,
     contentLanguage: row.content_language === "en-US" ? "en-US" : "id-ID",
-    scriptMode: row.script_mode === "manual_script" ? "manual_script" : "auto_analysis",
     includeSubtitles: Boolean(row.include_subtitles),
-    voiceGender: row.voice_gender,
     tone: row.tone,
     ctaText: row.cta_text || undefined,
     referenceLink: row.reference_link || undefined,
     videoDurationSec: row.video_duration_sec,
     frameCount: row.frame_count,
     status: row.status,
-    scriptText: row.script_text || undefined,
-    captionText: row.caption_text || undefined,
+    visualBrief: row.visual_brief || undefined,
+    sceneText: row.scene_text || "",
+    sampleContextText: row.sample_context_text || "",
+    scriptText: row.script_text || "",
+    captionText: row.caption_text || "",
     hashtags: Array.isArray(row.hashtags) ? row.hashtags : [],
-    voiceName: row.voice_name || undefined,
-    speechRate: row.speech_rate ?? undefined,
     chargedAmountIdr: Math.max(0, Math.trunc(row.charged_amount_idr || 0)),
     errorMessage: row.error_message || undefined,
     renderSummary: row.render_summary
@@ -708,31 +584,6 @@ function assertContentLanguage(value: unknown): ContentLanguage {
   return contentLanguage;
 }
 
-function assertScriptMode(value: unknown): ScriptMode {
-  const fallbackMode: ScriptMode = "auto_analysis";
-  const scriptMode = String(value ?? fallbackMode).trim() as ScriptMode;
-  if (!SCRIPT_MODES.includes(scriptMode)) {
-    throw createHttpError(400, "Mode script tidak valid.");
-  }
-  return scriptMode;
-}
-
-function assertVoiceGender(value: unknown): JobVoiceGender {
-  const voiceGender = String(value ?? "").trim() as JobVoiceGender;
-  if (voiceGender !== "male" && voiceGender !== "female") {
-    throw createHttpError(400, "Gender suara tidak valid.");
-  }
-  return voiceGender;
-}
-
-function assertSpeechRate(value: unknown): number {
-  const speechRate = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(speechRate) || speechRate < 0.7 || speechRate > 1.3) {
-    throw createHttpError(400, "Speech rate harus berada di rentang 0.7 sampai 1.3.");
-  }
-  return speechRate;
-}
-
 function assertUrl(value: unknown): string | undefined {
   const text = assertString(value, "Link referensi", { required: false, max: 400 });
   if (!text) {
@@ -751,7 +602,6 @@ function parseSettingsInput(input: unknown): AppSettings {
     throw createHttpError(400, "Payload pengaturan tidak valid.");
   }
   const body = input as Record<string, unknown>;
-  const genderVoices = Array.isArray(body.genderVoices) ? body.genderVoices : [];
   const scriptProvider = normalizeScriptProvider(
     String(body.scriptProvider || "").trim(),
     DEFAULT_SETTINGS.scriptProvider
@@ -760,47 +610,9 @@ function parseSettingsInput(input: unknown): AppSettings {
     String(body.scriptFallbackProvider || "").trim(),
     DEFAULT_SETTINGS.scriptFallbackProvider
   );
-  const ttsProvider = normalizeTtsProvider(
-    String(body.ttsProvider || "").trim(),
-    DEFAULT_SETTINGS.ttsProvider
-  );
-  const ttsFallbackProvider = normalizeTtsProvider(
-    String(body.ttsFallbackProvider || "").trim(),
-    DEFAULT_SETTINGS.ttsFallbackProvider
-  );
   if (scriptProvider === scriptFallbackProvider) {
     throw createHttpError(400, "Fallback provider script harus berbeda dari provider utama.");
   }
-  if (ttsProvider === ttsFallbackProvider) {
-    throw createHttpError(400, "Fallback provider TTS harus berbeda dari provider utama.");
-  }
-  const normalizedTtsModel = normalizeTtsModel(
-    assertString(body.ttsModel, "TTS model") || DEFAULT_SETTINGS.ttsModel,
-    ttsProvider
-  );
-  const normalizedGenderVoices = DEFAULT_SETTINGS.genderVoices.map((fallbackVoice) => {
-    const selected = genderVoices.find((voice) => {
-      return (
-        voice &&
-        typeof voice === "object" &&
-        !Array.isArray(voice) &&
-        String((voice as Record<string, unknown>).gender || "") === fallbackVoice.gender
-      );
-    }) as Record<string, unknown> | undefined;
-
-    const fallbackProviderVoice = findDefaultVoiceForGender(ttsProvider, fallbackVoice.gender, normalizedTtsModel);
-    const requestedVoiceName = String(selected?.voiceName || fallbackProviderVoice.voiceName).trim();
-    const matchedVoice = findTtsVoiceByName(requestedVoiceName, ttsProvider, normalizedTtsModel);
-    if (!matchedVoice) {
-      throw createHttpError(400, `Voice default untuk ${fallbackVoice.gender} tidak tersedia pada provider ${ttsProvider}.`);
-    }
-    return {
-      gender: fallbackVoice.gender,
-      voiceName: matchedVoice.voiceName,
-      speechRate: assertSpeechRate(selected?.speechRate ?? fallbackVoice.speechRate)
-    };
-  });
-
   return {
     scriptProvider,
     scriptFallbackProvider,
@@ -808,9 +620,6 @@ function parseSettingsInput(input: unknown): AppSettings {
       assertString(body.scriptModel, "Script model") || DEFAULT_SETTINGS.scriptModel,
       scriptProvider
     ),
-    ttsProvider,
-    ttsFallbackProvider,
-    ttsModel: normalizedTtsModel,
     taxRatePercent: assertTaxRatePercent(body.taxRatePercent ?? DEFAULT_SETTINGS.taxRatePercent),
     language: "id-ID",
     maxVideoSeconds: Math.max(
@@ -821,8 +630,7 @@ function parseSettingsInput(input: unknown): AppSettings {
       )
     ),
     safetyMode: "safe_marketing",
-    concurrency: 1,
-    genderVoices: normalizedGenderVoices
+    concurrency: 1
   };
 }
 
@@ -837,36 +645,24 @@ function parseGenerationSessionCreateInput(input: unknown): GenerationSessionCre
   }
 
   const frames = Array.isArray(body.frames) ? body.frames : [];
-  const scriptMode = assertScriptMode(body.scriptMode);
   if (frames.length > 24) {
     throw createHttpError(400, "Jumlah cuplikan melebihi batas aman.");
   }
-  if (!frames.length && scriptMode !== "manual_script") {
+  if (!frames.length) {
     throw createHttpError(400, "Cuplikan video wajib dikirim untuk analisis.");
   }
-  const manualScriptText =
-    scriptMode === "manual_script"
-      ? assertString(body.manualScriptText, "Script manual", { max: 12000 }) || ""
-      : assertString(body.manualScriptText, "Script manual", { required: false, max: 12000 });
   const includeSubtitles = Boolean(body.includeSubtitles);
 
   return {
     title: assertString(body.title, "Judul", { max: 160 }) || "",
-    description:
-      assertString(body.description, "Brief / deskripsi", {
-        max: 3000,
-        required: scriptMode !== "manual_script"
-      }) || "",
+    description: assertString(body.description, "Brief / deskripsi", { max: 3000 }) || "",
     contentType: assertContentType(body.contentType),
     socialPlatform: assertSocialPlatform(body.socialPlatform),
     contentLanguage: assertContentLanguage(body.contentLanguage),
-    scriptMode,
     includeSubtitles,
-    voiceGender: assertVoiceGender(body.voiceGender),
     tone: assertString(body.tone, "Tone", { max: 80 }) || "",
     ctaText: assertString(body.ctaText, "CTA", { required: false, max: 200 }),
     referenceLink: assertUrl(body.referenceLink),
-    manualScriptText,
     videoDurationSec,
     frames: frames.map((frame, index) => {
       if (!frame || typeof frame !== "object" || Array.isArray(frame)) {
@@ -934,7 +730,6 @@ async function getSettings(serviceDb: SupabaseClient, env: WorkerEnv): Promise<A
 }
 
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
-const OPENROUTER_TTS_URL = "https://openrouter.ai/api/v1/audio/speech";
 
 async function callAiveneText(
   env: WorkerEnv,
@@ -988,76 +783,6 @@ async function callOpenRouterText(
   }
 
   return payload;
-}
-
-async function callOpenRouterTts(
-  env: WorkerEnv,
-  body: Record<string, unknown>
-): Promise<Response> {
-  const response = await fetch(OPENROUTER_TTS_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getRequiredEnv(env, "OPENROUTER_API_KEY")}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    let payload: Record<string, unknown> = {};
-    if (text) {
-      try {
-        payload = JSON.parse(text) as Record<string, unknown>;
-      } catch {
-        payload = { message: text };
-      }
-    }
-    const message =
-      typeof (payload.error as { message?: unknown } | undefined)?.message === "string"
-        ? String((payload.error as { message?: unknown }).message)
-        : typeof payload.message === "string"
-          ? payload.message
-          : `OpenRouter TTS request gagal (${response.status}).`;
-    throw createHttpError(response.status === 429 ? 503 : response.status, message, payload);
-  }
-
-  return response;
-}
-
-async function callAiveneTts(
-  env: WorkerEnv,
-  body: Record<string, unknown>
-): Promise<Response> {
-  const response = await fetch(resolveAiveneSpeechUrl(resolveAiveneBaseUrl(env)), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getAiveneApiKey(env)}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    let payload: Record<string, unknown> = {};
-    if (text) {
-      try {
-        payload = JSON.parse(text) as Record<string, unknown>;
-      } catch {
-        payload = { message: text };
-      }
-    }
-    const message =
-      typeof (payload.error as { message?: unknown } | undefined)?.message === "string"
-        ? String((payload.error as { message?: unknown }).message)
-        : typeof payload.message === "string"
-          ? payload.message
-          : `Aivene TTS request gagal (${response.status}).`;
-    throw createHttpError(response.status === 429 ? 503 : response.status, message, payload);
-  }
-
-  return response;
 }
 
 async function withRetry<T>(task: () => Promise<T>, attempts = 3): Promise<T> {
@@ -1198,55 +923,6 @@ async function generateTextWithProvider(
   return chatPayloadToGeminiLike(payload);
 }
 
-async function generateAudioWithProvider(
-  env: WorkerEnv,
-  provider: TtsAiProvider,
-  settings: AppSettings,
-  input: {
-    text: string;
-    voiceName: string;
-    speechRate: number;
-    contentLanguage: ContentLanguage;
-    deliveryHint?: string;
-  }
-): Promise<GeneratedAudio> {
-  const providerVoice = findTtsVoiceByName(input.voiceName, provider, settings.ttsModel);
-  const resolvedVoiceName = providerVoice?.voiceName || input.voiceName;
-  if (provider === "aivene") {
-    const response = await withRetry(() =>
-      callAiveneTts(env, {
-        model: normalizeTtsModel(settings.ttsModel, provider),
-        input: input.text.replace(/\s+/g, " ").trim(),
-        voice: resolvedVoiceName,
-        response_format: "mp3",
-        speed: input.speechRate
-      })
-    );
-    return {
-      bytes: new Uint8Array(await response.arrayBuffer()),
-      mimeType: response.headers.get("Content-Type")?.trim() || "audio/mpeg"
-    };
-  }
-
-  if (provider === "openrouter") {
-    const response = await withRetry(() =>
-      callOpenRouterTts(env, {
-        model: normalizeTtsModel(settings.ttsModel, provider),
-        input: input.text.replace(/\s+/g, " ").trim(),
-        voice: resolvedVoiceName,
-        response_format: "mp3",
-        speed: input.speechRate
-      })
-    );
-    return {
-      bytes: new Uint8Array(await response.arrayBuffer()),
-      mimeType: response.headers.get("Content-Type")?.trim() || "audio/mpeg"
-    };
-  }
-
-  throw createHttpError(500, `Provider TTS ${provider} belum didukung.`);
-}
-
 async function createGenerationSession(
   env: WorkerEnv,
   context: AuthContext,
@@ -1260,11 +936,6 @@ async function createGenerationSession(
     );
   }
 
-  const voiceProfile = findGenderVoiceSetting(settings, input.voiceGender);
-  if (!voiceProfile) {
-    throw createHttpError(500, `Default voice untuk ${input.voiceGender} belum dikonfigurasi.`);
-  }
-
   const promptBase = {
     settings,
     title: input.title,
@@ -1272,7 +943,6 @@ async function createGenerationSession(
     contentType: input.contentType,
     socialPlatform: input.socialPlatform,
     contentLanguage: input.contentLanguage,
-    voiceGender: input.voiceGender,
     tone: input.tone,
     videoDurationSec: input.videoDurationSec,
     frameCount: input.frames.length,
@@ -1280,73 +950,32 @@ async function createGenerationSession(
     referenceLink: input.referenceLink
   } as const;
 
-  let visualBrief: VisualBrief | undefined;
-  let scriptText = input.manualScriptText?.trim() || "";
-
-  if (input.scriptMode !== "manual_script") {
-    const visualBriefPrompt = buildVisualBriefPrompt(promptBase);
-    visualBrief = await runWithProviderFallback({
-      stage: "Visual brief",
-      primaryProvider: settings.scriptProvider,
-      fallbackProvider: settings.scriptFallbackProvider,
-      task: (provider) =>
-        withRetry(() =>
-          generateTextWithProvider(env, provider, settings.scriptModel, {
-            prompt: visualBriefPrompt,
-            frames: input.frames
-          }).then((response) => extractVisualBrief(response))
-        )
-    });
-
-    scriptText = await runWithProviderFallback({
-      stage: "Script generation",
-      primaryProvider: settings.scriptProvider,
-      fallbackProvider: settings.scriptFallbackProvider,
-      task: (provider) =>
-        withRetry(() =>
-          generateTextWithProvider(env, provider, settings.scriptModel, {
-            prompt: buildScriptPrompt({ ...promptBase, visualBrief })
-          }).then((response) => {
-            const script = extractScriptText(response);
-            if (!script) {
-              throw createHttpError(502, "Provider AI mengembalikan naskah kosong.");
-            }
-            return script;
-          })
-        )
-    });
-  }
-
-  const social = await runWithProviderFallback({
-    stage: "Caption generation",
+  const visualBrief = await runWithProviderFallback({
+    stage: "Visual brief",
     primaryProvider: settings.scriptProvider,
     fallbackProvider: settings.scriptFallbackProvider,
     task: (provider) =>
       withRetry(() =>
         generateTextWithProvider(env, provider, settings.scriptModel, {
-          prompt: buildCaptionPrompt({
-            ...promptBase,
-            scriptMode: input.scriptMode,
-            visualBrief,
-            scriptText
-          })
-        }).then((response) => extractSocialMetadata(response))
+          prompt: buildVisualBriefPrompt(promptBase),
+          frames: input.frames
+        }).then(extractVisualBrief)
+      )
+  });
+
+  const aiPackage = await runWithProviderFallback({
+    stage: "AI Studio package",
+    primaryProvider: settings.scriptProvider,
+    fallbackProvider: settings.scriptFallbackProvider,
+    task: (provider) =>
+      withRetry(() =>
+        generateTextWithProvider(env, provider, settings.scriptModel, {
+          prompt: buildAiStudioPackagePrompt({ ...promptBase, visualBrief })
+        }).then(extractAiStudioPackage)
       )
   });
 
   const sessionId = crypto.randomUUID();
-  const chargeAmountIdr = getGeneratePriceIdr(env);
-  const reserveResult = await context.serviceDb.rpc("reserve_generate_credit", {
-    job_id: sessionId,
-    target_user_id: context.user.id,
-    charge_amount_idr: chargeAmountIdr,
-    billed_minutes: 1,
-    video_duration_sec: input.videoDurationSec
-  });
-  if (reserveResult.error) {
-    throw createHttpError(402, reserveResult.error.message);
-  }
-
   const insertPayload = {
     session_id: sessionId,
     owner_user_id: context.user.id,
@@ -1356,21 +985,20 @@ async function createGenerationSession(
     content_type: input.contentType,
     social_platform: input.socialPlatform,
     content_language: input.contentLanguage,
-    script_mode: input.scriptMode,
     include_subtitles: input.includeSubtitles,
-    voice_gender: input.voiceGender,
     tone: input.tone,
     cta_text: input.ctaText ?? null,
     reference_link: input.referenceLink ?? null,
     video_duration_sec: input.videoDurationSec,
     frame_count: input.frames.length,
-    status: "ready_for_audio",
-    script_text: scriptText,
-    caption_text: social.caption,
-    hashtags: social.hashtags,
-    voice_name: voiceProfile.voiceName,
-    speech_rate: voiceProfile.speechRate,
-    charged_amount_idr: chargeAmountIdr,
+    status: "ready_for_voice_upload",
+    visual_brief: visualBrief,
+    scene_text: aiPackage.sceneText,
+    sample_context_text: aiPackage.sampleContextText,
+    script_text: aiPackage.scriptText,
+    caption_text: aiPackage.captionText,
+    hashtags: aiPackage.hashtags,
+    charged_amount_idr: 0,
     error_message: null,
     render_summary: {}
   };
@@ -1381,11 +1009,6 @@ async function createGenerationSession(
     .select("*")
     .single<GenerationSessionRow>();
   if (insertResult.error || !insertResult.data) {
-    await context.serviceDb.rpc("refund_generate_credit", {
-      job_id: sessionId,
-      target_user_id: context.user.id,
-      reason: "Rollback session insert failure"
-    });
     throw insertResult.error || createHttpError(500, "Session generate tidak bisa disimpan.");
   }
 
@@ -1466,7 +1089,7 @@ async function markGenerationSessionFailed(
 ): Promise<GenerationSessionRecord> {
   const current = await getGenerationSessionForUser(context, sessionId);
   const reason = assertString(input.reason, "Alasan gagal", { required: false, max: 500 });
-  const nextStatus: GenerationSessionStatus = input.retryable === false ? "failed" : "ready_for_render";
+  const nextStatus: GenerationSessionStatus = input.retryable === false ? "failed" : "ready_for_voice_upload";
   const result = await context.serviceDb
     .from("generation_sessions")
     .update({
@@ -1484,185 +1107,6 @@ async function markGenerationSessionFailed(
     throw result.error || createHttpError(500, "Status gagal render tidak bisa disimpan.");
   }
   return mapGenerationSession(result.data);
-}
-
-async function synthesizeGenerationSessionTts(
-  env: WorkerEnv,
-  context: AuthContext,
-  sessionId: string
-): Promise<Response> {
-  const session = await getGenerationSessionForUser(context, sessionId);
-  const settings = await getSettings(context.serviceDb, env);
-  const scriptText = session.script_text;
-  if (!scriptText) {
-    throw createHttpError(400, "Session ini belum memiliki naskah untuk TTS.");
-  }
-
-  const voice = session.voice_name
-    ? findTtsVoiceByName(session.voice_name, settings.ttsProvider, settings.ttsModel)
-    : undefined;
-  const voiceName =
-    voice?.voiceName ||
-    findGenderVoiceSetting(settings, session.voice_gender)?.voiceName ||
-    findDefaultVoiceForGender(settings.ttsProvider, session.voice_gender, settings.ttsModel).voiceName;
-  if (!voiceName) {
-    throw createHttpError(500, "Voice default session belum tersedia.");
-  }
-  const speechRate = Number(session.speech_rate) || 1;
-
-  const audio = await runWithProviderFallback({
-    stage: "Generation session TTS",
-    primaryProvider: settings.ttsProvider,
-    fallbackProvider: settings.ttsFallbackProvider,
-    task: (provider) =>
-      generateAudioWithProvider(env, provider, settings, {
-        text: scriptText,
-        voiceName,
-        speechRate,
-        contentLanguage: session.content_language === "en-US" ? "en-US" : "id-ID",
-        deliveryHint:
-          session.content_language === "en-US"
-            ? `${session.tone} with a ${voice?.tone?.toLowerCase() || "natural"} short-form English delivery`
-            : `${session.tone} dan ${voice?.tone?.toLowerCase() || "natural"} untuk video pendek Indonesia`
-      })
-  });
-
-  const updateResult = await context.serviceDb
-    .from("generation_sessions")
-    .update({
-      status: "ready_for_render",
-      error_message: null
-    })
-    .eq("session_id", sessionId)
-    .select("session_id")
-    .single();
-  if (updateResult.error) {
-    throw updateResult.error;
-  }
-
-  return new Response(new Blob([Uint8Array.from(audio.bytes)], { type: audio.mimeType }), {
-    status: 200,
-    headers: {
-      "Content-Type": audio.mimeType,
-      "Cache-Control": "private, no-store",
-      "X-Voice-Name": voiceName,
-      ...buildCorsHeaders(new Request("http://localhost"))
-    }
-  });
-}
-
-async function retimeGenerationSessionScript(
-  env: WorkerEnv,
-  context: AuthContext,
-  sessionId: string,
-  actualDurationSec: number
-): Promise<GenerationSessionRecord> {
-  if (!Number.isFinite(actualDurationSec) || actualDurationSec <= 0) {
-    throw createHttpError(400, "Durasi audio TTS tidak valid.");
-  }
-
-  const session = await getGenerationSessionForUser(context, sessionId);
-  if (session.script_mode === "manual_script") {
-    throw createHttpError(400, "Script manual tidak boleh diubah otomatis untuk penyesuaian durasi.");
-  }
-  if (!session.script_text?.trim()) {
-    throw createHttpError(400, "Session ini belum memiliki naskah untuk disesuaikan.");
-  }
-
-  const settings = await getSettings(context.serviceDb, env);
-  const revisedScript = await runWithProviderFallback({
-    stage: "Script duration retiming",
-    primaryProvider: settings.scriptProvider,
-    fallbackProvider: settings.scriptFallbackProvider,
-    task: (provider) =>
-      withRetry(() =>
-        generateTextWithProvider(env, provider, settings.scriptModel, {
-          prompt: buildScriptRetimingPrompt({
-            settings,
-            title: session.title,
-            description: session.description,
-            contentType: session.content_type,
-            socialPlatform: session.social_platform,
-            contentLanguage: session.content_language === "en-US" ? "en-US" : "id-ID",
-            voiceGender: session.voice_gender,
-            tone: session.tone,
-            videoDurationSec: session.video_duration_sec,
-            frameCount: session.frame_count,
-            ctaText: session.cta_text || undefined,
-            referenceLink: session.reference_link || undefined,
-            currentScriptText: session.script_text || "",
-            actualDurationSec
-          })
-        }).then((response) => {
-          const script = extractScriptText(response);
-          if (!script) {
-            throw createHttpError(502, "Provider AI mengembalikan revisi naskah kosong.");
-          }
-          return script;
-        })
-      )
-  });
-
-  const result = await context.serviceDb
-    .from("generation_sessions")
-    .update({
-      script_text: revisedScript,
-      status: "ready_for_audio",
-      error_message: null,
-      render_summary: {
-        ...(session.render_summary || {}),
-        lastMeasuredVoiceDurationSec: Number(actualDurationSec.toFixed(3)),
-        targetVoiceDurationSec: Number(session.video_duration_sec.toFixed(3)),
-        scriptRetimedAt: nowIso()
-      }
-    })
-    .eq("session_id", sessionId)
-    .select("*")
-    .single<GenerationSessionRow>();
-  if (result.error || !result.data) {
-    throw result.error || createHttpError(500, "Revisi naskah durasi tidak bisa disimpan.");
-  }
-  return mapGenerationSession(result.data);
-}
-
-async function previewVoice(env: WorkerEnv, context: AuthContext, payload: Record<string, unknown>): Promise<Response> {
-  const settings = await getSettings(context.serviceDb, env);
-  const contentLanguage =
-    payload.contentLanguage === undefined ? "id-ID" : assertContentLanguage(payload.contentLanguage);
-  const voiceName = assertString(payload.voiceName, "Voice name") || "";
-  const voice = findTtsVoiceByName(voiceName, settings.ttsProvider, settings.ttsModel);
-  if (!voice) {
-    throw createHttpError(400, `Voice ${voiceName} tidak tersedia untuk provider ${settings.ttsProvider}.`);
-  }
-
-  const audio = await runWithProviderFallback({
-    stage: "Voice preview TTS",
-    primaryProvider: settings.ttsProvider,
-    fallbackProvider: settings.ttsFallbackProvider,
-    task: (provider) =>
-      generateAudioWithProvider(env, provider, settings, {
-        text:
-          assertString(payload.text, "Teks preview", { required: false, max: 220 }) ||
-          (contentLanguage === "en-US"
-            ? "Hello, this is a natural and clear English voice over sample for a short video."
-            : "Halo, ini contoh voice over Bahasa Indonesia untuk video pendek yang natural dan jelas."),
-        voiceName: voice.voiceName,
-        speechRate: assertSpeechRate(payload.speechRate ?? 1),
-        contentLanguage,
-        deliveryHint:
-          contentLanguage === "en-US"
-            ? `${voice.tone.toLowerCase()} and natural for English short-form voice over`
-            : `${voice.tone.toLowerCase()} dan natural untuk voice over video Indonesia`
-      })
-  });
-
-  return new Response(new Blob([Uint8Array.from(audio.bytes)], { type: audio.mimeType }), {
-    status: 200,
-    headers: {
-      "Content-Type": audio.mimeType,
-      "Cache-Control": "private, no-store"
-    }
-  });
 }
 
 function walletSummaryToApi(input: {
@@ -2245,16 +1689,6 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
       );
     }
 
-    if (route.path === "/api/tts/voices" && request.method === "GET") {
-      return jsonResponse(
-        {
-          voices: ALL_TTS_VOICES,
-          excitedPresets: GEMINI_EXCITED_PRESETS
-        },
-        { headers: buildCorsHeaders(request) }
-      );
-    }
-
     if (route.path === "/api/auth/session" && request.method === "GET") {
       try {
         const context = await requireAuth(request, env);
@@ -2351,15 +1785,11 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
           script_provider: nextSettings.scriptProvider,
           script_fallback_provider: nextSettings.scriptFallbackProvider,
           script_model: nextSettings.scriptModel,
-          tts_provider: nextSettings.ttsProvider,
-          tts_fallback_provider: nextSettings.ttsFallbackProvider,
-          tts_model: nextSettings.ttsModel,
           tax_rate_percent: nextSettings.taxRatePercent,
           language: nextSettings.language,
           max_video_seconds: nextSettings.maxVideoSeconds,
           safety_mode: nextSettings.safetyMode,
-          concurrency: nextSettings.concurrency,
-          gender_voices: nextSettings.genderVoices
+          concurrency: nextSettings.concurrency
         }, { onConflict: "settings_key" });
       if (result.error) {
         throw result.error;
@@ -2367,14 +1797,6 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
       return jsonResponse(applyRuntimeSettingsEnvOverrides(nextSettings, env), {
         headers: buildCorsHeaders(request)
       });
-    }
-
-    if (route.path === "/api/tts/preview" && request.method === "POST") {
-      const payload = (await parseJsonRequest(request)) as Record<string, unknown>;
-      const response = await previewVoice(env, context, payload);
-      const headers = new Headers(response.headers);
-      Object.entries(buildCorsHeaders(request)).forEach(([key, value]) => headers.set(key, value));
-      return new Response(response.body, { status: response.status, headers });
     }
 
     if (route.path === "/api/generation-sessions" && request.method === "GET") {
@@ -2397,28 +1819,6 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
     if (route.parts[0] === "api" && route.parts[1] === "generation-sessions" && route.parts.length === 3 && request.method === "GET") {
       const session = await getGenerationSessionForUser(context, route.parts[2] || "");
       return jsonResponse({ session: mapGenerationSession(session) }, { headers: buildCorsHeaders(request) });
-    }
-
-    if (route.parts[0] === "api" && route.parts[1] === "generation-sessions" && route.parts[3] === "tts" && request.method === "POST") {
-      const response = await synthesizeGenerationSessionTts(env, context, route.parts[2] || "");
-      const headers = new Headers(response.headers);
-      Object.entries(buildCorsHeaders(request)).forEach(([key, value]) => headers.set(key, value));
-      return new Response(response.body, { status: response.status, headers });
-    }
-
-    if (route.parts[0] === "api" && route.parts[1] === "generation-sessions" && route.parts[3] === "retime" && request.method === "POST") {
-      const payload = (await parseJsonRequest(request)) as Record<string, unknown>;
-      return jsonResponse(
-        {
-          session: await retimeGenerationSessionScript(
-            env,
-            context,
-            route.parts[2] || "",
-            Number(payload.actualDurationSec)
-          )
-        },
-        { headers: buildCorsHeaders(request) }
-      );
     }
 
     if (route.parts[0] === "api" && route.parts[1] === "generation-sessions" && route.parts[3] === "complete" && request.method === "POST") {

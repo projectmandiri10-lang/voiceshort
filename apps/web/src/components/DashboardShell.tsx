@@ -1,8 +1,6 @@
 import type { ReactNode } from "react";
-import { type LucideIcon, LogOut, Shield, Sparkles, Wallet } from "lucide-react";
+import { type LucideIcon, LogOut, Shield, Sparkles } from "lucide-react";
 import type { AuthUser, ContentLanguage } from "../types";
-import { formatCompactIdr } from "../user-locale";
-import { getUserCopy } from "../user-copy";
 
 export interface DashboardTabDefinition<TView extends string> {
   id: TView;
@@ -47,15 +45,9 @@ export function DashboardShell<TView extends string>({
   onLogout,
   children,
 }: DashboardShellProps<TView>) {
-  const copy = getUserCopy(locale);
   const activeTab = tabs.find((tab) => tab.id === activeView);
-  const balanceLabel = user.isUnlimited
-    ? copy.dashboard.unlimited
-    : formatCompactIdr(user.walletBalanceIdr, locale);
-  const balanceNote = user.isUnlimited
-    ? copy.dashboard.unlimitedNote
-    : copy.dashboard.remainingGenerates(user.generateCreditsRemaining ?? 0);
-  const accessLabel = user.role === "superadmin" ? copy.dashboard.admin : copy.dashboard.user;
+  const accessLabel = user.role === "superadmin" ? "Admin" : locale === "en-US" ? "Personal user" : "Pengguna pribadi";
+  const logoutLabel = locale === "en-US" ? "Log out" : "Keluar";
 
   return (
     <main className="dashboard-shell">
@@ -67,7 +59,7 @@ export function DashboardShell<TView extends string>({
           <button
             type="button"
             className="dashboard-rail-brand"
-            aria-label={copy.dashboard.mainWorkspace}
+            aria-label="Workspace utama"
             onClick={() => onNavigate(tabs[0]?.id ?? activeView)}
           >
             <div className="brand-mark brand-mark-compact">
@@ -78,7 +70,7 @@ export function DashboardShell<TView extends string>({
             <span className="sr-only">VoiceOver Shorts 60</span>
           </button>
 
-          <nav className="dashboard-rail-nav" aria-label={copy.dashboard.navigation}>
+          <nav className="dashboard-rail-nav" aria-label="Navigasi">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
@@ -109,11 +101,11 @@ export function DashboardShell<TView extends string>({
               type="button"
               className="dashboard-rail-button dashboard-rail-button-danger"
               onClick={() => void onLogout()}
-              aria-label={copy.app.logout}
-              title={copy.app.logout}
+              aria-label={logoutLabel}
+              title={logoutLabel}
             >
               <LogOut size={18} strokeWidth={2} />
-              <span className="sr-only">{copy.app.logout}</span>
+              <span className="sr-only">{logoutLabel}</span>
             </button>
           </div>
         </aside>
@@ -121,21 +113,10 @@ export function DashboardShell<TView extends string>({
         <div className="dashboard-concise-main">
           <header className="dashboard-topbar">
             <div className="dashboard-topbar-copy">
-              <h1>{activeTab?.label ?? copy.dashboard.defaultPage}</h1>
+              <h1>{activeTab?.label ?? "Generate"}</h1>
             </div>
 
             <div className="dashboard-topbar-meta">
-              <div className="dashboard-balance-pill">
-                <div className="dashboard-balance-icon" aria-hidden="true">
-                  <Wallet size={16} strokeWidth={2} />
-                </div>
-                <div className="dashboard-balance-copy">
-                  <span>{copy.dashboard.balance}</span>
-                  <strong>{balanceLabel}</strong>
-                  <p>{balanceNote}</p>
-                </div>
-              </div>
-
               <div className="dashboard-user-chip">
                 <div className="dashboard-avatar" aria-hidden="true">
                   <div className="dashboard-avatar-inner">{getInitials(user.displayName)}</div>

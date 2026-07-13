@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildFinalMuxArgs } from "./local-render";
+import { buildFinalMuxArgs, resolveUploadedAudioPath } from "./local-render";
 
 describe("buildFinalMuxArgs", () => {
+  it("preserves supported uploaded audio extensions for FFmpeg", () => {
+    expect(["voice.wav", "voice.mp3", "voice.m4a", "voice.mp4", "voice.ogg"].map(resolveUploadedAudioPath)).toEqual([
+      "uploaded-voice.wav", "uploaded-voice.mp3", "uploaded-voice.m4a", "uploaded-voice.mp4", "uploaded-voice.ogg"
+    ]);
+  });
+
   it("builds a browser ffmpeg pipeline with video compression and audio fit", () => {
     const args = buildFinalMuxArgs({
       sourceVideoPath: "source.mp4",
@@ -51,7 +57,7 @@ describe("buildFinalMuxArgs", () => {
     expect(tooLong).toContain("atempo=1.450000");
   });
 
-  it("chains tempo filters for extreme manual-script duration gaps", () => {
+  it("chains tempo filters for extreme uploaded-audio duration gaps", () => {
     const args = buildFinalMuxArgs({
       sourceVideoPath: "source.mp4",
       voiceWavPath: "voice.wav",

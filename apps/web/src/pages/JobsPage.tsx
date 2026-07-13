@@ -1,17 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, FolderClock, RefreshCw, Sparkles, Video } from "lucide-react";
+import { Clipboard, Download, ExternalLink, RefreshCw, Sparkles, Video } from "lucide-react";
 import { fetchGenerationSession, fetchGenerationSessions } from "../api";
-import { listCachedSessionIds, getCachedSessionAssets } from "../generation-cache";
-import {
-  getContentLabel,
-  getGenderLabel,
-  getPlatformLabel,
-  getScriptModeLabel,
-  getSubtitleModeLabel
-} from "../job-form-options";
+import { getCachedSessionAssets, listCachedSessionIds } from "../generation-cache";
 import type { AuthUser, ContentLanguage, GenerationSessionRecord } from "../types";
-import { formatDateTime, formatDurationSeconds, formatIdrCurrency } from "../user-locale";
-import { getUserCopy } from "../user-copy";
+import { formatDateTime, formatDurationSeconds } from "../user-locale";
 
 interface JobsPageProps {
   locale: ContentLanguage;
@@ -21,406 +13,103 @@ interface JobsPageProps {
   onResumeSession: (jobId: string) => void;
 }
 
-function downloadBlob(blob: Blob, fileName: string): void {
-  const objectUrl = URL.createObjectURL(blob);
+function download(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = fileName;
-  anchor.rel = "noreferrer";
-  document.body.appendChild(anchor);
+  anchor.href = url;
+  anchor.download = name;
   anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function JobsPage({
-  locale,
-  currentUser,
-  selectedJobId,
-  onSelectJob,
-  onResumeSession
-}: JobsPageProps) {
-  const copy = getUserCopy(locale);
+export function JobsPage({ locale, selectedJobId, onSelectJob, onResumeSession }: JobsPageProps) {
   const [sessions, setSessions] = useState<GenerationSessionRecord[]>([]);
+  const [cachedIds, setCachedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [actionMessage, setActionMessage] = useState("");
-  const [actionError, setActionError] = useState("");
-  const [cachedSessionIds, setCachedSessionIds] = useState<string[]>([]);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const selected = useMemo(
+    () => sessions.find((item) => item.sessionId === selectedJobId) || sessions[0],
+    [sessions, selectedJobId]
+  );
 
-  const selected = useMemo(() => {
-    if (!sessions.length) {
-      return undefined;
-    }
-    return sessions.find((session) => session.sessionId === selectedJobId) ?? sessions[0];
-  }, [sessions, selectedJobId]);
-
-  const loadSessions = async (preferredSessionId?: string) => {
-    const [nextSessions, nextCacheIds] = await Promise.all([
-      fetchGenerationSessions(),
-      listCachedSessionIds().catch(() => [])
-    ]);
-    setSessions(nextSessions);
-    setCachedSessionIds(nextCacheIds);
-    const nextSelected =
-      nextSessions.find((session) => session.sessionId === preferredSessionId) ??
-      nextSessions.find((session) => session.sessionId === selectedJobId) ??
-      nextSessions[0];
-    if (nextSelected && nextSelected.sessionId !== selectedJobId) {
-      onSelectJob(nextSelected.sessionId);
-    }
-    return nextSelected;
+  const load = async () => {
+    const [items, ids] = await Promise.all([fetchGenerationSessions(), listCachedSessionIds().catch(() => [])]);
+    setSessions(items);
+    setCachedIds(ids);
+    if (!selectedJobId && items[0]) onSelectJob(items[0].sessionId);
   };
 
   useEffect(() => {
     let mounted = true;
     setLoading(true);
-    loadSessions()
-      .catch((loadError) => {
-        if (mounted) {
-          setActionError((loadError as Error).message);
-        }
-      })
-      .finally(() => {
-        if (mounted) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [onSelectJob, selectedJobId]);
+    void load().catch((value) => mounted && setError((value as Error).message)).finally(() => mounted && setLoading(false));
+    return () => { mounted = false; };
+  }, []);
 
-  const onRefresh = async () => {
-    setActionMessage("");
-    setActionError("");
-    try {
-      await loadSessions(selected?.sessionId);
-    } catch (refreshError) {
-      setActionError((refreshError as Error).message);
-    }
+  const refreshOne = async (id: string) => {
+    const value = await fetchGenerationSession(id);
+    setSessions((current) => current.map((item) => item.sessionId === id ? value : item));
+    onSelectJob(id);
   };
 
-  const onDownloadCachedVideo = async () => {
-    if (!selected) {
-      return;
-    }
-    setActionError("");
-    setActionMessage("");
-    try {
-      const cache = await getCachedSessionAssets(selected.sessionId);
-      if (!cache?.renderedVideoBlob) {
-        throw new Error(locale === "id-ID" ? "Final video lokal belum ada di perangkat ini." : "The final local video is not available on this device yet.");
-      }
-      downloadBlob(
-        cache.renderedVideoBlob,
-        cache.renderFileName || `${selected.title || "voiceover"}-final.mp4`
-      );
-      setActionMessage(locale === "id-ID" ? "Final video berhasil diunduh ulang." : "The final video was downloaded again successfully.");
-    } catch (downloadError) {
-      setActionError((downloadError as Error).message);
-    }
+  const copy = async (value: string, label: string) => {
+    await navigator.clipboard.writeText(value);
+    setMessage(`${label} disalin.`);
   };
 
-  const onOpenSession = async (sessionId: string) => {
-    setActionError("");
-    setActionMessage("");
-    try {
-      const refreshed = await fetchGenerationSession(sessionId);
-      setSessions((current) =>
-        current.map((session) => (session.sessionId === sessionId ? refreshed : session))
-      );
-      onSelectJob(sessionId);
-    } catch (detailError) {
-      setActionError((detailError as Error).message);
-    }
+  const downloadFinal = async () => {
+    if (!selected) return;
+    const cache = await getCachedSessionAssets(selected.sessionId);
+    if (!cache?.renderedVideoBlob) throw new Error("Video final hanya tersedia di perangkat tempat render dilakukan.");
+    download(cache.renderedVideoBlob, cache.renderFileName || `${selected.title}-final.mp4`);
   };
 
-  if (loading) {
-    return (
-      <section className="card app-page-card">
-        <h2>{copy.jobs.loadingTitle}</h2>
-        <p>{copy.jobs.loadingLead}</p>
-      </section>
-    );
-  }
-
-  const hasLocalCache = selected ? cachedSessionIds.includes(selected.sessionId) : false;
-  const canResumeLocally = Boolean(selected && hasLocalCache && selected.status !== "completed");
-  const hasLocalFinalVideo = Boolean(selected && selected.status === "completed" && hasLocalCache);
+  if (loading) return <section className="card app-page-card"><h2>Memuat riwayat...</h2></section>;
 
   return (
-    <section className="card app-page-card">
-      <div className="job-toolbar">
-        <div>
-          <span className="eyebrow">{copy.jobs.eyebrow}</span>
-          <h2>{copy.jobs.title}</h2>
-          <p className="section-note">{copy.jobs.lead}</p>
-        </div>
-        <div className="form-actions">
-          <button type="button" onClick={() => void onRefresh()}>
-            <RefreshCw size={16} />
-            <span>{copy.jobs.refresh}</span>
-          </button>
-        </div>
-      </div>
-
+    <section className="personal-history">
+      <header className="personal-workspace-head">
+        <div><span className="eyebrow">RIWAYAT PERSONAL</span><h1>Session analisis</h1><p>Lanjutkan upload voice pada perangkat yang masih menyimpan video sumber.</p></div>
+        <button type="button" className="secondary-button" onClick={() => void load()}><RefreshCw size={16} /> Refresh</button>
+      </header>
       <div className="split-layout">
         <aside className="jobs-sidebar">
-          <section className="section-card">
-            <div className="row-head">
-              <div>
-                <h4>{copy.jobs.listTitle}</h4>
-                <p className="small">{copy.jobs.items(sessions.length)}</p>
-              </div>
-            </div>
-
-            <div className="job-list">
-              {sessions.length ? (
-                sessions.map((session) => {
-                  const isActive = selected?.sessionId === session.sessionId;
-                  const isCached = cachedSessionIds.includes(session.sessionId);
-                  return (
-                    <button
-                      type="button"
-                      key={session.sessionId}
-                      className={isActive ? "job-item active" : "job-item"}
-                      onClick={() => void onOpenSession(session.sessionId)}
-                    >
-                      <div className="grid-form">
-                        <div className="row-head">
-                          <strong>{session.title}</strong>
-                          <span
-                            className={
-                              session.status === "completed"
-                                ? "status status-success"
-                                : session.status === "failed"
-                                  ? "status status-failed"
-                                  : "status status-running"
-                            }
-                          >
-                            {session.status}
-                          </span>
-                        </div>
-                        <span className="session-mode-badge">
-                          {getScriptModeLabel(locale, session.scriptMode)}
-                        </span>
-                        <span className="small">{getContentLabel(locale, session.contentType)}</span>
-                        <span className="small">{getPlatformLabel(locale, session.socialPlatform)}</span>
-                        <span className="small">{formatDateTime(session.updatedAt, locale)}</span>
-                        <span className="small">{isCached ? copy.jobs.cachedDraft : copy.jobs.noCache}</span>
-                      </div>
-                    </button>
-                  );
-                })
-              ) : (
-                <p className="small">{copy.jobs.empty}</p>
-              )}
-            </div>
-          </section>
+          <div className="job-list">
+            {sessions.map((item) => (
+              <button key={item.sessionId} className={item.sessionId === selected?.sessionId ? "job-item active" : "job-item"} onClick={() => void refreshOne(item.sessionId)}>
+                <strong>{item.title}</strong>
+                <span className="small">{formatDateTime(item.updatedAt, locale)}</span>
+                <span className="small">{item.status === "ready_for_voice_upload" ? "Menunggu voice" : item.status}</span>
+              </button>
+            ))}
+            {!sessions.length ? <p>Belum ada session.</p> : null}
+          </div>
         </aside>
-
         <div className="detail-box">
-          {!selected ? (
-            <p>{copy.jobs.selectPrompt}</p>
-          ) : (
-            <>
-              <div className="job-panel-header">
-                <div className="row-head">
-                  <div>
-                    <span className="eyebrow">{copy.jobs.detailEyebrow}</span>
-                    <h3>{copy.jobs.detailTitle}</h3>
-                    <p className="section-note">{copy.jobs.detailLead}</p>
-                  </div>
-                  <span
-                    className={
-                      selected.status === "completed"
-                        ? "status status-success"
-                        : selected.status === "failed"
-                          ? "status status-failed"
-                          : "status status-running"
-                    }
-                  >
-                    {selected.status}
-                  </span>
-                </div>
+          {selected ? (
+            <div className="personal-step-content">
+              <div className="personal-result-head"><div><h2>{selected.title}</h2><p>{formatDurationSeconds(selected.videoDurationSec, locale)} · {selected.status}</p></div><Sparkles size={22} /></div>
+              {([
+                ["Scene", selected.sceneText],
+                ["Sample Context", selected.sampleContextText],
+                ["Naskah", selected.scriptText]
+              ] as const).map(([label, value]) => <article className="copy-result-card" key={label}><header><strong>{label}</strong><button onClick={() => void copy(value, label)}><Clipboard size={15} /> Salin</button></header><p>{value}</p></article>)}
+              {selected.status === "completed" ? <>
+                <article className="copy-result-card"><header><strong>Caption</strong><button onClick={() => void copy(selected.captionText, "Caption")}><Clipboard size={15} /> Salin</button></header><p>{selected.captionText}</p></article>
+                <article className="copy-result-card"><header><strong>Hashtag</strong><button onClick={() => void copy(selected.hashtags.join(" "), "Hashtag")}><Clipboard size={15} /> Salin</button></header><p>{selected.hashtags.join(" ")}</p></article>
+                {selected.referenceLink ? <a href={selected.referenceLink} target="_blank" rel="noreferrer"><ExternalLink size={15} /> {selected.referenceLink}</a> : null}
+              </> : null}
+              <div className="personal-actions">
+                {selected.status !== "completed" && cachedIds.includes(selected.sessionId) ? <button onClick={() => onResumeSession(selected.sessionId)}><Video size={16} /> Lanjutkan</button> : null}
+                {selected.status === "completed" && cachedIds.includes(selected.sessionId) ? <button onClick={() => void downloadFinal().catch((value) => setError((value as Error).message))}><Download size={16} /> Download MP4</button> : null}
               </div>
-
-              <div className="progress-card">
-                <div className="row-head">
-                  <strong>{selected.title}</strong>
-                  <span>
-                    {selected.scriptMode === "manual_script"
-                      ? copy.jobs.manualScript
-                      : copy.jobs.clips(selected.frameCount)}
-                  </span>
-                </div>
-                <div className="progress-track" aria-label="Session status">
-                  <div
-                    className="progress-value"
-                    style={{
-                      width:
-                        selected.status === "completed"
-                          ? "100%"
-                          : selected.status === "ready_for_render"
-                            ? "78%"
-                            : selected.status === "ready_for_audio"
-                              ? "56%"
-                              : selected.status === "failed"
-                                ? "100%"
-                                : "24%"
-                    }}
-                  />
-                </div>
-                {selected.errorMessage ? (
-                  <p className="err-text break-anywhere">{selected.errorMessage}</p>
-                ) : null}
-                {hasLocalCache ? (
-                  <p className="ok-text">{copy.jobs.localDraftAvailable}</p>
-                ) : (
-                  <p className="small">{copy.jobs.localDraftUnavailable}</p>
-                )}
-              </div>
-
-              <div className="meta-grid">
-                <div className="meta-card">
-                  <span className="small">{copy.jobs.mode}</span>
-                  <strong>{getScriptModeLabel(locale, selected.scriptMode)}</strong>
-                </div>
-                <div className="meta-card">
-                  <span className="small">{locale === "id-ID" ? "Judul" : "Title"}</span>
-                  <strong className="break-anywhere">{selected.title}</strong>
-                </div>
-                <div className="meta-card">
-                  <span className="small">{copy.jobs.category}</span>
-                  <strong>{getContentLabel(locale, selected.contentType)}</strong>
-                </div>
-                <div className="meta-card">
-                  <span className="small">{copy.jobs.platform}</span>
-                  <strong>{getPlatformLabel(locale, selected.socialPlatform)}</strong>
-                </div>
-                <div className="meta-card">
-                  <span className="small">{copy.jobs.voiceGender}</span>
-                  <strong>{getGenderLabel(locale, selected.voiceGender)}</strong>
-                </div>
-                <div className="meta-card">
-                  <span className="small">{copy.jobs.subtitleMode}</span>
-                  <strong>
-                    {getSubtitleModeLabel(
-                      locale,
-                      selected.includeSubtitles ? "with_subtitles" : "without_subtitles"
-                    )}
-                  </strong>
-                </div>
-                <div className="meta-card">
-                  <span className="small">{copy.jobs.tone}</span>
-                  <strong>{selected.tone}</strong>
-                </div>
-                <div className="meta-card">
-                  <span className="small">{copy.jobs.videoDuration}</span>
-                  <strong>{formatDurationSeconds(selected.videoDurationSec, locale)}</strong>
-                </div>
-                <div className="meta-card">
-                  <span className="small">{copy.jobs.cost}</span>
-                  <strong>
-                    {currentUser.isUnlimited
-                      ? copy.dashboard.unlimited
-                      : formatIdrCurrency(selected.chargedAmountIdr || currentUser.generatePriceIdr, locale)}
-                  </strong>
-                </div>
-              </div>
-
-              <p className="break-anywhere">
-                <strong>{copy.jobs.brief}:</strong> {selected.description}
-              </p>
-              {selected.ctaText ? (
-                <p className="break-anywhere">
-                  <strong>{copy.jobs.cta}:</strong> {selected.ctaText}
-                </p>
-              ) : null}
-              {selected.referenceLink ? (
-                <p className="break-anywhere">
-                  <strong>{copy.jobs.reference}:</strong> {selected.referenceLink}
-                </p>
-              ) : null}
-
-              {selected.scriptText ? (
-                <div className="notice-box">
-                  <div className="row-head">
-                    <strong>{copy.jobs.scriptTitle}</strong>
-                    <Sparkles size={16} />
-                  </div>
-                  <p className="break-anywhere">{selected.scriptText}</p>
-                </div>
-              ) : null}
-
-              {selected.captionText ? (
-                <div className="notice-box">
-                  <div className="row-head">
-                    <strong>{copy.jobs.captionTitle}</strong>
-                    <FolderClock size={16} />
-                  </div>
-                  <p className="break-anywhere">{selected.captionText}</p>
-                  {selected.hashtags.length ? (
-                    <p className="small break-anywhere">{selected.hashtags.join(" ")}</p>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {selected.renderSummary ? (
-                <div className="meta-grid">
-                  <div className="meta-card">
-                    <span className="small">{copy.jobs.finalized}</span>
-                    <strong>{selected.renderSummary.renderedAt ? copy.jobs.completed : copy.jobs.notYet}</strong>
-                  </div>
-                  <div className="meta-card">
-                    <span className="small">{copy.jobs.fileSize}</span>
-                    <strong>
-                      {selected.renderSummary.finalSizeBytes
-                        ? `${(selected.renderSummary.finalSizeBytes / (1024 * 1024)).toFixed(2)} MB`
-                        : "-"}
-                    </strong>
-                  </div>
-                  <div className="meta-card">
-                    <span className="small">{copy.jobs.finalDuration}</span>
-                    <strong>
-                      {selected.renderSummary.finalDurationSec
-                        ? formatDurationSeconds(selected.renderSummary.finalDurationSec, locale)
-                        : "-"}
-                    </strong>
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="form-actions section-divider">
-                <button type="button" onClick={() => onResumeSession(selected.sessionId)}>
-                  <Video size={16} />
-                  <span>{copy.jobs.openWorkspace}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onResumeSession(selected.sessionId)}
-                  disabled={!canResumeLocally}
-                >
-                  <Sparkles size={16} />
-                  <span>{canResumeLocally ? copy.jobs.continueFinalize : copy.jobs.localDraftNeeded}</span>
-                </button>
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={() => void onDownloadCachedVideo()}
-                  disabled={!hasLocalFinalVideo}
-                >
-                  <Download size={16} />
-                  <span>{hasLocalFinalVideo ? copy.jobs.downloadFinal : copy.jobs.finalUnavailable}</span>
-                </button>
-              </div>
-            </>
-          )}
+            </div>
+          ) : <p>Pilih session.</p>}
         </div>
       </div>
-
-      {actionMessage ? <p className="ok-text">{actionMessage}</p> : null}
-      {actionError ? <p className="err-text">{actionError}</p> : null}
+      {message ? <p className="success-text">{message}</p> : null}
+      {error ? <p className="err-text">{error}</p> : null}
     </section>
   );
 }

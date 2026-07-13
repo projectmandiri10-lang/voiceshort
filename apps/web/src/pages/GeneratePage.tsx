@@ -1,1232 +1,379 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
-  CheckCircle2,
-  CircleDollarSign,
-  Download,
-  FolderClock,
-  Gauge,
-  Globe,
-  Layers3,
-  Link2,
-  Mic2,
-  PenSquare,
-  Radio,
-  Sparkles,
-  UploadCloud,
-  Video
+  CheckCircle2, Clipboard, Download, ExternalLink, FileAudio, FolderClock,
+  Link2, LoaderCircle, Sparkles, UploadCloud, Video
 } from "lucide-react";
 import {
-  ApiError,
-  completeGenerationSession,
-  createGenerationSession,
-  failGenerationSession,
-  fetchGenerationSession,
-  fetchGenerationSessionAudio,
-  retimeGenerationSession
+  completeGenerationSession, createGenerationSession, failGenerationSession,
+  fetchGenerationSession
 } from "../api";
 import { extractFramesFromVideo } from "../frame-extractor";
 import { getCachedSessionAssets, upsertCachedSessionAssets } from "../generation-cache";
 import {
-  getContentLabel,
-  getGenderLabel,
-  getPlatformLabel,
-  getScriptModeLabel,
-  getSubtitleModeLabel,
-  getToneLabel,
-  PLATFORM_OPTIONS,
-  SCRIPT_MODE_OPTIONS,
-  SUBTITLE_MODE_OPTIONS,
-  TONE_OPTIONS
+  getContentLabel, getPlatformLabel, getSubtitleModeLabel, getToneLabel,
+  PLATFORM_OPTIONS, SUBTITLE_MODE_OPTIONS, TONE_OPTIONS
 } from "../job-form-options";
 import { renderFinalVideoLocally } from "../local-render";
 import { readBlobDuration } from "../media-utils";
-import { listCachedSessionIds } from "../generation-cache";
 import type {
-  AuthUser,
-  ContentLanguage,
-  ContentType,
-  GenerationSessionRecord,
-  JobVoiceGender,
-  ScriptMode,
-  SocialPlatform,
-  SubtitleMode
+  ContentLanguage, ContentType, GenerationSessionRecord, SocialPlatform, SubtitleMode
 } from "../types";
 import { CONTENT_TYPES } from "../types";
-import { formatIdrCurrency } from "../user-locale";
-import { getUserCopy } from "../user-copy";
 import { readVideoDuration } from "../video-duration";
-import { calculateEstimatedChargeIdr, formatVideoDuration } from "../utils/billing";
-import { needsScriptRetiming } from "../voice-timing";
+import { formatVideoDuration } from "../utils/billing";
 
-const DEFAULT_CONTENT_TYPE: ContentType = "affiliate";
-const DEFAULT_SOCIAL_PLATFORM: SocialPlatform = "instagram";
-const DEFAULT_VOICE_GENDER: JobVoiceGender = "female";
-const DEFAULT_SCRIPT_MODE: ScriptMode = "auto_analysis";
-const DEFAULT_TONE = "natural";
-const MAX_SCRIPT_RETIMING_ATTEMPTS = 2;
+const AI_STUDIO_URL = "https://aistudio.google.com/generate-speech";
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+const AUDIO_ACCEPT = ".wav,.mp3,.m4a,.mp4,.ogg,audio/wav,audio/mpeg,audio/mp4,audio/ogg";
 
 interface GeneratePageProps {
   locale: ContentLanguage;
-  currentUser: AuthUser;
-  onRefreshSession: () => Promise<void>;
   onViewJobs: (jobId?: string) => void;
   resumeSessionId?: string;
 }
 
-interface GenerateFormState {
+interface FormState {
   video: File | null;
   videoDurationSec: number | null;
-  durationPending: boolean;
-  durationError: string;
   title: string;
   description: string;
   contentType: ContentType;
   socialPlatform: SocialPlatform;
-  scriptMode: ScriptMode;
   subtitleMode: SubtitleMode;
-  manualScriptText: string;
-  voiceGender: JobVoiceGender;
   tone: string;
   ctaText: string;
   referenceLink: string;
-  fileInputKey: number;
 }
 
-interface FlowState {
-  phase:
-    | "idle"
-    | "extracting"
-    | "generating"
-    | "synthesizing"
-    | "rendering"
-    | "completed";
-  label: string;
-  percent: number;
-}
-
-function createInitialFormState(): GenerateFormState {
-  return {
-    video: null,
-    videoDurationSec: null,
-    durationPending: false,
-    durationError: "",
-    title: "",
-    description: "",
-    contentType: DEFAULT_CONTENT_TYPE,
-    socialPlatform: DEFAULT_SOCIAL_PLATFORM,
-    scriptMode: DEFAULT_SCRIPT_MODE,
-    subtitleMode: "without_subtitles",
-    manualScriptText: "",
-    voiceGender: DEFAULT_VOICE_GENDER,
-    tone: DEFAULT_TONE,
-    ctaText: "",
-    referenceLink: "",
-    fileInputKey: 0
-  };
-}
-
-function createIdleFlowState(label: string): FlowState {
-  return {
-    phase: "idle",
-    label,
-    percent: 0
-  };
-}
-
-function isFormReady(form: GenerateFormState): boolean {
-  const usesManualScript = form.scriptMode === "manual_script";
-  return Boolean(
-    form.video &&
-      form.videoDurationSec &&
-      !form.durationPending &&
-      !form.durationError &&
-      form.title.trim() &&
-      form.socialPlatform.trim() &&
-      (usesManualScript ? form.manualScriptText.trim() : form.description.trim()) &&
-      form.tone.trim()
-  );
-}
+const initialForm: FormState = {
+  video: null,
+  videoDurationSec: null,
+  title: "",
+  description: "",
+  contentType: "affiliate",
+  socialPlatform: "instagram",
+  subtitleMode: "without_subtitles",
+  tone: "natural",
+  ctaText: "",
+  referenceLink: ""
+};
 
 function downloadBlob(blob: Blob, fileName: string): void {
-  const objectUrl = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
-  anchor.href = objectUrl;
+  anchor.href = url;
   anchor.download = fileName;
-  anchor.rel = "noreferrer";
-  document.body.appendChild(anchor);
   anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function GeneratePage({
-  locale,
-  currentUser,
-  onRefreshSession,
-  onViewJobs,
-  resumeSessionId
-}: GeneratePageProps) {
-  const copy = getUserCopy(locale);
-  const [form, setForm] = useState<GenerateFormState>(() => createInitialFormState());
-  const [flowState, setFlowState] = useState<FlowState>(() => createIdleFlowState(copy.generate.idleLabel));
-  const [loading, setLoading] = useState(false);
+function audioFileSupported(file: File): boolean {
+  const extension = file.name.toLowerCase().split(".").pop();
+  return file.type.startsWith("audio/") || ["wav", "mp3", "m4a", "mp4", "ogg"].includes(extension || "");
+}
+
+export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePageProps) {
+  const [form, setForm] = useState<FormState>(initialForm);
+  const [session, setSession] = useState<GenerationSessionRecord | null>(null);
+  const [voiceFile, setVoiceFile] = useState<File | Blob | null>(null);
+  const [voiceName, setVoiceName] = useState("");
+  const [voiceDurationSec, setVoiceDurationSec] = useState<number | null>(null);
+  const [finalVideo, setFinalVideo] = useState<Blob | null>(null);
+  const [finalName, setFinalName] = useState("voiceover-final.mp4");
+  const [busy, setBusy] = useState<"" | "video" | "analysis" | "audio" | "render">("");
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
-  const [activeSession, setActiveSession] = useState<GenerationSessionRecord | null>(null);
-  const [finalVideoBlob, setFinalVideoBlob] = useState<Blob | null>(null);
-  const [finalVideoName, setFinalVideoName] = useState("voiceover-shorts-final.mp4");
-  const [cachedSessionIds, setCachedSessionIds] = useState<string[]>([]);
-  const [resumeHint, setResumeHint] = useState("");
-
-  const estimatedChargeIdr = useMemo(
-    () => calculateEstimatedChargeIdr(currentUser.generatePriceIdr),
-    [currentUser.generatePriceIdr]
-  );
-  const hasEnoughBalance =
-    currentUser.isUnlimited || currentUser.walletBalanceIdr >= currentUser.generatePriceIdr;
-  const projectedBalanceIdr = currentUser.isUnlimited
-    ? null
-    : Math.max(0, currentUser.walletBalanceIdr - estimatedChargeIdr);
-  const formDisabled = loading || !hasEnoughBalance;
-  const currentCacheReady = activeSession ? cachedSessionIds.includes(activeSession.sessionId) : false;
-  const usesManualScript = form.scriptMode === "manual_script";
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    void listCachedSessionIds()
-      .then(setCachedSessionIds)
-      .catch(() => setCachedSessionIds([]));
-  }, [activeSession?.sessionId]);
-
-  useEffect(() => {
-    if (!resumeSessionId) {
-      return;
-    }
-
+    if (!resumeSessionId) return;
     let cancelled = false;
-    void fetchGenerationSession(resumeSessionId)
-      .then(async (session) => {
-        if (cancelled) {
-          return;
-        }
-        setActiveSession(session);
-        const cache = await getCachedSessionAssets(session.sessionId).catch(() => undefined);
-        if (cancelled) {
-          return;
-        }
-        if (cache?.renderedVideoBlob) {
-          setFinalVideoBlob(cache.renderedVideoBlob);
-          setFinalVideoName(cache.renderFileName || `${session.title || "voiceover"}.mp4`);
-          setResumeHint(copy.generate.localDraftFound);
-          return;
-        }
-        if (cache?.sourceVideoBlob) {
-          setResumeHint(copy.generate.localDraftMissing);
-          return;
-        }
-        setResumeHint(copy.generate.localSessionOnly);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setResumeHint("");
-        }
-      });
+    void Promise.all([
+      fetchGenerationSession(resumeSessionId),
+      getCachedSessionAssets(resumeSessionId).catch(() => undefined)
+    ]).then(([nextSession, cache]) => {
+      if (cancelled) return;
+      setSession(nextSession);
+      if (cache?.audioBlob && cache.audioScriptText === nextSession.scriptText) {
+        setVoiceFile(cache.audioBlob);
+        setVoiceName("Voice tersimpan di perangkat");
+        void readBlobDuration(cache.audioBlob, "audio").then(setVoiceDurationSec).catch(() => undefined);
+      }
+      if (cache?.renderedVideoBlob) {
+        setFinalVideo(cache.renderedVideoBlob);
+        setFinalName(cache.renderFileName || `${nextSession.title}-final.mp4`);
+      }
+      if (!cache?.sourceVideoBlob) {
+        setNotice("Video sumber tidak tersedia di perangkat ini. Upload ulang video untuk melanjutkan.");
+      }
+    }).catch((loadError) => setError((loadError as Error).message));
+    return () => { cancelled = true; };
+  }, [resumeSessionId]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [copy.generate.localDraftFound, copy.generate.localDraftMissing, copy.generate.localSessionOnly, resumeSessionId]);
-
-  const updateForm = (updater: (current: GenerateFormState) => GenerateFormState) => {
-    setForm((current) => updater(current));
-  };
-
-  const onVideoSelected = (file: File | null) => {
-    setFinalVideoBlob(null);
-    setResumeHint("");
-    updateForm((current) => ({
-      ...current,
-      video: file,
-      videoDurationSec: null,
-      durationPending: Boolean(file),
-      durationError: ""
-    }));
-
+  const selectVideo = async (file: File | null) => {
+    setError("");
+    setSession(null);
+    setFinalVideo(null);
     if (!file) {
+      setForm((current) => ({ ...current, video: null, videoDurationSec: null }));
       return;
     }
-
-    void readVideoDuration(file)
-      .then((durationSec) => {
-        updateForm((current) => {
-          if (current.video !== file) {
-            return current;
-          }
-          if (durationSec > 60) {
-            return {
-              ...current,
-              durationPending: false,
-              videoDurationSec: durationSec,
-              durationError: copy.generate.durationTooLong
-            };
-          }
-          return {
-            ...current,
-            videoDurationSec: durationSec,
-            durationPending: false,
-            durationError: ""
-          };
-        });
-      })
-      .catch((durationErrorValue) => {
-        updateForm((current) => {
-          if (current.video !== file) {
-            return current;
-          }
-          return {
-            ...current,
-            durationPending: false,
-            durationError:
-              (durationErrorValue as Error).message || copy.generate.durationUnreadable
-          };
-        });
-      });
-  };
-
-  const runLocalRender = async (
-    session: GenerationSessionRecord,
-    sourceVideoBlob: Blob,
-    sourceVideoName: string,
-    audioBlob: Blob
-  ) => {
-    setFlowState({
-      phase: "rendering",
-      label: copy.generate.rendering,
-      percent: 72
-    });
-    const renderedVideoBlob = await renderFinalVideoLocally({
-      sourceVideo: sourceVideoBlob,
-      audioWavBlob: audioBlob,
-      sourceVideoName,
-      subtitleText: session.includeSubtitles ? session.scriptText : undefined,
-      onProgress: (ratio) => {
-        setFlowState({
-          phase: "rendering",
-          label: copy.generate.renderingProgress,
-          percent: 72 + Math.round(ratio * 28)
-        });
-      }
-    });
-    const nextFileName = `${session.title
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/gi, "-")
-      .replace(/^-+|-+$/g, "") || "voiceover"}-final.mp4`;
-    await upsertCachedSessionAssets({
-      sessionId: session.sessionId,
-      sourceVideoBlob,
-      sourceVideoName,
-      sourceVideoType: sourceVideoBlob.type || "video/mp4",
-      audioBlob,
-      audioMimeType: audioBlob.type || "audio/wav",
-      renderedVideoBlob,
-      renderFileName: nextFileName,
-      updatedAt: new Date().toISOString()
-    });
-    const completedSession = await completeGenerationSession(session.sessionId, {
-      finalDurationSec: session.videoDurationSec,
-      finalSizeBytes: renderedVideoBlob.size,
-      localFileName: nextFileName
-    });
-    setActiveSession(completedSession);
-    setFinalVideoBlob(renderedVideoBlob);
-    setFinalVideoName(nextFileName);
-    setFlowState({
-      phase: "completed",
-      label: copy.generate.finalReadyTitle,
-      percent: 100
-    });
+    setBusy("video");
     try {
-      await onRefreshSession();
-    } catch {
-      // keep success state even if balance refresh is late
+      const duration = await readVideoDuration(file);
+      if (duration > 60) throw new Error("Durasi video maksimal 60 detik.");
+      setForm((current) => ({ ...current, video: file, videoDurationSec: duration }));
+    } catch (readError) {
+      setError((readError as Error).message);
+    } finally {
+      setBusy("");
     }
   };
 
-  const prepareDurationMatchedAudio = async (
-    session: GenerationSessionRecord,
-    initialAudio?: Blob
-  ): Promise<{ session: GenerationSessionRecord; audioBlob: Blob }> => {
-    let currentSession = session;
-    let audioBlob = initialAudio || (await fetchGenerationSessionAudio(session.sessionId));
-
-    for (let attempt = 0; attempt < MAX_SCRIPT_RETIMING_ATTEMPTS; attempt += 1) {
-      const actualDurationSec = await readBlobDuration(audioBlob, "audio");
-      if (
-        currentSession.scriptMode === "manual_script" ||
-        !needsScriptRetiming(actualDurationSec, currentSession.videoDurationSec)
-      ) {
-        return { session: currentSession, audioBlob };
-      }
-
-      setFlowState({
-        phase: "generating",
-        label: `Menyesuaikan durasi voice over (${attempt + 1}/${MAX_SCRIPT_RETIMING_ATTEMPTS})...`,
-        percent: 58 + attempt * 5
-      });
-      currentSession = await retimeGenerationSession(currentSession.sessionId, {
-        actualDurationSec
-      });
-      setActiveSession(currentSession);
-
-      setFlowState({
-        phase: "synthesizing",
-        label: copy.generate.fetchingAudio,
-        percent: 61 + attempt * 5
-      });
-      audioBlob = await fetchGenerationSessionAudio(currentSession.sessionId);
-    }
-
-    return { session: currentSession, audioBlob };
-  };
-
-  const continueRenderFromCache = async (session: GenerationSessionRecord) => {
-    const cache = await getCachedSessionAssets(session.sessionId);
-    if (!cache?.sourceVideoBlob) {
-      throw new Error("Draft video lokal untuk session ini tidak ditemukan di perangkat ini.");
-    }
-
-    let audioBlob =
-      cache.audioBlob && cache.audioScriptText === session.scriptText
-        ? cache.audioBlob
-        : undefined;
-    if (!audioBlob) {
-      setFlowState({
-        phase: "synthesizing",
-        label: copy.generate.fetchingAudio,
-        percent: 54
-      });
-      audioBlob = await fetchGenerationSessionAudio(session.sessionId);
-    }
-    const prepared = await prepareDurationMatchedAudio(session, audioBlob);
-    await upsertCachedSessionAssets({
-      ...cache,
-      audioBlob: prepared.audioBlob,
-      audioMimeType: prepared.audioBlob.type || "audio/wav",
-      audioScriptText: prepared.session.scriptText,
-      updatedAt: new Date().toISOString()
-    });
-
-    await runLocalRender(
-      prepared.session,
-      cache.sourceVideoBlob,
-      cache.sourceVideoName,
-      prepared.audioBlob
-    );
-  };
-
-  const onSubmit = async (event: FormEvent) => {
+  const analyze = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
-
-    if (!hasEnoughBalance) {
-      setError(copy.generate.validateTopup);
+    setNotice("");
+    if (!form.video || !form.videoDurationSec || !form.title.trim() || !form.description.trim()) {
+      setError("Video, judul, dan deskripsi wajib diisi.");
       return;
     }
-    if (!form.video) {
-      setError(copy.generate.validateFile);
-      return;
-    }
-    if (form.durationPending) {
-      setError(copy.generate.validateDurationPending);
-      return;
-    }
-    if (form.durationError) {
-      setError(form.durationError);
-      return;
-    }
-    if (!form.videoDurationSec || form.videoDurationSec > 60) {
-      setError(copy.generate.validateDurationInvalid);
-      return;
-    }
-    if (!isFormReady(form)) {
-      setError(
-        usesManualScript
-          ? copy.generate.validateFormManual
-          : copy.generate.validateFormAuto
-      );
-      return;
-    }
-
-    setLoading(true);
-    setFinalVideoBlob(null);
-    setFlowState(
-      usesManualScript
-        ? {
-            phase: "generating",
-            label: copy.generate.preparingManual,
-            percent: 18
-          }
-        : {
-            phase: "extracting",
-            label: copy.generate.analyzingVideo,
-            percent: 8
-          }
-    );
-
-    let createdSession: GenerationSessionRecord | null = null;
+    setBusy("analysis");
+    setProgress(5);
     try {
-      const frames = usesManualScript
-        ? []
-        : await extractFramesFromVideo(form.video, {
-            durationSec: form.videoDurationSec,
-            onProgress: (progress) => {
-              setFlowState({
-                phase: "extracting",
-                label: `${copy.generate.analyzingVideo} (${progress}%)`,
-                percent: Math.max(8, Math.round(progress * 0.22))
-              });
-            }
-          });
-
-      setFlowState({
-        phase: "generating",
-        label: usesManualScript
-          ? copy.generate.generatingManual
-          : copy.generate.generatingAuto,
-        percent: usesManualScript ? 34 : 34
+      const frames = await extractFramesFromVideo(form.video, {
+        durationSec: form.videoDurationSec,
+        onProgress: (value) => setProgress(Math.max(5, Math.round(value * 0.35)))
       });
-
-      const generated = await createGenerationSession({
+      setProgress(45);
+      const result = await createGenerationSession({
         title: form.title.trim(),
         description: form.description.trim(),
         contentType: form.contentType,
         socialPlatform: form.socialPlatform,
         contentLanguage: locale,
-        scriptMode: form.scriptMode,
         includeSubtitles: form.subtitleMode === "with_subtitles",
-        manualScriptText: usesManualScript ? form.manualScriptText.trim() : undefined,
-        voiceGender: form.voiceGender,
-        tone: form.tone.trim(),
+        tone: form.tone,
         ctaText: form.ctaText.trim() || undefined,
         referenceLink: form.referenceLink.trim() || undefined,
         videoDurationSec: form.videoDurationSec,
-        frames: frames.map((frame) => ({
-          timestampSec: frame.timestampSec,
-          mimeType: frame.mimeType,
-          base64Data: frame.base64Data,
-          width: frame.width,
-          height: frame.height
+        frames: frames.map(({ timestampSec, mimeType, base64Data, width, height }) => ({
+          timestampSec, mimeType, base64Data, width, height
         }))
       });
-      const session = generated.session;
-      createdSession = session;
-      setActiveSession(session);
-
+      setProgress(100);
+      setSession(result.session);
+      setVoiceFile(null);
+      setVoiceName("");
+      setVoiceDurationSec(null);
       await upsertCachedSessionAssets({
-        sessionId: session.sessionId,
-        sourceVideoBlob: form.video,
+        sessionId: result.session.sessionId,
         sourceVideoName: form.video.name,
         sourceVideoType: form.video.type || "video/mp4",
-        updatedAt: new Date().toISOString()
-      });
-      setCachedSessionIds((current) =>
-        current.includes(session.sessionId)
-          ? current
-          : [session.sessionId, ...current]
-      );
-
-      setFlowState({
-        phase: "synthesizing",
-        label: copy.generate.fetchingAudio,
-        percent: 54
-      });
-      const prepared = await prepareDurationMatchedAudio(session);
-      const audioBlob = prepared.audioBlob;
-      await upsertCachedSessionAssets({
-        sessionId: session.sessionId,
         sourceVideoBlob: form.video,
-        sourceVideoName: form.video.name,
-        sourceVideoType: form.video.type || "video/mp4",
-        audioBlob,
-        audioMimeType: audioBlob.type || "audio/wav",
-        audioScriptText: prepared.session.scriptText,
         updatedAt: new Date().toISOString()
       });
-
-      await runLocalRender(prepared.session, form.video, form.video.name, audioBlob);
-
-      setForm((current) => ({
-        ...createInitialFormState(),
-        fileInputKey: current.fileInputKey + 1
-      }));
-    } catch (submitError) {
-      if (createdSession) {
-        await failGenerationSession(createdSession.sessionId, {
-          reason: (submitError as Error).message,
-          retryable: true
-        }).catch(() => undefined);
-      }
-      if (submitError instanceof ApiError && submitError.status === 402) {
-        setError(submitError.message || copy.generate.validateTopup);
-      } else {
-        setError((submitError as Error).message);
-      }
-      setFlowState(createIdleFlowState(copy.generate.idleLabel));
+      setNotice("Analisis selesai. Salin tiga field ke Google AI Studio, lalu upload hasil voice di bawah.");
+    } catch (analysisError) {
+      setError((analysisError as Error).message);
     } finally {
-      setLoading(false);
+      setBusy("");
     }
   };
 
-  const onResumeRender = async () => {
-    if (!activeSession) {
+  const selectVoice = async (file: File | null) => {
+    setError("");
+    if (!file || !session) return;
+    if (file.size > MAX_AUDIO_BYTES) {
+      setError("Ukuran voice maksimal 25 MB.");
       return;
     }
-    setLoading(true);
-    setError("");
+    if (!audioFileSupported(file)) {
+      setError("Format voice harus WAV, MP3, M4A, MP4 audio, atau OGG.");
+      return;
+    }
+    setBusy("audio");
     try {
-      await continueRenderFromCache(activeSession);
-    } catch (resumeError) {
-      await failGenerationSession(activeSession.sessionId, {
-        reason: (resumeError as Error).message,
-        retryable: true
-      }).catch(() => undefined);
-      setError((resumeError as Error).message);
+      const duration = await readBlobDuration(file, "audio");
+      const cache = await getCachedSessionAssets(session.sessionId);
+      if (!cache?.sourceVideoBlob) throw new Error("Video sumber lokal tidak ditemukan.");
+      setVoiceFile(file);
+      setVoiceName(file.name);
+      setVoiceDurationSec(duration);
+      await upsertCachedSessionAssets({
+        ...cache,
+        audioBlob: file,
+        audioMimeType: file.type || "audio/wav",
+        audioScriptText: session.scriptText,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (audioError) {
+      setError((audioError as Error).message || "File voice tidak dapat dibaca.");
     } finally {
-      setLoading(false);
+      setBusy("");
     }
   };
 
-  const telemetryStatusLabel = flowState.phase === "completed"
-    ? copy.generate.flowCompleted
-    : loading
-      ? copy.generate.flowProcessing
-      : !hasEnoughBalance
-        ? copy.generate.insufficientBalance
-        : isFormReady(form)
-          ? copy.generate.readyProcess
-          : copy.generate.completeForm;
-  const telemetryStatusDescription = flowState.phase === "completed"
-    ? copy.generate.finalReadyTitle
-    : loading
-      ? flowState.label
-      : !hasEnoughBalance
-        ? copy.generate.validateTopup
-        : copy.generate.flowIdleLead;
+  const merge = async () => {
+    if (!session || !voiceFile) return;
+    setBusy("render");
+    setError("");
+    setProgress(0);
+    try {
+      const cache = await getCachedSessionAssets(session.sessionId);
+      if (!cache?.sourceVideoBlob) throw new Error("Video sumber lokal tidak ditemukan. Upload ulang video.");
+      const output = await renderFinalVideoLocally({
+        sourceVideo: cache.sourceVideoBlob,
+        sourceVideoName: cache.sourceVideoName,
+        audioWavBlob: voiceFile,
+        audioFileName: voiceFile instanceof File ? voiceFile.name : undefined,
+        subtitleText: session.includeSubtitles ? session.scriptText : undefined,
+        onProgress: (ratio) => setProgress(Math.round(ratio * 100))
+      });
+      const name = `${session.title.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "voiceover"}-final.mp4`;
+      const completed = await completeGenerationSession(session.sessionId, {
+        finalDurationSec: session.videoDurationSec,
+        finalSizeBytes: output.size,
+        localFileName: name
+      });
+      await upsertCachedSessionAssets({
+        ...cache,
+        audioBlob: voiceFile,
+        audioMimeType: voiceFile.type || "audio/wav",
+        audioScriptText: session.scriptText,
+        renderedVideoBlob: output,
+        renderFileName: name,
+        updatedAt: new Date().toISOString()
+      });
+      setSession(completed);
+      setFinalVideo(output);
+      setFinalName(name);
+      setNotice("Video final siap. Caption, hashtag, dan link sekarang dapat disalin.");
+    } catch (renderError) {
+      await failGenerationSession(session.sessionId, {
+        reason: (renderError as Error).message,
+        retryable: true
+      }).catch(() => undefined);
+      setError((renderError as Error).message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const copyText = async (value: string, label: string) => {
+    await navigator.clipboard.writeText(value);
+    setNotice(`${label} disalin.`);
+  };
+
+  const copyAll = async () => {
+    if (!session) return;
+    await copyText(
+      `SCENE\n${session.sceneText}\n\nSAMPLE CONTEXT\n${session.sampleContextText}\n\nSCRIPT\n${session.scriptText}`,
+      "Paket AI Studio"
+    );
+  };
+
+  const completed = session?.status === "completed";
 
   return (
-    <section className="generate-concise-shell">
-      <div className="generate-editor-column">
-        <div className="generate-editor-stack">
-          {resumeHint ? (
-            <section className="workspace-inline-card">
-              <div className="workspace-inline-card-head">
-                <strong>{copy.generate.connectedSession}</strong>
-                <span className="small">{copy.generate.continueLocal}</span>
-              </div>
-              <p className="section-note">{resumeHint}</p>
-              <div className="form-actions">
-                <button type="button" onClick={() => onViewJobs(activeSession?.sessionId)}>
-                  <FolderClock size={16} />
-                  <span>{copy.generate.openHistory}</span>
-                </button>
-                {currentCacheReady && activeSession && activeSession.status !== "completed" ? (
-                  <button type="button" onClick={() => void onResumeRender()} disabled={loading}>
-                    <Video size={16} />
-                    <span>{loading ? copy.generate.continuing : copy.generate.continueFinalize}</span>
-                  </button>
-                ) : null}
-              </div>
-            </section>
-          ) : null}
-
-          <form onSubmit={onSubmit} className="generate-workspace-form">
-            <section className="generate-upload-card" role="region" aria-label="slot video 1">
-              <div className="generate-section-head">
-                <div>
-                  <span className="generate-section-label">{copy.generate.uploadSection}</span>
-                  <h3>{copy.generate.mainVideo}</h3>
-                  <p className="small">{copy.generate.uploadLead}</p>
-                </div>
-                <span
-                  className={
-                    isFormReady(form)
-                      ? "batch-slot-status batch-slot-status-ready"
-                      : "batch-slot-status batch-slot-status-empty"
-                  }
-                >
-                  {isFormReady(form) ? copy.generate.slotReady : copy.generate.incomplete}
-                </span>
-              </div>
-
-              <label className="generate-upload-label">
-                <span className="generate-field-label">
-                  {copy.generate.video} <span className="required-mark">*</span>
-                </span>
-                <input
-                  key={form.fileInputKey}
-                  className="sr-only"
-                  type="file"
-                  accept="video/*"
-                  onChange={(event) => onVideoSelected(event.target.files?.[0] || null)}
-                  disabled={formDisabled}
-                />
-                <div className="generate-upload-dropzone" aria-hidden="true">
-                  <div className="generate-upload-main">
-                    <div className="generate-upload-icon">
-                      <UploadCloud size={30} strokeWidth={2} />
-                    </div>
-                    <div className="generate-upload-copy">
-                      <h4>{form.video ? form.video.name : copy.generate.chooseVideo}</h4>
-                      <p>{copy.generate.uploadHint}</p>
-                    </div>
-                  </div>
-                  <div className="generate-upload-side">
-                    <div className="generate-ready-indicator">
-                      <span className="generate-ready-dot" aria-hidden="true" />
-                      <span>{formDisabled ? copy.generate.incomplete : copy.generate.slotReady}</span>
-                    </div>
-                    <span className="generate-upload-trigger">{copy.generate.chooseFile}</span>
-                  </div>
-                </div>
-              </label>
-
-              <div className="generate-upload-meta">
-                <div className="generate-meta-item">
-                  <Gauge size={15} strokeWidth={2} />
-                  <div>
-                    <span className="generate-meta-label">{copy.generate.duration}</span>
-                    <strong className="generate-meta-value">
-                      {form.durationPending
-                        ? copy.generate.reading
-                        : form.videoDurationSec
-                          ? formatVideoDuration(form.videoDurationSec)
-                          : "00:00"}
-                    </strong>
-                  </div>
-                </div>
-                <div className="generate-meta-divider" aria-hidden="true" />
-                <div className="generate-meta-item">
-                  <CircleDollarSign size={15} strokeWidth={2} />
-                  <div>
-                    <span className="generate-meta-label">{copy.generate.cost}</span>
-                    <strong className="generate-meta-value">
-                      {currentUser.isUnlimited ? copy.dashboard.unlimited : formatIdrCurrency(estimatedChargeIdr, locale)}
-                    </strong>
-                  </div>
-                </div>
-                <div className="generate-meta-divider" aria-hidden="true" />
-                <div className="generate-meta-item">
-                  <Mic2 size={15} strokeWidth={2} />
-                  <div>
-                    <span className="generate-meta-label">{copy.generate.mode}</span>
-                    <strong className="generate-meta-value">{copy.generate.flatPerProcess}</strong>
-                  </div>
-                </div>
-              </div>
-
-              {form.durationError ? <p className="err-inline">{form.durationError}</p> : null}
-            </section>
-
-            <section className="generate-fields-card">
-              <div className="generate-section-head">
-                <div>
-                  <span className="generate-section-label">{copy.generate.detailsSection}</span>
-                  <h3>{copy.generate.detailsTitle}</h3>
-                  <p className="small">{copy.generate.detailsLead}</p>
-                </div>
-              </div>
-
-                <div className="generate-field-grid">
-                  <label className="generate-field">
-                    <span className="generate-field-label">
-                      {copy.generate.generateMode} <span className="required-mark">*</span>
-                    </span>
-                    <div className="generate-input-wrap">
-                      <select
-                        value={form.scriptMode}
-                        onChange={(event) =>
-                          updateForm((current) => ({
-                            ...current,
-                            scriptMode: event.target.value as ScriptMode
-                          }))
-                        }
-                        disabled={formDisabled}
-                      >
-                        {SCRIPT_MODE_OPTIONS.map((item) => (
-                          <option key={item} value={item}>
-                            {getScriptModeLabel(locale, item)}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="generate-input-icon" aria-hidden="true">
-                        <Sparkles size={16} strokeWidth={2} />
-                      </span>
-                    </div>
-                    <p className="small generate-field-hint">
-                      {copy.generate.generateModeHint}
-                    </p>
-                  </label>
-
-                  <label className="generate-field">
-                    <span className="generate-field-label">
-                      {copy.generate.title} <span className="required-mark">*</span>
-                  </span>
-                  <div className="generate-input-wrap">
-                    <input
-                      value={form.title}
-                      onChange={(event) =>
-                        updateForm((current) => ({
-                          ...current,
-                          title: event.target.value
-                        }))
-                      }
-                      disabled={formDisabled}
-                      placeholder={copy.generate.titlePlaceholder}
-                    />
-                    <span className="generate-input-icon" aria-hidden="true">
-                      <PenSquare size={16} strokeWidth={2} />
-                    </span>
-                  </div>
-                </label>
-
-                {usesManualScript ? (
-                  <label className="generate-field">
-                    <span className="generate-field-label">
-                      {copy.generate.manualScript} <span className="required-mark">*</span>
-                    </span>
-                    <textarea
-                      rows={7}
-                      value={form.manualScriptText}
-                      onChange={(event) =>
-                        updateForm((current) => ({
-                          ...current,
-                          manualScriptText: event.target.value
-                        }))
-                      }
-                      disabled={formDisabled}
-                      placeholder={copy.generate.manualScriptPlaceholder}
-                    />
-                    <p className="small generate-field-hint">
-                      {copy.generate.manualScriptHint}
-                    </p>
-                  </label>
-                ) : (
-                  <label className="generate-field">
-                    <span className="generate-field-label">
-                      {copy.generate.description} <span className="required-mark">*</span>
-                    </span>
-                    <textarea
-                      rows={5}
-                      value={form.description}
-                      onChange={(event) =>
-                        updateForm((current) => ({
-                          ...current,
-                          description: event.target.value
-                        }))
-                      }
-                      disabled={formDisabled}
-                      placeholder={copy.generate.descriptionPlaceholder}
-                    />
-                  </label>
-                )}
-
-                <div className="generate-field-row">
-                  <label className="generate-field">
-                    <span className="generate-field-label">
-                      {copy.generate.contentCategory} <span className="required-mark">*</span>
-                    </span>
-                    <div className="generate-input-wrap">
-                      <select
-                        value={form.contentType}
-                        onChange={(event) =>
-                          updateForm((current) => ({
-                            ...current,
-                            contentType: event.target.value as ContentType
-                          }))
-                        }
-                        disabled={formDisabled}
-                      >
-                        {CONTENT_TYPES.map((item) => (
-                          <option key={item} value={item}>
-                            {getContentLabel(locale, item)}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="generate-input-icon" aria-hidden="true">
-                        <Layers3 size={16} strokeWidth={2} />
-                      </span>
-                    </div>
-                  </label>
-
-                  <label className="generate-field">
-                    <span className="generate-field-label">
-                      {copy.generate.socialPlatform} <span className="required-mark">*</span>
-                    </span>
-                    <div className="generate-input-wrap">
-                      <select
-                        value={form.socialPlatform}
-                        onChange={(event) =>
-                          updateForm((current) => ({
-                            ...current,
-                            socialPlatform: event.target.value as SocialPlatform
-                          }))
-                        }
-                        disabled={formDisabled}
-                      >
-                        {PLATFORM_OPTIONS.map((item) => (
-                          <option key={item} value={item}>
-                            {getPlatformLabel(locale, item)}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="generate-input-icon" aria-hidden="true">
-                        <Globe size={16} strokeWidth={2} />
-                      </span>
-                    </div>
-                  </label>
-                </div>
-
-                <div className="generate-field-row">
-                  <label className="generate-field">
-                    <span className="generate-field-label">{copy.generate.subtitleMode}</span>
-                    <div className="generate-input-wrap">
-                      <select
-                        value={form.subtitleMode}
-                        onChange={(event) =>
-                          updateForm((current) => ({
-                            ...current,
-                            subtitleMode: event.target.value as SubtitleMode
-                          }))
-                        }
-                        disabled={formDisabled}
-                      >
-                        {SUBTITLE_MODE_OPTIONS.map((item) => (
-                          <option key={item} value={item}>
-                            {getSubtitleModeLabel(locale, item)}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="generate-input-icon" aria-hidden="true">
-                        <Video size={16} strokeWidth={2} />
-                      </span>
-                    </div>
-                    <p className="small generate-field-hint">{copy.generate.subtitleModeHint}</p>
-                  </label>
-
-                  <label className="generate-field">
-                    <span className="generate-field-label">
-                      {copy.generate.voiceGender} <span className="required-mark">*</span>
-                    </span>
-                    <div className="generate-input-wrap">
-                      <select
-                        value={form.voiceGender}
-                        onChange={(event) =>
-                          updateForm((current) => ({
-                            ...current,
-                            voiceGender: event.target.value as JobVoiceGender
-                          }))
-                        }
-                        disabled={formDisabled}
-                      >
-                        {(["male", "female"] as JobVoiceGender[]).map((gender) => (
-                          <option key={gender} value={gender}>
-                            {getGenderLabel(locale, gender)}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="generate-input-icon" aria-hidden="true">
-                        <Radio size={16} strokeWidth={2} />
-                      </span>
-                    </div>
-                  </label>
-
-                  <label className="generate-field">
-                    <span className="generate-field-label">
-                      {copy.generate.tone} <span className="required-mark">*</span>
-                    </span>
-                    <div className="generate-input-wrap">
-                      <select
-                        value={form.tone}
-                        onChange={(event) =>
-                          updateForm((current) => ({
-                            ...current,
-                            tone: event.target.value
-                          }))
-                        }
-                        disabled={formDisabled}
-                      >
-                        {TONE_OPTIONS.map((item) => (
-                          <option key={item} value={item}>
-                            {getToneLabel(locale, item)}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="generate-input-icon" aria-hidden="true">
-                        <Sparkles size={16} strokeWidth={2} />
-                      </span>
-                    </div>
-                  </label>
-                </div>
-
-                <div className="generate-field-row">
-                  <label className="generate-field">
-                    <span className="generate-field-label">{copy.generate.optionalCta}</span>
-                    <div className="generate-input-wrap">
-                      <input
-                        value={form.ctaText}
-                        placeholder={copy.generate.optionalCtaPlaceholder}
-                        onChange={(event) =>
-                          updateForm((current) => ({
-                            ...current,
-                            ctaText: event.target.value
-                          }))
-                        }
-                        disabled={formDisabled}
-                      />
-                      <span className="generate-input-icon" aria-hidden="true">
-                        <Link2 size={16} strokeWidth={2} />
-                      </span>
-                    </div>
-                  </label>
-
-                  <label className="generate-field">
-                    <span className="generate-field-label">{copy.generate.optionalReference}</span>
-                    <div className="generate-input-wrap">
-                      <input
-                        value={form.referenceLink}
-                        placeholder="https://..."
-                        onChange={(event) =>
-                          updateForm((current) => ({
-                            ...current,
-                            referenceLink: event.target.value
-                          }))
-                        }
-                        disabled={formDisabled}
-                      />
-                      <span className="generate-input-icon" aria-hidden="true">
-                        <Globe size={16} strokeWidth={2} />
-                      </span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-            </section>
-
-            {error ? <p className="err-text">{error}</p> : null}
-
-            <div className="generate-floating-dock">
-              <p className="generate-action-note small">
-                {currentUser.isUnlimited
-                  ? copy.generate.actionNoteUnlimited
-                  : copy.generate.actionNoteMetered(formatIdrCurrency(estimatedChargeIdr, locale))}
-              </p>
-
-              <button type="submit" className="generate-submit-button" disabled={formDisabled}>
-                <Sparkles size={17} strokeWidth={2} />
-                <span>{loading ? flowState.label : copy.generate.processVideo}</span>
-              </button>
-            </div>
-          </form>
+    <section className="personal-workspace">
+      <header className="personal-workspace-head">
+        <div>
+          <span className="eyebrow">PERSONAL VIDEO WORKFLOW</span>
+          <h1>Analisis, buat voice, lalu gabungkan.</h1>
+          <p>AI hanya menyiapkan naskah. Voice dibuat sendiri di Google AI Studio dan diproses lokal.</p>
         </div>
-      </div>
+        <button type="button" className="secondary-button" onClick={() => onViewJobs(session?.sessionId)}>
+          <FolderClock size={17} /> Riwayat
+        </button>
+      </header>
 
-      <aside className="generate-side-panel">
-        <div className="generate-side-head">
-          <h3>{copy.generate.summary}</h3>
+      <form className="personal-step-card" onSubmit={analyze}>
+        <div className="personal-step-number">01</div>
+        <div className="personal-step-content">
+          <h2>Upload dan analisa video</h2>
+          <label className="personal-dropzone">
+            <UploadCloud size={28} />
+            <strong>{form.video?.name || "Pilih video MP4 atau MOV"}</strong>
+            <span>{form.videoDurationSec ? formatVideoDuration(form.videoDurationSec) : "Maksimal 60 detik"}</span>
+            <input type="file" accept="video/*" onChange={(event) => void selectVideo(event.target.files?.[0] || null)} />
+          </label>
+          <div className="personal-form-grid">
+            <label>Judul<input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></label>
+            <label>Kategori<select value={form.contentType} onChange={(e) => setForm({ ...form, contentType: e.target.value as ContentType })}>{CONTENT_TYPES.map((value) => <option key={value} value={value}>{getContentLabel(locale, value)}</option>)}</select></label>
+            <label className="span-2">Deskripsi<textarea rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
+            <label>Platform<select value={form.socialPlatform} onChange={(e) => setForm({ ...form, socialPlatform: e.target.value as SocialPlatform })}>{PLATFORM_OPTIONS.map((value) => <option key={value} value={value}>{getPlatformLabel(locale, value)}</option>)}</select></label>
+            <label>Tone<select value={form.tone} onChange={(e) => setForm({ ...form, tone: e.target.value })}>{TONE_OPTIONS.map((value) => <option key={value} value={value}>{getToneLabel(locale, value)}</option>)}</select></label>
+            <label>Subtitle<select value={form.subtitleMode} onChange={(e) => setForm({ ...form, subtitleMode: e.target.value as SubtitleMode })}>{SUBTITLE_MODE_OPTIONS.map((value) => <option key={value} value={value}>{getSubtitleModeLabel(locale, value)}</option>)}</select></label>
+            <label>CTA opsional<input value={form.ctaText} onChange={(e) => setForm({ ...form, ctaText: e.target.value })} /></label>
+            <label className="span-2">Link referensi opsional<input type="url" value={form.referenceLink} onChange={(e) => setForm({ ...form, referenceLink: e.target.value })} placeholder="https://..." /></label>
+          </div>
+          <button className="primary-action" disabled={Boolean(busy)}>
+            {busy === "analysis" ? <LoaderCircle className="spin" size={18} /> : <Sparkles size={18} />}
+            {busy === "analysis" ? `Menganalisa ${progress}%` : "Analisa Video"}
+          </button>
         </div>
+      </form>
 
-        <section className="generate-side-card generate-compute-card">
-          <div className="generate-compute-head">
-            <div>
-              <span className="generate-section-label">{copy.generate.workflowStatus}</span>
-              <h4>
-                {flowState.percent}
-                <span>%</span>
-              </h4>
+      {session ? (
+        <section className="personal-step-card">
+          <div className="personal-step-number">02</div>
+          <div className="personal-step-content">
+            <div className="personal-result-head">
+              <div><h2>Paket Google AI Studio</h2><p>Salin setiap field ke form Generate Speech.</p></div>
+              <div className="personal-actions">
+                <button type="button" onClick={() => void copyAll()}><Clipboard size={16} /> Salin Semua</button>
+                <a href={AI_STUDIO_URL} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Buka AI Studio</a>
+              </div>
             </div>
-            <span
-              className={
-                flowState.phase === "completed"
-                  ? "status status-success"
-                  : loading
-                    ? "status status-running"
-                    : "status status-queued"
-              }
-            >
-              {flowState.phase === "completed" ? copy.generate.flowRenderReady : loading ? copy.generate.flowProcessing : copy.generate.flowWaiting}
-            </span>
-          </div>
-
-          <div className="generate-progress-stack">
-            <div className="generate-progress-head">
-              <span>{copy.generate.activeStep}</span>
-              <strong>{flowState.label}</strong>
-            </div>
-            <div className="generate-progress-track">
-              <div className="generate-progress-value" style={{ width: `${flowState.percent}%` }} />
-            </div>
-          </div>
-
-          <div className="generate-compute-metrics">
-            <div className="generate-compute-metric">
-              <Gauge size={15} strokeWidth={2} />
-              <span>{copy.generate.visualClips}</span>
-              <strong>{copy.generate.automatic}</strong>
-            </div>
-            <div className="generate-compute-metric">
-              <Video size={15} strokeWidth={2} />
-              <span>{copy.generate.finalization}</span>
-              <strong>{copy.generate.slotReady}</strong>
-            </div>
+            {([
+              ["Scene", session.sceneText],
+              ["Sample Context", session.sampleContextText],
+              ["Naskah", session.scriptText]
+            ] as const).map(([label, value]) => (
+              <article className="copy-result-card" key={label}>
+                <header><strong>{label}</strong><button type="button" onClick={() => void copyText(value, label)}><Clipboard size={15} /> Salin</button></header>
+                <p>{value}</p>
+              </article>
+            ))}
           </div>
         </section>
+      ) : null}
 
-        <section className="generate-side-card">
-          <span className="generate-section-label">{copy.generate.costBalance}</span>
-          <div className="generate-stat-list">
-            <div className="generate-stat-row">
-              <span>{copy.generate.sessionCost}</span>
-              <strong>
-                {currentUser.isUnlimited ? copy.dashboard.unlimited : formatIdrCurrency(estimatedChargeIdr, locale)}
-              </strong>
-            </div>
-            <div className="generate-stat-row">
-              <span>{copy.generate.remainingBalance}</span>
-              <strong>
-                {currentUser.isUnlimited
-                  ? copy.generate.unlimitedBalance
-                  : formatIdrCurrency(projectedBalanceIdr ?? currentUser.walletBalanceIdr, locale)}
-              </strong>
-            </div>
-            <div className="generate-stat-row">
-              <span>{copy.generate.balanceStatus}</span>
-              <strong>{hasEnoughBalance ? copy.generate.balanceReady : copy.generate.needTopup}</strong>
-            </div>
-            <p className="small">
-              {currentUser.isUnlimited
-                ? copy.generate.unlimitedLead
-                : copy.generate.flatGeneratePrice(formatIdrCurrency(currentUser.generatePriceIdr, locale))}
-            </p>
+      {session ? (
+        <section className="personal-step-card">
+          <div className="personal-step-number">03</div>
+          <div className="personal-step-content">
+            <h2>Upload voice dan gabungkan</h2>
+            <label className="personal-dropzone audio-dropzone">
+              <FileAudio size={28} />
+              <strong>{voiceName || "Upload hasil voice dari AI Studio"}</strong>
+              <span>{voiceDurationSec ? `${voiceDurationSec.toFixed(2)} detik voice / ${session.videoDurationSec.toFixed(2)} detik video` : "WAV, MP3, M4A, MP4 audio, atau OGG. Maksimal 25 MB."}</span>
+              <input type="file" accept={AUDIO_ACCEPT} onChange={(event) => void selectVoice(event.target.files?.[0] || null)} />
+            </label>
+            <button type="button" className="primary-action" disabled={!voiceFile || Boolean(busy)} onClick={() => void merge()}>
+              {busy === "render" ? <LoaderCircle className="spin" size={18} /> : <Video size={18} />}
+              {busy === "render" ? `Menggabungkan ${progress}%` : "Gabungkan Voice dengan Video"}
+            </button>
           </div>
         </section>
+      ) : null}
 
-        {activeSession ? (
-          <section className="generate-side-card">
-            <span className="generate-section-label">{copy.generate.aiSession}</span>
-            <div className="generate-pipeline-item">
-              <div className="generate-pipeline-icon">
-                <Sparkles size={18} strokeWidth={2} />
-              </div>
-              <div>
-                <p className="generate-pipeline-title">{copy.generate.pipelineStatus}</p>
-                <strong>{activeSession.status}</strong>
-              </div>
-            </div>
-            <div className="generate-pipeline-item">
-              <div className="generate-pipeline-icon generate-pipeline-icon-magenta">
-                <Mic2 size={18} strokeWidth={2} />
-              </div>
-              <div>
-                <p className="generate-pipeline-title">{copy.generate.voice}</p>
-                <strong>{activeSession.voiceName || copy.generate.defaultVoice}</strong>
-              </div>
-            </div>
-            <div className="generate-pipeline-item">
-              <div className="generate-pipeline-icon">
-                <PenSquare size={18} strokeWidth={2} />
-              </div>
-              <div>
-                <p className="generate-pipeline-title">{copy.generate.generateMode}</p>
-                <strong>{getScriptModeLabel(locale, activeSession.scriptMode)}</strong>
-              </div>
-            </div>
-            <div className="generate-pipeline-item">
-              <div className="generate-pipeline-icon">
-                <Layers3 size={18} strokeWidth={2} />
-              </div>
-              <div>
-                <p className="generate-pipeline-title">
-                  {activeSession.scriptMode === "manual_script"
-                    ? copy.generate.sourceScript
-                    : copy.generate.analyzedClips}
-                </p>
-                <strong>
-                  {activeSession.scriptMode === "manual_script"
-                    ? copy.jobs.manualScript
-                    : copy.jobs.clips(activeSession.frameCount)}
-                </strong>
-              </div>
-            </div>
-            <div className="generate-pipeline-item">
-              <div className="generate-pipeline-icon">
-                <Globe size={18} strokeWidth={2} />
-              </div>
-              <div>
-                <p className="generate-pipeline-title">{copy.generate.targetPlatform}</p>
-                <strong>{getPlatformLabel(locale, activeSession.socialPlatform)}</strong>
-              </div>
-            </div>
-            <div className="generate-pipeline-item">
-              <div className="generate-pipeline-icon generate-pipeline-icon-magenta">
-                <Video size={18} strokeWidth={2} />
-              </div>
-              <div>
-                <p className="generate-pipeline-title">{copy.generate.subtitleMode}</p>
-                <strong>
-                  {getSubtitleModeLabel(
-                    locale,
-                    activeSession.includeSubtitles ? "with_subtitles" : "without_subtitles"
-                  )}
-                </strong>
-              </div>
-            </div>
-            {activeSession.scriptText ? (
-              <p className="small break-anywhere">{activeSession.scriptText}</p>
-            ) : null}
-            {activeSession.captionText ? (
-              <p className="small break-anywhere">
-                {copy.generate.captionPrefix}: {activeSession.captionText}
-                {activeSession.hashtags.length ? ` ${activeSession.hashtags.join(" ")}` : ""}
-              </p>
-            ) : null}
-          </section>
-        ) : null}
+      {completed && finalVideo && session ? (
+        <section className="personal-step-card completed-card">
+          <div className="personal-step-number"><CheckCircle2 size={20} /></div>
+          <div className="personal-step-content">
+            <h2>Video siap digunakan</h2>
+            <button type="button" className="primary-action" onClick={() => downloadBlob(finalVideo, finalName)}><Download size={18} /> Download MP4</button>
+            <article className="copy-result-card"><header><strong>Caption</strong><button type="button" onClick={() => void copyText(session.captionText, "Caption")}><Clipboard size={15} /> Salin</button></header><p>{session.captionText}</p></article>
+            <article className="copy-result-card"><header><strong>Hashtag</strong><button type="button" onClick={() => void copyText(session.hashtags.join(" "), "Hashtag")}><Clipboard size={15} /> Salin</button></header><p>{session.hashtags.join(" ")}</p></article>
+            {session.referenceLink ? <article className="copy-result-card"><header><strong>Link</strong><button type="button" onClick={() => void copyText(session.referenceLink || "", "Link")}><Link2 size={15} /> Salin</button></header><p>{session.referenceLink}</p></article> : null}
+          </div>
+        </section>
+      ) : null}
 
-        {finalVideoBlob ? (
-          <section className="generate-side-card generate-environment-card">
-            <div className="generate-environment-icon">
-              <CheckCircle2 size={22} strokeWidth={2} />
-            </div>
-            <div>
-              <h4>{copy.generate.finalReadyTitle}</h4>
-              <p>
-                {copy.generate.finalReadyLead(
-                  `${(finalVideoBlob.size / (1024 * 1024)).toFixed(2)} MB`
-                )}
-              </p>
-            </div>
-            <div className="form-actions">
-              <button type="button" onClick={() => downloadBlob(finalVideoBlob, finalVideoName)}>
-                <Download size={16} />
-                <span>{copy.generate.downloadFinal}</span>
-              </button>
-              <button type="button" onClick={() => onViewJobs(activeSession?.sessionId)}>
-                <FolderClock size={16} />
-                <span>{copy.generate.openHistoryShort}</span>
-              </button>
-            </div>
-          </section>
-        ) : (
-          <section className="generate-side-card generate-environment-card">
-            <div className="generate-environment-icon">
-              <Sparkles size={22} strokeWidth={2} />
-            </div>
-            <div>
-              <h4>{telemetryStatusLabel}</h4>
-              <p>{telemetryStatusDescription}</p>
-            </div>
-          </section>
-        )}
-      </aside>
+      {notice ? <p className="success-text">{notice}</p> : null}
+      {error ? <p className="err-text">{error}</p> : null}
     </section>
   );
 }
