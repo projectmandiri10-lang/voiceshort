@@ -4,11 +4,11 @@ Workspace pribadi untuk menganalisis video pendek, menyiapkan paket teks Google 
 
 ## Workflow
 
-1. Upload video maksimal 60 detik dan isi judul, deskripsi, kategori, platform, tone, subtitle, CTA, serta link referensi opsional.
+1. Upload video maksimal 60 detik dan isi judul, deskripsi, kategori, platform, tone, CTA, serta link referensi opsional.
 2. Worker melakukan tepat dua request AI: visual brief, lalu paket `Scene`, `Sample Context`, naskah, caption, dan hashtag.
 3. Salin tiga field ke Google AI Studio dan generate voice dengan instruksi durasi yang sudah disertakan.
 4. Upload WAV, MP3, M4A/MP4 audio, atau OGG maksimal 25 MB.
-5. Browser menggabungkan audio dan video dengan FFmpeg, menyesuaikan durasi otomatis, lalu menampilkan hasil download, caption, hashtag, dan link.
+5. Browser menggabungkan audio dan video dengan FFmpeg tanpa mengubah FPS sumber, lalu menampilkan hasil download, caption, hashtag, dan link. Subtitle dibuat melalui platform tujuan setelah upload.
 
 File video, audio upload, dan video final disimpan di IndexedDB perangkat. Media tidak dikirim ke Worker atau Supabase.
 

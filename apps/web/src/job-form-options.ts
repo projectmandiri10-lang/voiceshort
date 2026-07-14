@@ -1,9 +1,8 @@
-import { SOCIAL_PLATFORMS, SUBTITLE_MODES } from "./types";
+import { SOCIAL_PLATFORMS } from "./types";
 import type {
   ContentLanguage,
   ContentType,
-  SocialPlatform,
-  SubtitleMode
+  SocialPlatform
 } from "./types";
 
 const CONTENT_LABELS: Record<ContentLanguage, Record<ContentType, string>> = {
@@ -54,17 +53,6 @@ const PLATFORM_LABELS: Record<ContentLanguage, Record<SocialPlatform, string>> =
   }
 };
 
-const SUBTITLE_MODE_LABELS: Record<ContentLanguage, Record<SubtitleMode, string>> = {
-  "id-ID": {
-    without_subtitles: "Tanpa Subtitle",
-    with_subtitles: "Dengan Subtitle"
-  },
-  "en-US": {
-    without_subtitles: "Without Subtitles",
-    with_subtitles: "With Subtitles"
-  }
-};
-
 const TONE_LABELS: Record<ContentLanguage, Record<string, string>> = {
   "id-ID": {
     natural: "Natural",
@@ -87,7 +75,6 @@ const TONE_LABELS: Record<ContentLanguage, Record<string, string>> = {
 };
 
 export const PLATFORM_OPTIONS: SocialPlatform[] = [...SOCIAL_PLATFORMS];
-export const SUBTITLE_MODE_OPTIONS: SubtitleMode[] = [...SUBTITLE_MODES];
 export const TONE_OPTIONS = [
   "natural",
   "enerjik",
@@ -104,10 +91,6 @@ export function getContentLabel(locale: ContentLanguage, value: ContentType): st
 
 export function getPlatformLabel(locale: ContentLanguage, value: SocialPlatform): string {
   return PLATFORM_LABELS[locale][value] || value;
-}
-
-export function getSubtitleModeLabel(locale: ContentLanguage, value: SubtitleMode): string {
-  return SUBTITLE_MODE_LABELS[locale][value] || value;
 }
 
 export function getToneLabel(locale: ContentLanguage, value: string): string {

@@ -32,7 +32,7 @@ vi.mock("./generation-cache", () => {
 const readySession: GenerationSessionRecord = {
   sessionId: "session-1", createdAt: "2026-07-13T10:00:00Z", updatedAt: "2026-07-13T10:00:00Z",
   title: "Produk", description: "Deskripsi produk", contentType: "affiliate",
-  socialPlatform: "instagram", contentLanguage: "id-ID", includeSubtitles: true, tone: "natural",
+  socialPlatform: "instagram", contentLanguage: "id-ID", tone: "natural",
   referenceLink: "https://example.com/produk", videoDurationSec: 42, frameCount: 1,
   status: "ready_for_voice_upload", chargedAmountIdr: 0,
   visualBrief: { summary: "Produk terlihat jelas", hook: { startSec: 0, endSec: 3, reason: "Hook" }, timeline: [], mustMention: [], mustAvoid: [], uncertainties: [] },
@@ -57,6 +57,7 @@ describe("personal voice upload workflow", () => {
     const { container } = render(<GeneratePage locale="id-ID" onViewJobs={vi.fn()} />);
     expect(screen.queryByText(/gender suara/i)).toBeNull();
     expect(screen.queryByText(/script manual/i)).toBeNull();
+    expect(screen.queryByText(/^subtitle$/i)).toBeNull();
 
     const video = new File(["video"], "source.mp4", { type: "video/mp4" });
     fireEvent.change(container.querySelector('input[type="file"][accept="video/*"]')!, { target: { files: [video] } });

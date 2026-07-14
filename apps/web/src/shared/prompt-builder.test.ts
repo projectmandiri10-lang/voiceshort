@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "./constants";
-import { buildAiStudioPackagePrompt, buildCtaInstruction, type PromptInput } from "./prompt-builder";
+import { buildAiStudioPackagePrompt, buildCtaInstruction, buildVisualBriefPrompt, type PromptInput } from "./prompt-builder";
 import type { VisualBrief } from "../types";
 
 const visualBrief: VisualBrief = {
@@ -25,6 +25,13 @@ const baseInput: PromptInput = {
 };
 
 describe("AI Studio package prompt", () => {
+  it("keeps chronological evidence-only frame analysis", () => {
+    const prompt = buildVisualBriefPrompt(baseInput);
+    expect(prompt).toContain("Analyze the supplied video frames in chronological order.");
+    expect(prompt).toContain("Use only visible evidence.");
+    expect(prompt).toContain("Build a timeline spanning the full duration.");
+  });
+
   it("targets 72 words and finishes speech at 35.8 seconds", () => {
     const prompt = buildAiStudioPackagePrompt({ ...baseInput, visualBrief });
     expect(prompt).toContain("70-74 spoken words");
@@ -37,22 +44,28 @@ describe("AI Studio package prompt", () => {
   it("preserves a custom CTA verbatim", () => {
     expect(buildCtaInstruction({
       contentType: "affiliate", socialPlatform: "tiktok",
-      ctaText: "Cek produknya sekarang.", referenceLink: "https://example.com"
+      ctaText: "Cek produknya sekarang."
     })).toContain('"Cek produknya sekarang."');
   });
 
-  it("uses safe platform fallback only for affiliate and marketing", () => {
+  it("uses the requested exact platform CTA only for affiliate and marketing", () => {
     expect(buildCtaInstruction({
-      contentType: "video-marketing", socialPlatform: "youtube", referenceLink: "https://example.com"
-    })).toContain("video description");
+      contentType: "video-marketing", socialPlatform: "youtube"
+    })).toContain('"Cek di keranjang sekarang"');
     expect(buildCtaInstruction({
-      contentType: "affiliate", socialPlatform: "facebook", referenceLink: "https://example.com"
-    })).toContain("this post");
+      contentType: "affiliate", socialPlatform: "facebook"
+    })).toContain('"Cek di keranjang sekarang"');
     expect(buildCtaInstruction({
       contentType: "affiliate", socialPlatform: "shopee"
-    })).toContain("Do not mention a link, bio, description, post, cart, discount, or checkout feature");
+    })).toContain('"Cek keranjang kuning sekarang"');
     expect(buildCtaInstruction({
-      contentType: "edukasi", socialPlatform: "youtube", referenceLink: "https://example.com"
+      contentType: "video-marketing", socialPlatform: "tiktok"
+    })).toContain('"Cek keranjang kuning sekarang"');
+    expect(buildCtaInstruction({
+      contentType: "affiliate", socialPlatform: "instagram"
+    })).toContain('"Cek di keranjang sekarang"');
+    expect(buildCtaInstruction({
+      contentType: "edukasi", socialPlatform: "youtube"
     })).toContain("Do not add a CTA");
   });
 });

@@ -10,13 +10,12 @@ import {
 import { extractFramesFromVideo } from "../frame-extractor";
 import { getCachedSessionAssets, upsertCachedSessionAssets } from "../generation-cache";
 import {
-  getContentLabel, getPlatformLabel, getSubtitleModeLabel, getToneLabel,
-  PLATFORM_OPTIONS, SUBTITLE_MODE_OPTIONS, TONE_OPTIONS
+  getContentLabel, getPlatformLabel, getToneLabel, PLATFORM_OPTIONS, TONE_OPTIONS
 } from "../job-form-options";
 import { renderFinalVideoLocally } from "../local-render";
 import { readBlobDuration } from "../media-utils";
 import type {
-  ContentLanguage, ContentType, GenerationSessionRecord, SocialPlatform, SubtitleMode
+  ContentLanguage, ContentType, GenerationSessionRecord, SocialPlatform
 } from "../types";
 import { CONTENT_TYPES } from "../types";
 import { readVideoDuration } from "../video-duration";
@@ -40,7 +39,6 @@ interface FormState {
   description: string;
   contentType: ContentType;
   socialPlatform: SocialPlatform;
-  subtitleMode: SubtitleMode;
   tone: string;
   ctaText: string;
   referenceLink: string;
@@ -53,7 +51,6 @@ const initialForm: FormState = {
   description: "",
   contentType: "affiliate",
   socialPlatform: "instagram",
-  subtitleMode: "without_subtitles",
   tone: "natural",
   ctaText: "",
   referenceLink: ""
@@ -83,6 +80,7 @@ export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePa
   const [finalName, setFinalName] = useState("voiceover-final.mp4");
   const [busy, setBusy] = useState<"" | "video" | "analysis" | "audio" | "render">("");
   const [progress, setProgress] = useState(0);
+  const [renderPhase, setRenderPhase] = useState<"" | "loading" | "fast_mux" | "fallback_encode">("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -153,7 +151,6 @@ export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePa
         contentType: form.contentType,
         socialPlatform: form.socialPlatform,
         contentLanguage: locale,
-        includeSubtitles: form.subtitleMode === "with_subtitles",
         tone: form.tone,
         ctaText: form.ctaText.trim() || undefined,
         referenceLink: form.referenceLink.trim() || undefined,
@@ -228,7 +225,7 @@ export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePa
         sourceVideoName: cache.sourceVideoName,
         audioWavBlob: voiceFile,
         audioFileName: voiceFile instanceof File ? voiceFile.name : undefined,
-        subtitleText: session.includeSubtitles ? session.scriptText : undefined,
+        onPhase: setRenderPhase,
         onProgress: (ratio) => setProgress(Math.round(ratio * 100))
       });
       const name = `${session.title.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "voiceover"}-final.mp4`;
@@ -258,6 +255,7 @@ export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePa
       setError((renderError as Error).message);
     } finally {
       setBusy("");
+      setRenderPhase("");
     }
   };
 
@@ -308,7 +306,6 @@ export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePa
             <label className="span-2">Deskripsi<textarea rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
             <label>Platform<select value={form.socialPlatform} onChange={(e) => setForm({ ...form, socialPlatform: e.target.value as SocialPlatform })}>{PLATFORM_OPTIONS.map((value) => <option key={value} value={value}>{getPlatformLabel(locale, value)}</option>)}</select></label>
             <label>Tone<select value={form.tone} onChange={(e) => setForm({ ...form, tone: e.target.value })}>{TONE_OPTIONS.map((value) => <option key={value} value={value}>{getToneLabel(locale, value)}</option>)}</select></label>
-            <label>Subtitle<select value={form.subtitleMode} onChange={(e) => setForm({ ...form, subtitleMode: e.target.value as SubtitleMode })}>{SUBTITLE_MODE_OPTIONS.map((value) => <option key={value} value={value}>{getSubtitleModeLabel(locale, value)}</option>)}</select></label>
             <label>CTA opsional<input value={form.ctaText} onChange={(e) => setForm({ ...form, ctaText: e.target.value })} /></label>
             <label className="span-2">Link referensi opsional<input type="url" value={form.referenceLink} onChange={(e) => setForm({ ...form, referenceLink: e.target.value })} placeholder="https://..." /></label>
           </div>
@@ -372,7 +369,13 @@ export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePa
             ) : null}
             <button type="button" className="primary-action" disabled={!voiceFile || Boolean(busy)} onClick={() => void merge()}>
               {busy === "render" ? <LoaderCircle className="spin" size={18} /> : <Video size={18} />}
-              {busy === "render" ? `Menggabungkan ${progress}%` : "Gabungkan Voice dengan Video"}
+              {busy === "render"
+                ? renderPhase === "fallback_encode"
+                  ? `Menyesuaikan format video ${progress}%`
+                  : renderPhase === "fast_mux"
+                    ? `Menggabungkan cepat ${progress}%`
+                    : "Menyiapkan mesin video..."
+                : "Gabungkan Voice dengan Video"}
             </button>
           </div>
         </section>

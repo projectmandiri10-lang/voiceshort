@@ -109,7 +109,7 @@ describe("generation session Worker workflow", () => {
       headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
       body: JSON.stringify({
         title: "Produk", description: "Deskripsi produk", contentType: "affiliate",
-        socialPlatform: "instagram", contentLanguage: "id-ID", includeSubtitles: true,
+        socialPlatform: "instagram", contentLanguage: "id-ID",
         tone: "natural", referenceLink: "https://example.com/produk", videoDurationSec: 42,
         frames: [{ timestampSec: 0, mimeType: "image/jpeg", base64Data: "frame", width: 448, height: 252 }]
       })
@@ -130,6 +130,7 @@ describe("generation session Worker workflow", () => {
     expect(inserted[0]).toMatchObject({ status: "ready_for_voice_upload", charged_amount_idr: 0 });
     expect(inserted[0]).not.toHaveProperty("voice_name");
     expect(inserted[0]).not.toHaveProperty("speech_rate");
+    expect(inserted[0]).not.toHaveProperty("include_subtitles");
   });
 
   it("does not expose removed audio endpoints", async () => {

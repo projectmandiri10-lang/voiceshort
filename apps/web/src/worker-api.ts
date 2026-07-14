@@ -126,7 +126,6 @@ interface GenerationSessionRow {
   content_type: ContentType;
   social_platform: SocialPlatform;
   content_language?: ContentLanguage | null;
-  include_subtitles?: boolean | null;
   tone: string;
   cta_text: string | null;
   reference_link: string | null;
@@ -468,7 +467,6 @@ function mapGenerationSession(row: GenerationSessionRow): GenerationSessionRecor
     contentType: row.content_type,
     socialPlatform: row.social_platform,
     contentLanguage: row.content_language === "en-US" ? "en-US" : "id-ID",
-    includeSubtitles: Boolean(row.include_subtitles),
     tone: row.tone,
     ctaText: row.cta_text || undefined,
     referenceLink: row.reference_link || undefined,
@@ -651,15 +649,12 @@ function parseGenerationSessionCreateInput(input: unknown): GenerationSessionCre
   if (!frames.length) {
     throw createHttpError(400, "Cuplikan video wajib dikirim untuk analisis.");
   }
-  const includeSubtitles = Boolean(body.includeSubtitles);
-
   return {
     title: assertString(body.title, "Judul", { max: 160 }) || "",
     description: assertString(body.description, "Brief / deskripsi", { max: 3000 }) || "",
     contentType: assertContentType(body.contentType),
     socialPlatform: assertSocialPlatform(body.socialPlatform),
     contentLanguage: assertContentLanguage(body.contentLanguage),
-    includeSubtitles,
     tone: assertString(body.tone, "Tone", { max: 80 }) || "",
     ctaText: assertString(body.ctaText, "CTA", { required: false, max: 200 }),
     referenceLink: assertUrl(body.referenceLink),
@@ -985,7 +980,6 @@ async function createGenerationSession(
     content_type: input.contentType,
     social_platform: input.socialPlatform,
     content_language: input.contentLanguage,
-    include_subtitles: input.includeSubtitles,
     tone: input.tone,
     cta_text: input.ctaText ?? null,
     reference_link: input.referenceLink ?? null,

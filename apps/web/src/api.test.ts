@@ -60,7 +60,6 @@ describe("api error handling", () => {
         contentType: "affiliate",
         socialPlatform: "instagram",
         contentLanguage: "id-ID",
-        includeSubtitles: false,
         tone: "natural",
         videoDurationSec: 42,
         frames: [

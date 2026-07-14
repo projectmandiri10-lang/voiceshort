@@ -8,8 +8,6 @@ export const SOCIAL_PLATFORMS = ["facebook", "tiktok", "youtube", "shopee", "ins
 export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 export const CONTENT_LANGUAGES = ["id-ID", "en-US"] as const;
 export type ContentLanguage = (typeof CONTENT_LANGUAGES)[number];
-export const SUBTITLE_MODES = ["without_subtitles", "with_subtitles"] as const;
-export type SubtitleMode = (typeof SUBTITLE_MODES)[number];
 export const SCRIPT_AI_PROVIDERS = ["aivene", "openrouter"] as const;
 export type ScriptAiProvider = (typeof SCRIPT_AI_PROVIDERS)[number];
 export type AiProvider = ScriptAiProvider;
@@ -77,7 +75,7 @@ export interface AiStudioPackage {
 export interface GenerationSessionRecord extends AiStudioPackage {
   sessionId: string; createdAt: string; updatedAt: string; completedAt?: string | null;
   ownerEmail?: string; title: string; description: string; contentType: ContentType;
-  socialPlatform: SocialPlatform; contentLanguage: ContentLanguage; includeSubtitles?: boolean;
+  socialPlatform: SocialPlatform; contentLanguage: ContentLanguage;
   tone: string; ctaText?: string; referenceLink?: string; videoDurationSec: number;
   frameCount: number; status: GenerationSessionStatus; visualBrief?: VisualBrief;
   chargedAmountIdr: number; errorMessage?: string; renderSummary?: GenerationSessionRenderSummary;
@@ -90,7 +88,7 @@ export interface ExtractedFrame {
 
 export interface GenerationSessionCreateInput {
   title: string; description: string; contentType: ContentType; socialPlatform: SocialPlatform;
-  contentLanguage: ContentLanguage; includeSubtitles?: boolean; tone: string;
+  contentLanguage: ContentLanguage; tone: string;
   ctaText?: string; referenceLink?: string; videoDurationSec: number;
   frames: Array<{ timestampSec: number; mimeType: "image/jpeg"; base64Data: string; width: number; height: number }>;
 }

@@ -4,7 +4,6 @@ export const ABSOLUTE_MAX_VIDEO_SECONDS = 60;
 export const FRAME_EXTRACTION_MAX_WIDTH = 448;
 export const FRAME_EXTRACTION_MAX_FRAMES = 18;
 export const FRAME_EXTRACTION_MIN_FRAMES = 6;
-export const FINAL_VIDEO_FPS = 30;
 export const FINAL_VIDEO_CRF = 26;
 export const FINAL_VIDEO_MAX_DIMENSION = 1280;
 export const FINAL_AUDIO_BITRATE = "64k";

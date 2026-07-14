@@ -32,7 +32,7 @@ function contextLines(input: PromptInput): string[] {
   ];
 }
 
-export function buildCtaInstruction(input: Pick<PromptInput, "contentType" | "socialPlatform" | "ctaText" | "referenceLink">): string {
+export function buildCtaInstruction(input: Pick<PromptInput, "contentType" | "socialPlatform" | "ctaText">): string {
   const customCta = input.ctaText?.trim();
   if (customCta) {
     return `Use this exact CTA as the final spoken sentence without paraphrasing: ${JSON.stringify(customCta)}.`;
@@ -41,17 +41,13 @@ export function buildCtaInstruction(input: Pick<PromptInput, "contentType" | "so
     return "Do not add a CTA because this category has no custom CTA.";
   }
 
-  if (!input.referenceLink?.trim()) {
-    return "End with one concise CTA inviting viewers to review the product details before choosing. Do not mention a link, bio, description, post, cart, discount, or checkout feature.";
+  if (input.socialPlatform === "shopee" || input.socialPlatform === "tiktok") {
+    return 'Use this exact CTA as the final spoken sentence without paraphrasing: "Cek keranjang kuning sekarang".';
   }
-
-  if (input.socialPlatform === "youtube") {
-    return "End with one concise CTA directing viewers to the product link in the video description.";
+  if (["facebook", "instagram", "youtube"].includes(input.socialPlatform)) {
+    return 'Use this exact CTA as the final spoken sentence without paraphrasing: "Cek di keranjang sekarang".';
   }
-  if (input.socialPlatform === "facebook") {
-    return "End with one concise CTA directing viewers to the product link in this post.";
-  }
-  return "End with one concise CTA directing viewers to the available product link. Do not invent a bio link, cart, discount, or checkout feature.";
+  return 'Use this exact CTA as the final spoken sentence without paraphrasing: "Cek produknya sekarang".';
 }
 
 export function buildVisualBriefPrompt(input: PromptInput): string {
