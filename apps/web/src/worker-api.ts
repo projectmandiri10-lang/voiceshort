@@ -34,6 +34,7 @@ import {
   type GenerationSessionCreateInput,
   type GenerationSessionRecord,
   type GenerationSessionStatus,
+  type QrisManualOverrideMode,
   type ScriptAiProvider,
   type SocialPlatform,
   type VisualBrief,
@@ -138,6 +139,8 @@ interface AppSettingsRow {
   qris_merchant_name?: string | null;
   qris_image_url?: string | null;
   qris_instructions?: string | null;
+  qris_manual_override?: Exclude<QrisManualOverrideMode, "auto"> | null;
+  qris_manual_override_until?: string | null;
 }
 
 interface SubscriptionOrderRow {
@@ -477,7 +480,9 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
         subscriptionDays: row.subscription_days,
         qrisMerchantName: row.qris_merchant_name,
         qrisImageUrl: row.qris_image_url,
-        qrisInstructions: row.qris_instructions
+        qrisInstructions: row.qris_instructions,
+        qrisManualOverride: row.qris_manual_override,
+        qrisManualOverrideUntil: row.qris_manual_override_until
       }
     : DEFAULT_SETTINGS;
 
@@ -486,6 +491,14 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
   const scriptModel = scriptProvider === "aivene" && !AIVENE_SCRIPT_MODELS.includes(rawScriptModel as (typeof AIVENE_SCRIPT_MODELS)[number])
     ? DEFAULT_SETTINGS.scriptModel
     : rawScriptModel;
+  const qrisManualOverride = source.qrisManualOverride === "open" || source.qrisManualOverride === "closed"
+    ? source.qrisManualOverride
+    : "auto";
+  const qrisManualOverrideUntil = typeof source.qrisManualOverrideUntil === "string"
+    && Number.isFinite(new Date(source.qrisManualOverrideUntil).getTime())
+    && new Date(source.qrisManualOverrideUntil).getTime() > Date.now()
+      ? new Date(source.qrisManualOverrideUntil).toISOString()
+      : null;
 
   return {
     scriptProvider,
@@ -503,7 +516,9 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
     subscriptionDays: Math.max(1, Math.min(365, Math.trunc(Number(source.subscriptionDays) || DEFAULT_SETTINGS.subscriptionDays))),
     qrisMerchantName: String(source.qrisMerchantName || DEFAULT_SETTINGS.qrisMerchantName).trim() || DEFAULT_SETTINGS.qrisMerchantName,
     qrisImageUrl: String(source.qrisImageUrl || "").trim(),
-    qrisInstructions: String(source.qrisInstructions || DEFAULT_SETTINGS.qrisInstructions).trim() || DEFAULT_SETTINGS.qrisInstructions
+    qrisInstructions: String(source.qrisInstructions || DEFAULT_SETTINGS.qrisInstructions).trim() || DEFAULT_SETTINGS.qrisInstructions,
+    qrisManualOverride: qrisManualOverrideUntil ? qrisManualOverride : "auto",
+    qrisManualOverrideUntil
   };
 }
 
@@ -546,6 +561,31 @@ function applyRuntimeSettingsEnvOverrides(
         ? scriptProvider === "zai" ? "aivene" : "zai"
         : scriptFallbackProvider,
     scriptModel: normalizeScriptModel(selectedModel, scriptProvider)
+  };
+}
+
+function qrisWindowOverrideMode(value: unknown): QrisManualOverrideMode {
+  return value === "open" || value === "closed" || value === "auto" ? value : "auto";
+}
+
+function settingsUpsertRow(nextSettings: AppSettings) {
+  return {
+    settings_key: "default",
+    script_provider: nextSettings.scriptProvider,
+    script_fallback_provider: nextSettings.scriptFallbackProvider,
+    script_model: nextSettings.scriptModel,
+    tax_rate_percent: nextSettings.taxRatePercent,
+    language: nextSettings.language,
+    max_video_seconds: nextSettings.maxVideoSeconds,
+    safety_mode: nextSettings.safetyMode,
+    concurrency: nextSettings.concurrency,
+    subscription_price_idr: nextSettings.subscriptionPriceIdr,
+    subscription_days: nextSettings.subscriptionDays,
+    qris_merchant_name: nextSettings.qrisMerchantName,
+    qris_image_url: nextSettings.qrisImageUrl,
+    qris_instructions: nextSettings.qrisInstructions,
+    qris_manual_override: nextSettings.qrisManualOverride === "auto" ? null : nextSettings.qrisManualOverride,
+    qris_manual_override_until: nextSettings.qrisManualOverrideUntil
   };
 }
 
@@ -728,7 +768,12 @@ function parseSettingsInput(input: unknown): AppSettings {
     subscriptionDays: Math.max(1, Math.min(365, Math.trunc(Number(body.subscriptionDays) || DEFAULT_SETTINGS.subscriptionDays))),
     qrisMerchantName: assertString(body.qrisMerchantName, "Nama merchant QRIS", { required: false, max: 120 }) || DEFAULT_SETTINGS.qrisMerchantName,
     qrisImageUrl: assertString(body.qrisImageUrl, "URL gambar QRIS", { required: false, max: 1000 }) || "",
-    qrisInstructions: assertString(body.qrisInstructions, "Instruksi QRIS", { required: false, max: 500 }) || DEFAULT_SETTINGS.qrisInstructions
+    qrisInstructions: assertString(body.qrisInstructions, "Instruksi QRIS", { required: false, max: 500 }) || DEFAULT_SETTINGS.qrisInstructions,
+    qrisManualOverride: qrisWindowOverrideMode(body.qrisManualOverride),
+    qrisManualOverrideUntil: typeof body.qrisManualOverrideUntil === "string"
+      && Number.isFinite(new Date(body.qrisManualOverrideUntil).getTime())
+      ? new Date(body.qrisManualOverrideUntil).toISOString()
+      : null
   };
 }
 
@@ -1407,7 +1452,7 @@ function qrisEnvInteger(env: WorkerEnv, key: keyof WorkerEnv, fallback: number, 
 
 const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
 
-export function resolveQrisPaymentWindow(env: WorkerEnv, at = new Date()) {
+function resolveScheduledQrisPaymentWindow(env: WorkerEnv, at = new Date()) {
   const timeZone = String(env.INTERACTIVE_QRIS_TIME_ZONE || "Asia/Jakarta").trim() || "Asia/Jakarta";
   const openHour = qrisEnvInteger(env, "INTERACTIVE_QRIS_OPEN_HOUR", 5, 0, 23);
   const closeHour = qrisEnvInteger(env, "INTERACTIVE_QRIS_CLOSE_HOUR", 22, 1, 24);
@@ -1415,15 +1460,26 @@ export function resolveQrisPaymentWindow(env: WorkerEnv, at = new Date()) {
   const currentHour = wibDate.getUTCHours();
   const isOpen = openHour < closeHour && currentHour >= openHour && currentHour < closeHour;
   let nextOpenAt: string | null = null;
+  let nextToggleAt: string | null = null;
+
+  const nextOpenWib = Date.UTC(
+    wibDate.getUTCFullYear(),
+    wibDate.getUTCMonth(),
+    wibDate.getUTCDate() + (currentHour >= closeHour ? 1 : 0),
+    openHour
+  );
 
   if (!isOpen) {
-    const nextOpenWib = Date.UTC(
+    nextOpenAt = new Date(nextOpenWib - WIB_OFFSET_MS).toISOString();
+    nextToggleAt = nextOpenAt;
+  } else {
+    const nextCloseWib = Date.UTC(
       wibDate.getUTCFullYear(),
       wibDate.getUTCMonth(),
       wibDate.getUTCDate() + (currentHour >= closeHour ? 1 : 0),
-      openHour
+      closeHour
     );
-    nextOpenAt = new Date(nextOpenWib - WIB_OFFSET_MS).toISOString();
+    nextToggleAt = new Date(nextCloseWib - WIB_OFFSET_MS).toISOString();
   }
 
   return {
@@ -1431,7 +1487,81 @@ export function resolveQrisPaymentWindow(env: WorkerEnv, at = new Date()) {
     opensAt: `${String(openHour).padStart(2, "0")}:00`,
     closesAt: `${String(closeHour).padStart(2, "0")}:00`,
     isOpen,
-    nextOpenAt
+    nextOpenAt,
+    nextToggleAt
+  };
+}
+
+export function resolveQrisPaymentWindow(
+  env: WorkerEnv,
+  at = new Date(),
+  settings?: Pick<AppSettings, "qrisManualOverride" | "qrisManualOverrideUntil">
+) {
+  const scheduled = resolveScheduledQrisPaymentWindow(env, at);
+  const activeManualOverride = settings
+    && (settings.qrisManualOverride === "open" || settings.qrisManualOverride === "closed")
+    && settings.qrisManualOverrideUntil
+    && Number.isFinite(new Date(settings.qrisManualOverrideUntil).getTime())
+    && new Date(settings.qrisManualOverrideUntil).getTime() > at.getTime()
+      ? {
+          state: settings.qrisManualOverride,
+          until: new Date(settings.qrisManualOverrideUntil).toISOString()
+        }
+      : null;
+
+  if (!activeManualOverride) {
+    return {
+      ...scheduled,
+      nextAutomaticAt: scheduled.nextToggleAt,
+      mode: "automatic" as const,
+      manualOverrideState: null,
+      manualOverrideUntil: null
+    };
+  }
+
+  if (activeManualOverride.state === "open") {
+    return {
+      ...scheduled,
+      isOpen: true,
+      nextOpenAt: null,
+      nextAutomaticAt: activeManualOverride.until,
+      mode: "manual_open" as const,
+      manualOverrideState: "open" as const,
+      manualOverrideUntil: activeManualOverride.until
+    };
+  }
+
+  const resumedSchedule = resolveScheduledQrisPaymentWindow(env, new Date(activeManualOverride.until));
+  return {
+    ...scheduled,
+    isOpen: false,
+    nextOpenAt: resumedSchedule.isOpen ? activeManualOverride.until : resumedSchedule.nextOpenAt,
+    nextAutomaticAt: activeManualOverride.until,
+    mode: "manual_closed" as const,
+    manualOverrideState: "closed" as const,
+    manualOverrideUntil: activeManualOverride.until
+  };
+}
+
+function withQrisManualOverride(
+  settings: AppSettings,
+  env: WorkerEnv,
+  mode: QrisManualOverrideMode,
+  at = new Date()
+): AppSettings {
+  if (mode === "auto") {
+    return {
+      ...settings,
+      qrisManualOverride: "auto",
+      qrisManualOverrideUntil: null
+    };
+  }
+
+  const scheduled = resolveScheduledQrisPaymentWindow(env, at);
+  return {
+    ...settings,
+    qrisManualOverride: mode,
+    qrisManualOverrideUntil: scheduled.nextToggleAt
   };
 }
 
@@ -1453,7 +1583,7 @@ function subscriptionConfig(settings: AppSettings, env: WorkerEnv, at = new Date
     uniqueDigits: 2 as const,
     uniqueCodeMin: qrisEnvInteger(env, "INTERACTIVE_QRIS_UNIQUE_CODE_MIN", 71, 1, 99),
     uniqueCodeMax: qrisEnvInteger(env, "INTERACTIVE_QRIS_UNIQUE_CODE_MAX", 99, 1, 99),
-    paymentWindow: resolveQrisPaymentWindow(env, at),
+    paymentWindow: resolveQrisPaymentWindow(env, at, settings),
     webhookConfigured: Boolean(
       String(env.INTERACTIVE_QRIS_WEBHOOK_SECRET || "").trim()
       && String(env.INTERACTIVE_QRIS_SOURCE_PACKAGE || "").trim()
@@ -1469,7 +1599,7 @@ function topupConfig(settings: AppSettings, env: WorkerEnv, at = new Date()) {
     uniqueDigits: 2 as const,
     uniqueCodeMin: qrisEnvInteger(env, "INTERACTIVE_QRIS_UNIQUE_CODE_MIN", 71, 1, 99),
     uniqueCodeMax: qrisEnvInteger(env, "INTERACTIVE_QRIS_UNIQUE_CODE_MAX", 99, 1, 99),
-    paymentWindow: resolveQrisPaymentWindow(env, at),
+    paymentWindow: resolveQrisPaymentWindow(env, at, settings),
     webhookConfigured: Boolean(
       String(env.INTERACTIVE_QRIS_WEBHOOK_SECRET || "").trim()
       && String(env.INTERACTIVE_QRIS_SOURCE_PACKAGE || "").trim()
@@ -2226,22 +2356,28 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
       const nextSettings = parseSettingsInput(await parseJsonRequest(request));
       const result = await context.serviceDb
         .from("app_settings")
-        .upsert({
-          settings_key: "default",
-          script_provider: nextSettings.scriptProvider,
-          script_fallback_provider: nextSettings.scriptFallbackProvider,
-          script_model: nextSettings.scriptModel,
-          tax_rate_percent: nextSettings.taxRatePercent,
-          language: nextSettings.language,
-          max_video_seconds: nextSettings.maxVideoSeconds,
-          safety_mode: nextSettings.safetyMode,
-          concurrency: nextSettings.concurrency,
-          subscription_price_idr: nextSettings.subscriptionPriceIdr,
-          subscription_days: nextSettings.subscriptionDays,
-          qris_merchant_name: nextSettings.qrisMerchantName,
-          qris_image_url: nextSettings.qrisImageUrl,
-          qris_instructions: nextSettings.qrisInstructions
-        }, { onConflict: "settings_key" });
+        .upsert(settingsUpsertRow(nextSettings), { onConflict: "settings_key" });
+      if (result.error) {
+        throw result.error;
+      }
+      return jsonResponse(applyRuntimeSettingsEnvOverrides(nextSettings, env), {
+        headers: buildCorsHeaders(request)
+      });
+    }
+
+    if (route.path === "/api/settings/qris-payment-window" && request.method === "PUT") {
+      requireSuperadmin(context);
+      const body = await parseJsonRequest(request);
+      const mode = qrisWindowOverrideMode(
+        body && typeof body === "object" && !Array.isArray(body)
+          ? (body as Record<string, unknown>).mode
+          : "auto"
+      );
+      const currentSettings = await getSettings(context.serviceDb, env);
+      const nextSettings = withQrisManualOverride(currentSettings, env, mode);
+      const result = await context.serviceDb
+        .from("app_settings")
+        .upsert(settingsUpsertRow(nextSettings), { onConflict: "settings_key" });
       if (result.error) {
         throw result.error;
       }

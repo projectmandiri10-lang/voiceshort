@@ -3538,6 +3538,14 @@ button {
   margin: 0;
   color: var(--text-soft);
 }
+
+.settings-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
 .tempo-fit-note {
   display: grid;
   gap: 0.3rem;

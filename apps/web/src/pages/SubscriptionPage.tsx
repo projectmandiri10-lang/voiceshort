@@ -176,7 +176,13 @@ export function SubscriptionPage({ user, onUserUpdated, onGenerate }: Subscripti
           <h2>Pilih paket top up</h2>
           <p>Harga per analisis mengikuti credit wallet. Admin tetap mengatur model utama Aivene yang dipakai user berbayar.</p>
           <p className={paymentOpen ? "payment-window-open" : "payment-window-closed"}>
-            Jam pembayaran: 05.00-22.00 WIB. Invoice berlaku 60 menit.
+            Jam pembayaran normal: 05.00-22.00 WIB. Invoice berlaku 60 menit.
+            {config?.paymentWindow.mode === "manual_open" && config.paymentWindow.manualOverrideUntil
+              ? ` Saat ini dibuka manual admin sampai ${new Date(config.paymentWindow.manualOverrideUntil).toLocaleString("id-ID", { timeZone: config.paymentWindow.timeZone })}.`
+              : ""}
+            {config?.paymentWindow.mode === "manual_closed" && config.paymentWindow.manualOverrideUntil
+              ? ` Saat ini ditutup manual admin sampai ${new Date(config.paymentWindow.manualOverrideUntil).toLocaleString("id-ID", { timeZone: config.paymentWindow.timeZone })}.`
+              : ""}
             {!paymentOpen && config?.paymentWindow.nextOpenAt
               ? ` Dibuka kembali ${new Date(config.paymentWindow.nextOpenAt).toLocaleString("id-ID", { timeZone: config.paymentWindow.timeZone })}.`
               : ""}

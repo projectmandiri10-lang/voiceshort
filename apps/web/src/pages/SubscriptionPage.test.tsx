@@ -64,7 +64,11 @@ const config: TopupConfig = {
     opensAt: "05:00",
     closesAt: "22:00",
     isOpen: true,
-    nextOpenAt: null
+    nextOpenAt: null,
+    nextAutomaticAt: "2026-07-15T15:00:00.000Z",
+    mode: "automatic",
+    manualOverrideState: null,
+    manualOverrideUntil: null
   }
 };
 

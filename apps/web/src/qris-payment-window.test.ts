@@ -22,7 +22,42 @@ describe("QRIS payment window in WIB", () => {
       opensAt: "05:00",
       closesAt: "22:00",
       isOpen: false,
-      nextOpenAt: "2026-07-15T22:00:00.000Z"
+      nextOpenAt: "2026-07-15T22:00:00.000Z",
+      mode: "automatic"
+    });
+  });
+
+  it("allows a manual open override after 22.00 WIB until the next automatic switch", () => {
+    expect(resolveQrisPaymentWindow(
+      env,
+      new Date("2026-07-15T15:30:00.000Z"),
+      {
+        qrisManualOverride: "open",
+        qrisManualOverrideUntil: "2026-07-15T22:00:00.000Z"
+      }
+    )).toMatchObject({
+      isOpen: true,
+      nextOpenAt: null,
+      nextAutomaticAt: "2026-07-15T22:00:00.000Z",
+      mode: "manual_open",
+      manualOverrideState: "open"
+    });
+  });
+
+  it("keeps a manual close override until 22.00 WIB and reopens at 05.00 WIB the next day", () => {
+    expect(resolveQrisPaymentWindow(
+      env,
+      new Date("2026-07-15T03:00:00.000Z"),
+      {
+        qrisManualOverride: "closed",
+        qrisManualOverrideUntil: "2026-07-15T15:00:00.000Z"
+      }
+    )).toMatchObject({
+      isOpen: false,
+      nextOpenAt: "2026-07-15T22:00:00.000Z",
+      nextAutomaticAt: "2026-07-15T15:00:00.000Z",
+      mode: "manual_closed",
+      manualOverrideState: "closed"
     });
   });
 

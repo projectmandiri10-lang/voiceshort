@@ -36,7 +36,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   subscriptionDays: 30,
   qrisMerchantName: "MEGAKOMINDO",
   qrisImageUrl: "/qris/megakomindo-qris.jpg",
-  qrisInstructions: "Scan QRIS lalu bayar sesuai nominal unik sampai dua digit terakhir."
+  qrisInstructions: "Scan QRIS lalu bayar sesuai nominal unik sampai dua digit terakhir.",
+  qrisManualOverride: "auto",
+  qrisManualOverrideUntil: null
 };
 
 export function normalizeScriptProvider(

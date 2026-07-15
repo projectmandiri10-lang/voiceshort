@@ -14,6 +14,7 @@ export type AiProvider = ScriptAiProvider;
 export type UserRole = "user" | "superadmin";
 export type SubscriptionStatus = "active" | "inactive";
 export type AssignedPackageCode = "10_video" | "50_video" | "100_video" | "custom";
+export type QrisManualOverrideMode = "auto" | "open" | "closed";
 
 export interface AppSettings {
   scriptProvider: ScriptAiProvider;
@@ -29,6 +30,8 @@ export interface AppSettings {
   qrisMerchantName: string;
   qrisImageUrl: string;
   qrisInstructions: string;
+  qrisManualOverride: QrisManualOverrideMode;
+  qrisManualOverrideUntil: string | null;
 }
 
 export interface AdminTransactionRecord {
@@ -111,7 +114,10 @@ export interface SubscriptionConfig {
   uniqueCodeMin: number; uniqueCodeMax: number; webhookConfigured: boolean;
   paymentWindow: {
     timeZone: string; opensAt: string; closesAt: string;
-    isOpen: boolean; nextOpenAt: string | null;
+    isOpen: boolean; nextOpenAt: string | null; nextAutomaticAt: string | null;
+    mode: "automatic" | "manual_open" | "manual_closed";
+    manualOverrideState: Exclude<QrisManualOverrideMode, "auto"> | null;
+    manualOverrideUntil: string | null;
   };
 }
 export interface SubscriptionCheckout {
@@ -132,6 +138,10 @@ export interface TopupConfig {
     closesAt: string;
     isOpen: boolean;
     nextOpenAt: string | null;
+    nextAutomaticAt: string | null;
+    mode: "automatic" | "manual_open" | "manual_closed";
+    manualOverrideState: Exclude<QrisManualOverrideMode, "auto"> | null;
+    manualOverrideUntil: string | null;
   };
 }
 export interface DepositPackage {

@@ -3,10 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminSettingsPage } from "./AdminSettingsPage";
 
 const fetchSettingsMock = vi.fn();
+const fetchTopupConfigMock = vi.fn();
+const setQrisPaymentWindowModeMock = vi.fn();
 const updateSettingsMock = vi.fn();
 
 vi.mock("../api", () => ({
   fetchSettings: () => fetchSettingsMock(),
+  fetchTopupConfig: () => fetchTopupConfigMock(),
+  setQrisPaymentWindowMode: (mode: unknown) => setQrisPaymentWindowModeMock(mode),
   updateSettings: (settings: unknown) => updateSettingsMock(settings)
 }));
 
@@ -23,12 +27,37 @@ const settings = {
   subscriptionDays: 30,
   qrisMerchantName: "VoiceShort",
   qrisImageUrl: "https://example.com/qris.png",
-  qrisInstructions: "Bayar sesuai nominal unik."
+  qrisInstructions: "Bayar sesuai nominal unik.",
+  qrisManualOverride: "auto" as const,
+  qrisManualOverrideUntil: null
+};
+
+const topupConfig = {
+  merchantName: "VoiceShort",
+  qrisImageUrl: "https://example.com/qris.png",
+  instructions: "Bayar sesuai nominal unik.",
+  uniqueDigits: 2 as const,
+  uniqueCodeMin: 71,
+  uniqueCodeMax: 99,
+  webhookConfigured: true,
+  paymentWindow: {
+    timeZone: "Asia/Jakarta",
+    opensAt: "05:00",
+    closesAt: "22:00",
+    isOpen: true,
+    nextOpenAt: null,
+    nextAutomaticAt: "2026-07-15T15:00:00.000Z",
+    mode: "automatic" as const,
+    manualOverrideState: null,
+    manualOverrideUntil: null
+  }
 };
 
 describe("AdminSettingsPage", () => {
   beforeEach(() => {
     fetchSettingsMock.mockReset().mockResolvedValue(settings);
+    fetchTopupConfigMock.mockReset().mockResolvedValue(topupConfig);
+    setQrisPaymentWindowModeMock.mockReset().mockResolvedValue(settings);
     updateSettingsMock.mockReset().mockImplementation(async (value) => value);
     vi.stubGlobal("alert", vi.fn());
   });
@@ -49,6 +78,15 @@ describe("AdminSettingsPage", () => {
     expect(screen.getByText(/User gratis & top up:/)).toBeTruthy();
     expect(screen.getByText(/tanpa Z\.AI direct/)).toBeTruthy();
     expect(screen.getByText(/Top up QRIS statis/)).toBeTruthy();
+  });
+
+  it("lets the admin open QRIS manually and confirms it with an alert", async () => {
+    render(<AdminSettingsPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Buka manual" }));
+
+    await waitFor(() => expect(setQrisPaymentWindowModeMock).toHaveBeenCalledWith("open"));
+    expect(window.alert).toHaveBeenCalledWith("QRIS dibuka manual sampai pergantian jadwal otomatis berikutnya.");
   });
 
   it("offers the preconfigured MacroDroid export without embedding the secret", async () => {

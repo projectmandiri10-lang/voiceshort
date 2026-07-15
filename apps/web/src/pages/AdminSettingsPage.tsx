@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Download, Save, ShieldCheck } from "lucide-react";
-import { fetchSettings, updateSettings } from "../api";
+import { fetchSettings, fetchTopupConfig, setQrisPaymentWindowMode, updateSettings } from "../api";
 import { AIVENE_SCRIPT_MODELS, FREE_USER_AIVENE_SCRIPT_MODEL } from "../shared/constants";
-import type { AppSettings } from "../types";
+import type { AppSettings, QrisManualOverrideMode, TopupConfig } from "../types";
 
 const MODEL_LABELS: Record<(typeof AIVENE_SCRIPT_MODELS)[number], string> = {
   "qwen3.5-flash": "Qwen 3.5 Flash - paling hemat",
@@ -12,16 +12,25 @@ const MODEL_LABELS: Record<(typeof AIVENE_SCRIPT_MODELS)[number], string> = {
 
 export function AdminSettingsPage() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [topupConfig, setTopupConfig] = useState<TopupConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [windowSaving, setWindowSaving] = useState<QrisManualOverrideMode | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let mounted = true;
-    void fetchSettings()
-      .then((result) => {
-        if (mounted) setSettings(result);
-      })
+    const refresh = async () => {
+      const [settingsResult, topupResult] = await Promise.all([
+        fetchSettings(),
+        fetchTopupConfig()
+      ]);
+      if (mounted) {
+        setSettings(settingsResult);
+        setTopupConfig(topupResult);
+      }
+    };
+    void refresh()
       .catch((cause) => {
         if (mounted) setError((cause as Error).message);
       })
@@ -53,8 +62,41 @@ export function AdminSettingsPage() {
     }
   }
 
+  async function changeQrisWindowMode(mode: QrisManualOverrideMode) {
+    if (!settings || windowSaving) return;
+    setWindowSaving(mode);
+    setError("");
+    try {
+      const saved = await setQrisPaymentWindowMode(mode);
+      const latestTopup = await fetchTopupConfig();
+      setSettings(saved);
+      setTopupConfig(latestTopup);
+      window.alert(
+        mode === "open"
+          ? "QRIS dibuka manual sampai pergantian jadwal otomatis berikutnya."
+          : mode === "closed"
+            ? "QRIS ditutup manual sampai pergantian jadwal otomatis berikutnya."
+            : "QRIS kembali mengikuti jadwal otomatis 05.00-22.00 WIB."
+      );
+    } catch (cause) {
+      const message = (cause as Error).message || "Status QRIS tidak bisa diubah.";
+      setError(message);
+      window.alert(`Gagal mengubah status QRIS: ${message}`);
+    } finally {
+      setWindowSaving(null);
+    }
+  }
+
   if (loading) return <section className="card"><p>Memuat pengaturan AI...</p></section>;
   if (!settings) return <section className="card"><p className="err-text">{error || "Pengaturan AI tidak tersedia."}</p></section>;
+
+  const paymentWindow = topupConfig?.paymentWindow;
+  const paymentStatus = paymentWindow?.isOpen ? "Terbuka" : "Tertutup";
+  const paymentDetail = paymentWindow?.mode === "manual_open"
+    ? `Dibuka manual sampai ${paymentWindow.manualOverrideUntil ? new Date(paymentWindow.manualOverrideUntil).toLocaleString("id-ID", { timeZone: paymentWindow.timeZone }) : "-"}`
+    : paymentWindow?.mode === "manual_closed"
+      ? `Ditutup manual sampai ${paymentWindow.manualOverrideUntil ? new Date(paymentWindow.manualOverrideUntil).toLocaleString("id-ID", { timeZone: paymentWindow.timeZone }) : "-"}`
+      : `Mengikuti jadwal otomatis ${paymentWindow?.opensAt || "05:00"}-${paymentWindow?.closesAt || "22:00"} WIB`;
 
   return (
     <section className="card settings-card">
@@ -94,6 +136,40 @@ export function AdminSettingsPage() {
         <div className="settings-section-divider">
           <h3>Top up QRIS statis</h3>
           <p>Admin cukup mengatur merchant, gambar QRIS, dan instruksi pembayaran. Paket top up dan nominal unik dikelola worker.</p>
+        </div>
+
+        <div className="settings-provider-summary">
+          <p><strong>Status QRIS saat ini:</strong> {paymentStatus}</p>
+          <p>{paymentDetail}</p>
+          {paymentWindow?.mode !== "automatic" && paymentWindow?.nextAutomaticAt ? (
+            <p><strong>Kembali otomatis:</strong> {new Date(paymentWindow.nextAutomaticAt).toLocaleString("id-ID", { timeZone: paymentWindow.timeZone })}</p>
+          ) : null}
+          <div className="settings-action-row">
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={Boolean(windowSaving)}
+              onClick={() => void changeQrisWindowMode("open")}
+            >
+              Buka manual
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={Boolean(windowSaving)}
+              onClick={() => void changeQrisWindowMode("closed")}
+            >
+              Tutup manual
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={Boolean(windowSaving)}
+              onClick={() => void changeQrisWindowMode("auto")}
+            >
+              Kembali otomatis
+            </button>
+          </div>
         </div>
 
         <div className="personal-form-grid">

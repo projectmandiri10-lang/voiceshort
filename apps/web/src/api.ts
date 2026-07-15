@@ -6,6 +6,7 @@ import type {
   GenerationSessionCreateInput,
   GenerationSessionCreateResult,
   GenerationSessionRecord,
+  QrisManualOverrideMode,
   SubscriptionCheckout,
   SubscriptionConfig,
   SubscriptionOrder,
@@ -595,6 +596,16 @@ export async function updateSettings(settings: AppSettings): Promise<AppSettings
       "Content-Type": "application/json"
     },
     body: JSON.stringify(settings)
+  });
+}
+
+export async function setQrisPaymentWindowMode(mode: QrisManualOverrideMode): Promise<AppSettings> {
+  return await apiFetch<AppSettings>("/api/settings/qris-payment-window", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ mode })
   });
 }
 
