@@ -16,7 +16,7 @@ export const AI_PROVIDER_LABEL: Record<AiProvider, string> = {
 };
 
 export const DEFAULT_AIVENE_BASE_URL = "https://api.aivene.com/v1";
-export const DEFAULT_AIVENE_SCRIPT_MODEL = "gemini-2.5-pro";
+export const DEFAULT_AIVENE_SCRIPT_MODEL = "qwen3.7-plus";
 export const DEFAULT_OPENROUTER_SCRIPT_MODEL = "google/gemini-2.5-flash-lite";
 
 export const DEFAULT_SETTINGS: AppSettings = {

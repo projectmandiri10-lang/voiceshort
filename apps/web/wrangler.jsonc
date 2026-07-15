@@ -7,7 +7,8 @@
     "SCRIPT_PROVIDER": "aivene",
     "SCRIPT_FALLBACK_PROVIDER": "openrouter",
     "AIVENE_BASE_URL": "https://api.aivene.com/v1",
-    "AIVENE_SCRIPT_MODEL": "gemini-3.1-pro",
+    "AIVENE_SCRIPT_MODEL": "qwen3.7-plus",
+    "AIVENE_REASONING_EFFORT": "medium",
     "SUPABASE_URL": "https://sluloqncvxbuyoybcacb.supabase.co",
     "GENERATE_PRICE_IDR": "2000"
   },

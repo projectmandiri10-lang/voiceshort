@@ -32,6 +32,25 @@ function contextLines(input: PromptInput): string[] {
   ];
 }
 
+function buildVoiceDeliveryInstruction(input: Pick<PromptInput, "contentType" | "tone" | "contentLanguage">): string {
+  const selectedTone = getToneLabel(input.contentLanguage, input.tone);
+  const toneGuidance: Record<string, string> = {
+    natural: "relaxed, conversational, and unforced",
+    enerjik: "lively and upbeat, but controlled rather than shouted",
+    friendly: "casual, approachable, and easygoing",
+    informatif: "calm, clear, and explanatory",
+    fun: "playful and expressive without becoming excessive",
+    hangat: "warm, gentle, and reassuring",
+    tegas: "firm and confident, but never aggressive"
+  };
+  const delivery = toneGuidance[input.tone] || "faithful to the selected tone";
+  const affiliateGuardrail = input.contentType === "affiliate"
+    ? " Affiliate content must not default to a forceful sales-announcer voice, excessive enthusiasm, shouting, or hard-sell delivery."
+    : "";
+
+  return `The selected voice tone (${selectedTone}) is authoritative: deliver it ${delivery}.${affiliateGuardrail}`;
+}
+
 export function buildCtaInstruction(input: Pick<PromptInput, "contentType" | "socialPlatform" | "ctaText">): string {
   const customCta = input.ctaText?.trim();
   if (customCta) {
@@ -88,6 +107,7 @@ export function buildAiStudioPackagePrompt(input: PromptInput & { visualBrief: V
     }),
     "Rules:",
     `- sceneText must request a single-speaker ${languageName} voice over with the requested tone. It must command the speaker to read every script word exactly once, without adding, repeating, paraphrasing, or omitting anything.`,
+    `- sceneText and sampleContextText must preserve this voice-direction rule exactly: ${buildVoiceDeliveryInstruction(input)}`,
     `- sceneText must command the final spoken word to finish at ${timing.speechTargetSec.toFixed(2)} seconds, followed by ${timing.safetyMarginSec.toFixed(2)} seconds of silence, so the audio totals exactly ${input.videoDurationSec.toFixed(2)} seconds.`,
     "- sceneText must tell the speech model to adjust speaking pace and natural pauses, with no intro, outro, audio tags, or long opening/closing silence.",
     `- sampleContextText must state the exact ${input.videoDurationSec.toFixed(2)} second duration, the ${timing.speechTargetSec.toFixed(2)} second final-word deadline, the ${minWords}-${maxWords} word budget, verified visual order, audience, narrative intent, safety limits, and a strict no-paraphrase rule.`,

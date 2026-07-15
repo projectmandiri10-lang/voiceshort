@@ -73,6 +73,7 @@ export interface WorkerEnv {
   AIVENE_API_KEY?: string;
   AIVENE_BASE_URL?: string;
   AIVENE_SCRIPT_MODEL?: string;
+  AIVENE_REASONING_EFFORT?: string;
   OPENROUTER_API_KEY?: string;
   SCRIPT_PROVIDER?: string;
   SCRIPT_FALLBACK_PROVIDER?: string;
@@ -272,6 +273,11 @@ function getAiveneApiKey(env: WorkerEnv): string {
 
 function resolveAiveneBaseUrl(env: WorkerEnv): string {
   return trimTrailingSlash(String(env.AIVENE_BASE_URL || DEFAULT_AIVENE_BASE_URL).trim() || DEFAULT_AIVENE_BASE_URL);
+}
+
+function resolveAiveneReasoningEffort(env: WorkerEnv): "low" | "medium" | "high" {
+  const value = String(env.AIVENE_REASONING_EFFORT || "medium").trim().toLowerCase();
+  return value === "low" || value === "high" ? value : "medium";
 }
 
 function resolveAiveneChatUrl(baseUrl: string): string {
@@ -905,6 +911,7 @@ async function generateTextWithProvider(
 
   const payload = await callAiveneText(env, {
     model: normalizeScriptModel(model, provider),
+    reasoning_effort: resolveAiveneReasoningEffort(env),
     messages: [
       {
         role: "user",

@@ -68,4 +68,29 @@ describe("AI Studio package prompt", () => {
       contentType: "edukasi", socialPlatform: "youtube"
     })).toContain("Do not add a CTA");
   });
+
+  it("keeps affiliate narration aligned with the selected tone instead of defaulting to hard sell", () => {
+    const informativePrompt = buildAiStudioPackagePrompt({
+      ...baseInput,
+      contentType: "affiliate",
+      tone: "informatif",
+      visualBrief
+    });
+
+    expect(informativePrompt).toContain("selected voice tone (Informatif) is authoritative");
+    expect(informativePrompt).toContain("calm, clear, and explanatory");
+    expect(informativePrompt).toContain("must not default to a forceful sales-announcer voice");
+    expect(informativePrompt).toContain("excessive enthusiasm, shouting, or hard-sell delivery");
+  });
+
+  it("allows energetic affiliate delivery while keeping it controlled", () => {
+    const energeticPrompt = buildAiStudioPackagePrompt({
+      ...baseInput,
+      contentType: "affiliate",
+      tone: "enerjik",
+      visualBrief
+    });
+
+    expect(energeticPrompt).toContain("lively and upbeat, but controlled rather than shouted");
+  });
 });

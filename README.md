@@ -25,7 +25,8 @@ File video, audio upload, dan video final disimpan di IndexedDB perangkat. Media
 ```env
 AIVENE_API_KEY=your_aivene_api_key
 AIVENE_BASE_URL=https://api.aivene.com/v1
-AIVENE_SCRIPT_MODEL=gemini-3.1-pro
+AIVENE_SCRIPT_MODEL=qwen3.7-plus
+AIVENE_REASONING_EFFORT=medium
 OPENROUTER_API_KEY=your_openrouter_api_key
 SCRIPT_PROVIDER=aivene
 SCRIPT_FALLBACK_PROVIDER=openrouter
@@ -36,7 +37,7 @@ VITE_SUPABASE_URL=https://your_project_ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your_anon_key
 ```
 
-`AIVENE_API_KEY`, `OPENROUTER_API_KEY`, dan `SUPABASE_SERVICE_ROLE_KEY` harus disimpan sebagai Cloudflare Worker secrets. Variabel non-secret sudah didefinisikan di `apps/web/wrangler.jsonc`.
+`AIVENE_API_KEY`, `OPENROUTER_API_KEY`, dan `SUPABASE_SERVICE_ROLE_KEY` harus disimpan sebagai Cloudflare Worker secrets. Variabel non-secret sudah didefinisikan di `apps/web/wrangler.jsonc`. Analisis Aivene menggunakan `qwen3.7-plus` dengan `reasoning_effort` medium.
 
 ## Commands
 

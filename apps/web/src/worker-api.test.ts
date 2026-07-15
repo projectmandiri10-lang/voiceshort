@@ -66,7 +66,8 @@ const env = {
   SUPABASE_SERVICE_ROLE_KEY: "service",
   AIVENE_API_KEY: "aivene-key",
   AIVENE_BASE_URL: "https://api.aivene.com/v1",
-  AIVENE_SCRIPT_MODEL: "gemini-3.1-pro",
+  AIVENE_SCRIPT_MODEL: "qwen3.7-plus",
+  AIVENE_REASONING_EFFORT: "medium",
   SCRIPT_PROVIDER: "aivene",
   SCRIPT_FALLBACK_PROVIDER: "openrouter"
 };
@@ -125,6 +126,9 @@ describe("generation session Worker workflow", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.every(([url]) => String(url) === "https://api.aivene.com/v1/chat/completions")).toBe(true);
+    const aiBodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+    expect(aiBodies.every((payload) => payload.model === "qwen3.7-plus")).toBe(true);
+    expect(aiBodies.every((payload) => payload.reasoning_effort === "medium")).toBe(true);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("audio/speech"))).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
     expect(inserted[0]).toMatchObject({ status: "ready_for_voice_upload", charged_amount_idr: 0 });
