@@ -1,6 +1,6 @@
 # MacroDroid untuk Langganan VoiceShort
 
-MacroDroid meneruskan notifikasi pembayaran dari aplikasi InterActive QRIS ke Worker VoiceShort. File siap impor tersedia di `macrodroid/voiceshort-interactive-qris.macro`. Makro web app lain tetap dipertahankan karena file VoiceShort berdiri sendiri.
+MacroDroid meneruskan notifikasi pembayaran dari aplikasi InterActive QRIS ke Worker VoiceShort. File siap impor dapat diunduh oleh superadmin melalui **Pengaturan AI > Download MacroDroid**, dan salinan sumbernya tersedia di `macrodroid/voiceshort-interactive-qris.macro`. Makro web app lain tetap dipertahankan karena file VoiceShort berdiri sendiri.
 
 ## Konfigurasi Worker
 
@@ -34,7 +34,7 @@ Jika MacroDroid tidak mengenali teks `{v=VOICESHORT_QRIS_SECRET}`, pilih variabl
 
 ## Langkah di MacroDroid
 
-1. Pindahkan `macrodroid/voiceshort-interactive-qris.macro` ke HP.
+1. Login sebagai superadmin, buka **Pengaturan AI**, lalu tekan **Download MacroDroid**. Pindahkan file ke HP bila unduhan dilakukan melalui komputer.
 2. Buka MacroDroid dan pilih menu import macro.
 3. Impor file tersebut tanpa menghapus makro web app lain.
 4. Buka secure global variable `VOICESHORT_QRIS_SECRET` dan isi nilainya dari `.env`.

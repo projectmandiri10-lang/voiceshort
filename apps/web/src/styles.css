@@ -3378,6 +3378,45 @@ button {
   margin: 0 0 0.4rem;
 }
 
+.macrodroid-download-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  border-radius: 0.9rem;
+  background: rgba(34, 211, 238, 0.06);
+}
+
+.macrodroid-download-card h3,
+.macrodroid-download-card p {
+  margin: 0;
+}
+
+.macrodroid-download-card p {
+  margin-top: 0.4rem;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.macrodroid-download-card code {
+  margin-left: 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+.macrodroid-download-card .secondary-button {
+  flex: 0 0 auto;
+  justify-content: center;
+}
+
+@media (max-width: 720px) {
+  .macrodroid-download-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .analysis-access-note {
   display: flex;
   align-items: center;

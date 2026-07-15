@@ -49,4 +49,16 @@ describe("AdminSettingsPage", () => {
     expect(screen.getByText(/User gratis & pelanggan:/)).toBeTruthy();
     expect(screen.getByText(/tanpa Z\.AI direct/)).toBeTruthy();
   });
+
+  it("offers the preconfigured MacroDroid export without embedding the secret", async () => {
+    render(<AdminSettingsPage />);
+
+    const download = await screen.findByRole("link", { name: "Download MacroDroid" });
+
+    expect(download.getAttribute("href")).toBe("/downloads/voiceshort-interactive-qris.macro");
+    expect(download.getAttribute("download")).toBe("voiceshort-interactive-qris.macro");
+    expect(screen.getByText(/com\.interactive\.qrisid/)).toBeTruthy();
+    expect(screen.getByText(/VOICESHORT_QRIS_SECRET/)).toBeTruthy();
+    expect(screen.getByText(/INTERACTIVE_QRIS_WEBHOOK_SECRET/)).toBeTruthy();
+  });
 });

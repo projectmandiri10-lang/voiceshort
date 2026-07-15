@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const macroPath = resolve(process.cwd(), "../../macrodroid/voiceshort-interactive-qris.macro");
+const publicMacroPath = resolve(process.cwd(), "public/downloads/voiceshort-interactive-qris.macro");
 const qrisPath = resolve(process.cwd(), "public/qris/megakomindo-qris.jpg");
 
 describe("VoiceShort MacroDroid export", () => {
@@ -32,5 +33,10 @@ describe("VoiceShort MacroDroid export", () => {
 
   it("ships the selected QRIS image as a public asset", () => {
     expect(existsSync(qrisPath)).toBe(true);
+  });
+
+  it("publishes an exact copy for download from the admin page", () => {
+    expect(existsSync(publicMacroPath)).toBe(true);
+    expect(readFileSync(publicMacroPath, "utf8")).toBe(readFileSync(macroPath, "utf8"));
   });
 });

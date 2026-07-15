@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Save, ShieldCheck } from "lucide-react";
+import { Download, Save, ShieldCheck } from "lucide-react";
 import { fetchSettings, updateSettings } from "../api";
 import { AIVENE_SCRIPT_MODELS, FREE_USER_AIVENE_SCRIPT_MODEL } from "../shared/constants";
 import type { AppSettings } from "../types";
@@ -117,6 +117,27 @@ export function AdminSettingsPage() {
             Instruksi pembayaran
             <textarea rows={3} value={settings.qrisInstructions} onChange={(event) => setSettings({ ...settings, qrisInstructions: event.target.value })} />
           </label>
+        </div>
+
+        <div className="macrodroid-download-card">
+          <div>
+            <h3>MacroDroid webhook</h3>
+            <p>
+              File sudah berisi endpoint VoiceShort dan package InterActive QRIS{" "}
+              <code>com.interactive.qrisid</code>. Secret sengaja dikosongkan.
+            </p>
+            <p>
+              Setelah diimpor, isi secure global variable <code>VOICESHORT_QRIS_SECRET</code>{" "}
+              dengan nilai <code>INTERACTIVE_QRIS_WEBHOOK_SECRET</code> dari file <code>.env</code> lokal.
+            </p>
+          </div>
+          <a
+            className="secondary-button"
+            href="/downloads/voiceshort-interactive-qris.macro"
+            download="voiceshort-interactive-qris.macro"
+          >
+            <Download size={17} /> Download MacroDroid
+          </a>
         </div>
 
         {error ? <p className="err-text">{error}</p> : null}
