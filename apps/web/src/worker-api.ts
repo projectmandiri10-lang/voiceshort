@@ -1023,7 +1023,8 @@ function buildOpenAiStyleFrameParts(
   return frames.map((frame) => ({
     type: "image_url",
     image_url: {
-      url: `data:${frame.mimeType};base64,${frame.base64Data}`
+      url: `data:${frame.mimeType};base64,${frame.base64Data}`,
+      detail: "low"
     }
   }));
 }
