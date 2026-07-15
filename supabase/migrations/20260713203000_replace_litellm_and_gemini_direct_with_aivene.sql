@@ -10,13 +10,13 @@ update public.app_settings
 set
   script_provider = case
     when coalesce(nullif(script_provider, ''), 'aivene') in ('litellm', 'gemini_direct') then 'aivene'
-    when script_provider = 'openrouter' then 'openrouter'
+    when script_provider = 'zai' then 'zai'
     else 'aivene'
   end,
   script_fallback_provider = case
-    when coalesce(nullif(script_fallback_provider, ''), 'openrouter') in ('litellm', 'gemini_direct') then 'aivene'
-    when script_fallback_provider = 'openrouter' then 'openrouter'
-    else 'openrouter'
+    when coalesce(nullif(script_fallback_provider, ''), 'zai') in ('litellm', 'gemini_direct') then 'aivene'
+    when script_fallback_provider = 'zai' then 'zai'
+    else 'zai'
   end,
   script_model = case
     when coalesce(nullif(script_model, ''), '') in (
@@ -30,13 +30,13 @@ set
   end,
   tts_provider = case
     when coalesce(nullif(tts_provider, ''), 'aivene') in ('litellm', 'gemini_direct') then 'aivene'
-    when tts_provider = 'openrouter' then 'openrouter'
+    when tts_provider = 'zai' then 'zai'
     else 'aivene'
   end,
   tts_fallback_provider = case
-    when coalesce(nullif(tts_fallback_provider, ''), 'openrouter') in ('litellm', 'gemini_direct') then 'aivene'
-    when tts_fallback_provider = 'openrouter' then 'openrouter'
-    else 'openrouter'
+    when coalesce(nullif(tts_fallback_provider, ''), 'zai') in ('litellm', 'gemini_direct') then 'aivene'
+    when tts_fallback_provider = 'zai' then 'zai'
+    else 'zai'
   end,
   tts_model = case
     when coalesce(nullif(tts_model, ''), '') in (
@@ -54,7 +54,7 @@ set
 update public.app_settings
 set
   script_fallback_provider = case
-    when script_provider = 'aivene' then 'openrouter'
+    when script_provider = 'aivene' then 'zai'
     else 'aivene'
   end
 where script_fallback_provider = script_provider;
@@ -62,25 +62,25 @@ where script_fallback_provider = script_provider;
 update public.app_settings
 set
   tts_fallback_provider = case
-    when tts_provider = 'aivene' then 'openrouter'
+    when tts_provider = 'aivene' then 'zai'
     else 'aivene'
   end
 where tts_fallback_provider = tts_provider;
 
 alter table public.app_settings
   alter column script_provider set default 'aivene',
-  alter column script_fallback_provider set default 'openrouter',
+  alter column script_fallback_provider set default 'zai',
   alter column tts_provider set default 'aivene',
-  alter column tts_fallback_provider set default 'openrouter';
+  alter column tts_fallback_provider set default 'zai';
 
 alter table public.app_settings
   add constraint app_settings_script_provider_check
-    check (script_provider in ('aivene', 'openrouter')),
+    check (script_provider in ('aivene', 'zai')),
   add constraint app_settings_script_fallback_provider_check
-    check (script_fallback_provider in ('aivene', 'openrouter')),
+    check (script_fallback_provider in ('aivene', 'zai')),
   add constraint app_settings_tts_provider_check
-    check (tts_provider in ('aivene', 'openrouter')),
+    check (tts_provider in ('aivene', 'zai')),
   add constraint app_settings_tts_fallback_provider_check
-    check (tts_fallback_provider in ('aivene', 'openrouter'));
+    check (tts_fallback_provider in ('aivene', 'zai'));
 
 commit;

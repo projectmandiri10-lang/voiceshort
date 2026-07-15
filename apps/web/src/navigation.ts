@@ -1,4 +1,4 @@
-export type AppView = "landing" | "generate" | "jobs";
+export type AppView = "landing" | "generate" | "jobs" | "admin";
 
 export interface AppRoute {
   view: AppView;
@@ -30,7 +30,7 @@ function buildUrl(route: Partial<AppRoute>): string {
 export function parseCurrentRoute(): AppRoute {
   const params = new URLSearchParams(window.location.search);
   const rawView = params.get("view");
-  const view = rawView === "generate" || rawView === "jobs"
+  const view = rawView === "generate" || rawView === "jobs" || rawView === "admin"
     ? rawView
     : "landing";
 

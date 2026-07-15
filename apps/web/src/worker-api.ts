@@ -1,8 +1,11 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   ABSOLUTE_MAX_VIDEO_SECONDS,
+  AIVENE_SCRIPT_MODELS,
   DEFAULT_SETTINGS,
   DEFAULT_AIVENE_BASE_URL,
+  DEFAULT_ZAI_BASE_URL,
+  DEFAULT_ZAI_SCRIPT_MODEL,
   normalizeScriptModel,
   normalizeScriptProvider
 } from "./shared/constants";
@@ -74,7 +77,9 @@ export interface WorkerEnv {
   AIVENE_BASE_URL?: string;
   AIVENE_SCRIPT_MODEL?: string;
   AIVENE_REASONING_EFFORT?: string;
-  OPENROUTER_API_KEY?: string;
+  ZAI_API_KEY?: string;
+  ZAI_BASE_URL?: string;
+  ZAI_SCRIPT_MODEL?: string;
   SCRIPT_PROVIDER?: string;
   SCRIPT_FALLBACK_PROVIDER?: string;
   SUPABASE_URL?: string;
@@ -280,6 +285,18 @@ function resolveAiveneReasoningEffort(env: WorkerEnv): "low" | "medium" | "high"
   return value === "low" || value === "high" ? value : "medium";
 }
 
+function getZaiApiKey(env: WorkerEnv): string {
+  const value = String(env.ZAI_API_KEY || "").trim();
+  if (!value) {
+    throw createHttpError(500, "ZAI_API_KEY belum dikonfigurasi di sistem backend.");
+  }
+  return value;
+}
+
+function resolveZaiBaseUrl(env: WorkerEnv): string {
+  return trimTrailingSlash(String(env.ZAI_BASE_URL || DEFAULT_ZAI_BASE_URL).trim() || DEFAULT_ZAI_BASE_URL);
+}
+
 function resolveAiveneChatUrl(baseUrl: string): string {
   const normalized = trimTrailingSlash(baseUrl);
   if (normalized.endsWith("/chat/completions")) {
@@ -414,16 +431,19 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
       }
     : DEFAULT_SETTINGS;
 
+  const scriptProvider = normalizeScriptProvider(source.scriptProvider, DEFAULT_SETTINGS.scriptProvider);
+  const rawScriptModel = String(source.scriptModel || DEFAULT_SETTINGS.scriptModel).trim() || DEFAULT_SETTINGS.scriptModel;
+  const scriptModel = scriptProvider === "aivene" && !AIVENE_SCRIPT_MODELS.includes(rawScriptModel as (typeof AIVENE_SCRIPT_MODELS)[number])
+    ? DEFAULT_SETTINGS.scriptModel
+    : rawScriptModel;
+
   return {
-    scriptProvider: normalizeScriptProvider(source.scriptProvider, DEFAULT_SETTINGS.scriptProvider),
+    scriptProvider,
     scriptFallbackProvider: normalizeScriptProvider(
       source.scriptFallbackProvider,
       DEFAULT_SETTINGS.scriptFallbackProvider
     ),
-    scriptModel: normalizeScriptModel(
-      String(source.scriptModel || DEFAULT_SETTINGS.scriptModel).trim() || DEFAULT_SETTINGS.scriptModel,
-      normalizeScriptProvider(source.scriptProvider, DEFAULT_SETTINGS.scriptProvider)
-    ),
+    scriptModel: normalizeScriptModel(scriptModel, scriptProvider),
     taxRatePercent: normalizeTaxRatePercent(source.taxRatePercent ?? DEFAULT_SETTINGS.taxRatePercent),
     language: "id-ID",
     maxVideoSeconds: Math.max(10, Math.min(ABSOLUTE_MAX_VIDEO_SECONDS, Math.trunc(source.maxVideoSeconds || DEFAULT_SETTINGS.maxVideoSeconds))),
@@ -432,32 +452,45 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
   };
 }
 
-function applyRuntimeSettingsEnvOverrides(settings: AppSettings, env: WorkerEnv): AppSettings {
+function resolveZaiChatUrl(baseUrl: string): string {
+  const normalized = trimTrailingSlash(baseUrl);
+  if (normalized.endsWith("/chat/completions")) {
+    return normalized;
+  }
+  if (normalized.endsWith("/v4")) {
+    return `${normalized}/chat/completions`;
+  }
+  return `${normalized}/api/paas/v4/chat/completions`;
+}
+
+function applyRuntimeSettingsEnvOverrides(
+  settings: AppSettings,
+  env: WorkerEnv,
+  useEnvModelDefault = false
+): AppSettings {
   const aiProvider = String(env.AI_PROVIDER || "").trim();
   const scriptProvider = normalizeScriptProvider(
     String(env.SCRIPT_PROVIDER || aiProvider || "").trim(),
     settings.scriptProvider
   );
   const scriptFallbackProvider = normalizeScriptProvider(
-    String(env.SCRIPT_FALLBACK_PROVIDER || (scriptProvider === "aivene" ? "openrouter" : "")).trim(),
+    String(env.SCRIPT_FALLBACK_PROVIDER || (scriptProvider === "aivene" ? "zai" : "aivene")).trim(),
     settings.scriptFallbackProvider === scriptProvider
-      ? scriptProvider === "openrouter"
-        ? "aivene"
-        : "openrouter"
+      ? scriptProvider === "zai" ? "aivene" : "zai"
       : settings.scriptFallbackProvider
   );
-  const scriptModelOverride =
-    scriptProvider === "aivene" ? String(env.AIVENE_SCRIPT_MODEL || "").trim() : "";
+  const scriptModelDefault = scriptProvider === "zai"
+    ? String(env.ZAI_SCRIPT_MODEL || DEFAULT_ZAI_SCRIPT_MODEL).trim()
+    : String(env.AIVENE_SCRIPT_MODEL || DEFAULT_SETTINGS.scriptModel).trim();
+  const selectedModel = useEnvModelDefault ? scriptModelDefault : settings.scriptModel;
   return {
     ...settings,
     scriptProvider,
     scriptFallbackProvider:
       scriptFallbackProvider === scriptProvider
-        ? scriptProvider === "openrouter"
-          ? "aivene"
-          : "openrouter"
+        ? scriptProvider === "zai" ? "aivene" : "zai"
         : scriptFallbackProvider,
-    scriptModel: normalizeScriptModel(scriptModelOverride || settings.scriptModel, scriptProvider)
+    scriptModel: normalizeScriptModel(selectedModel, scriptProvider)
   };
 }
 
@@ -617,13 +650,14 @@ function parseSettingsInput(input: unknown): AppSettings {
   if (scriptProvider === scriptFallbackProvider) {
     throw createHttpError(400, "Fallback provider script harus berbeda dari provider utama.");
   }
+  const requestedModel = assertString(body.scriptModel, "Script model") || DEFAULT_SETTINGS.scriptModel;
+  if (scriptProvider === "aivene" && !AIVENE_SCRIPT_MODELS.includes(requestedModel as (typeof AIVENE_SCRIPT_MODELS)[number])) {
+    throw createHttpError(400, "Model analisis Aivene tidak didukung.");
+  }
   return {
     scriptProvider,
     scriptFallbackProvider,
-    scriptModel: normalizeScriptModel(
-      assertString(body.scriptModel, "Script model") || DEFAULT_SETTINGS.scriptModel,
-      scriptProvider
-    ),
+    scriptModel: normalizeScriptModel(requestedModel, scriptProvider),
     taxRatePercent: assertTaxRatePercent(body.taxRatePercent ?? DEFAULT_SETTINGS.taxRatePercent),
     language: "id-ID",
     maxVideoSeconds: Math.max(
@@ -727,10 +761,8 @@ async function getSettings(serviceDb: SupabaseClient, env: WorkerEnv): Promise<A
   if (result.error) {
     throw result.error;
   }
-  return applyRuntimeSettingsEnvOverrides(normalizeSettings(result.data), env);
+  return applyRuntimeSettingsEnvOverrides(normalizeSettings(result.data), env, !result.data);
 }
-
-const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 async function callAiveneText(
   env: WorkerEnv,
@@ -759,14 +791,14 @@ async function callAiveneText(
   return payload;
 }
 
-async function callOpenRouterText(
+async function callZaiText(
   env: WorkerEnv,
   body: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(OPENROUTER_CHAT_URL, {
+  const response = await fetch(resolveZaiChatUrl(resolveZaiBaseUrl(env)), {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${getRequiredEnv(env, "OPENROUTER_API_KEY")}`,
+      Authorization: `Bearer ${getZaiApiKey(env)}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify(body)
@@ -779,7 +811,7 @@ async function callOpenRouterText(
         ? String((payload.error as { message?: unknown }).message)
         : typeof payload.message === "string"
           ? payload.message
-          : `OpenRouter text request gagal (${response.status}).`;
+          : `Z.AI text request gagal (${response.status}).`;
     throw createHttpError(response.status === 429 ? 503 : response.status, message, payload);
   }
 
@@ -893,9 +925,10 @@ async function generateTextWithProvider(
     frames?: GenerationSessionCreateInput["frames"];
   }
 ): Promise<Record<string, unknown>> {
-  if (provider === "openrouter") {
-    const payload = await callOpenRouterText(env, {
-      model: normalizeScriptModel(model, provider),
+  if (provider === "zai") {
+    const payload = await callZaiText(env, {
+      model: normalizeScriptModel(String(env.ZAI_SCRIPT_MODEL || DEFAULT_ZAI_SCRIPT_MODEL), provider),
+      thinking: { type: "enabled" },
       messages: [
         {
           role: "user",

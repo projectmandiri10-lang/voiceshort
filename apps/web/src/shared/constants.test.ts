@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_AIVENE_SCRIPT_MODEL,
-  DEFAULT_OPENROUTER_SCRIPT_MODEL,
+  DEFAULT_ZAI_SCRIPT_MODEL,
   DEFAULT_SETTINGS,
   normalizeScriptModel,
   normalizeScriptProvider
 } from "./constants";
 
 describe("shared constants", () => {
-  it("uses Aivene with OpenRouter fallback", () => {
+  it("uses Aivene with direct Z.AI fallback", () => {
     expect(DEFAULT_SETTINGS).toMatchObject({
       scriptProvider: "aivene",
-      scriptFallbackProvider: "openrouter",
+      scriptFallbackProvider: "zai",
       scriptModel: DEFAULT_AIVENE_SCRIPT_MODEL
     });
   });
@@ -19,15 +19,13 @@ describe("shared constants", () => {
   it("normalizes models for each text provider", () => {
     expect(normalizeScriptModel("", "aivene")).toBe(DEFAULT_AIVENE_SCRIPT_MODEL);
     expect(normalizeScriptModel("google/gemini-2.5-flash", "aivene")).toBe("gemini-2.5-flash");
-    expect(normalizeScriptModel("", "openrouter")).toBe(DEFAULT_OPENROUTER_SCRIPT_MODEL);
-    expect(normalizeScriptModel("gemini/gemini-2.5-flash", "openrouter")).toBe(
-      "google/gemini-2.5-flash"
-    );
+    expect(normalizeScriptModel("", "zai")).toBe(DEFAULT_ZAI_SCRIPT_MODEL);
+    expect(normalizeScriptModel("glm-5v-turbo", "zai")).toBe("glm-5v-turbo");
   });
 
   it("rejects removed provider names", () => {
-    expect(normalizeScriptProvider("aivene", "openrouter")).toBe("aivene");
-    expect(normalizeScriptProvider("litellm", "openrouter")).toBe("openrouter");
+    expect(normalizeScriptProvider("aivene", "zai")).toBe("aivene");
+    expect(normalizeScriptProvider("litellm", "zai")).toBe("zai");
     expect(normalizeScriptProvider("gemini_direct", "aivene")).toBe("aivene");
   });
 });

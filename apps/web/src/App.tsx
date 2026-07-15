@@ -1,22 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
-import { FolderClock, Sparkles } from "lucide-react";
+import { FolderClock, Settings, Sparkles } from "lucide-react";
 import { completeGoogleOAuthRedirect, fetchSession, logout, subscribeToAuthState } from "./api";
 import { DashboardShell, type DashboardTabDefinition } from "./components/DashboardShell";
 import { navigateToRoute, parseCurrentRoute, type AppRoute } from "./navigation";
 import { GeneratePage } from "./pages/GeneratePage";
 import { JobsPage } from "./pages/JobsPage";
 import { LandingPage } from "./pages/LandingPage";
+import { AdminSettingsPage } from "./pages/AdminSettingsPage";
 import type { AuthUser } from "./types";
 import { resolveBrowserLocale } from "./user-locale";
 
-type PersonalView = "generate" | "jobs";
+type PersonalView = "generate" | "jobs" | "admin";
 
-const tabs: DashboardTabDefinition<PersonalView>[] = [
+const personalTabs: DashboardTabDefinition<PersonalView>[] = [
   { id: "generate", label: "Generate", icon: Sparkles },
   { id: "jobs", label: "Riwayat", icon: FolderClock }
 ];
 
-function personalView(route: AppRoute): PersonalView {
+function personalView(route: AppRoute, isSuperadmin: boolean): PersonalView {
+  if (route.view === "admin" && isSuperadmin) return "admin";
   return route.view === "jobs" ? "jobs" : "generate";
 }
 
@@ -72,7 +74,10 @@ export default function App() {
     return <main className="app-shell-loading"><section className="card"><h1>Akun nonaktif</h1><p>{user.disabledReason || "Hubungi admin."}</p></section></main>;
   }
 
-  const activeView = personalView(route);
+  const tabs = user.role === "superadmin"
+    ? [...personalTabs, { id: "admin" as const, label: "Pengaturan AI", icon: Settings }]
+    : personalTabs;
+  const activeView = personalView(route, user.role === "superadmin");
   const navigate = (view: PersonalView, jobId?: string) => setRoute(navigateToRoute({ view, jobId }));
   return (
     <DashboardShell
@@ -86,7 +91,7 @@ export default function App() {
     >
       {activeView === "generate" ? (
         <GeneratePage locale={locale} resumeSessionId={route.jobId} onViewJobs={(jobId) => navigate("jobs", jobId)} />
-      ) : (
+      ) : activeView === "jobs" ? (
         <JobsPage
           locale={locale}
           currentUser={user}
@@ -94,6 +99,8 @@ export default function App() {
           onSelectJob={(jobId) => navigate("jobs", jobId)}
           onResumeSession={(jobId) => navigate("generate", jobId)}
         />
+      ) : (
+        <AdminSettingsPage />
       )}
     </DashboardShell>
   );

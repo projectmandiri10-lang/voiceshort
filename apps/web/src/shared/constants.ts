@@ -12,16 +12,18 @@ export const FINAL_VOICE_LOUDNORM = "loudnorm=I=-14:TP=-1.0:LRA=11";
 
 export const AI_PROVIDER_LABEL: Record<AiProvider, string> = {
   aivene: "Aivene",
-  openrouter: "OpenRouter"
+  zai: "Z.AI"
 };
 
 export const DEFAULT_AIVENE_BASE_URL = "https://api.aivene.com/v1";
 export const DEFAULT_AIVENE_SCRIPT_MODEL = "qwen3.7-plus";
-export const DEFAULT_OPENROUTER_SCRIPT_MODEL = "google/gemini-2.5-flash-lite";
+export const AIVENE_SCRIPT_MODELS = ["qwen3.5-flash", "qwen3.6-plus", "qwen3.7-plus"] as const;
+export const DEFAULT_ZAI_BASE_URL = "https://api.z.ai/api/paas/v4";
+export const DEFAULT_ZAI_SCRIPT_MODEL = "glm-5v-turbo";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   scriptProvider: "aivene",
-  scriptFallbackProvider: "openrouter",
+  scriptFallbackProvider: "zai",
   scriptModel: DEFAULT_AIVENE_SCRIPT_MODEL,
   taxRatePercent: 0,
   language: "id-ID",
@@ -34,7 +36,7 @@ export function normalizeScriptProvider(
   provider: string | undefined,
   fallback: ScriptAiProvider
 ): ScriptAiProvider {
-  return provider === "aivene" || provider === "openrouter" ? provider : fallback;
+  return provider === "aivene" || provider === "zai" ? provider : fallback;
 }
 
 export function normalizeAiProvider(provider: string | undefined, fallback: AiProvider): AiProvider {
@@ -61,20 +63,12 @@ function stripGatewayGeminiPrefix(model: string): string {
   return normalized.startsWith("gemini/gemini-") ? normalized.slice("gemini/".length) : normalized;
 }
 
-function ensureOpenRouterGeminiPrefix(model: string): string {
-  const normalized = stripGatewayGeminiPrefix(stripGoogleGeminiPrefix(collapseRepeatedPrefix(model)));
-  if (normalized.includes("/")) {
-    return normalized;
-  }
-  return normalized.startsWith("gemini-") ? `google/${normalized}` : normalized;
-}
-
 export function normalizeScriptModel(model: string, provider = DEFAULT_SETTINGS.scriptProvider): string {
   const trimmed = model.trim();
   if (!trimmed) {
-    return provider === "openrouter" ? DEFAULT_OPENROUTER_SCRIPT_MODEL : DEFAULT_AIVENE_SCRIPT_MODEL;
+    return provider === "zai" ? DEFAULT_ZAI_SCRIPT_MODEL : DEFAULT_AIVENE_SCRIPT_MODEL;
   }
-  return provider === "openrouter"
-    ? ensureOpenRouterGeminiPrefix(trimmed)
+  return provider === "zai"
+    ? trimmed
     : stripGatewayGeminiPrefix(stripGoogleGeminiPrefix(trimmed));
 }

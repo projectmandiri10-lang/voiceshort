@@ -3345,6 +3345,24 @@ button {
   .personal-form-grid .span-2 { grid-column: auto; }
   .primary-action { width: 100%; justify-content: center; }
 }
+
+.settings-card {
+  max-width: 760px;
+}
+
+.settings-provider-summary {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid rgba(15, 255, 255, 0.14);
+  border-radius: 18px;
+  background: rgba(15, 255, 255, 0.04);
+}
+
+.settings-provider-summary p {
+  margin: 0;
+  color: var(--text-soft);
+}
 .tempo-fit-note {
   display: grid;
   gap: 0.3rem;

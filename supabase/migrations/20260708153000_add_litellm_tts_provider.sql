@@ -4,7 +4,7 @@ alter table public.app_settings
 update public.app_settings
 set
   tts_provider = 'litellm',
-  tts_fallback_provider = 'openrouter',
+  tts_fallback_provider = 'zai',
   tts_model = case
     when coalesce(nullif(tts_model, ''), '') in (
       '',
@@ -16,9 +16,9 @@ set
 where settings_key = 'default';
 alter table public.app_settings
   alter column tts_provider set default 'litellm',
-  alter column tts_fallback_provider set default 'openrouter';
+  alter column tts_fallback_provider set default 'zai';
 alter table public.app_settings
   add constraint app_settings_tts_provider_check
-    check (tts_provider in ('gemini_direct', 'openrouter', 'litellm')),
+    check (tts_provider in ('gemini_direct', 'zai', 'litellm')),
   add constraint app_settings_tts_fallback_provider_check
-    check (tts_fallback_provider in ('gemini_direct', 'openrouter', 'litellm'));
+    check (tts_fallback_provider in ('gemini_direct', 'zai', 'litellm'));

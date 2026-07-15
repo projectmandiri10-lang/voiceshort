@@ -13,21 +13,31 @@ const profile = {
   created_at: "2026-07-13T10:00:00Z", updated_at: "2026-07-13T10:00:00Z"
 };
 
-function buildDb(inserted: unknown[], rpcMock: ReturnType<typeof vi.fn>) {
+function buildDb(
+  inserted: unknown[],
+  rpcMock: ReturnType<typeof vi.fn>,
+  options?: { settingsRow?: Record<string, unknown> | null; superadmin?: boolean }
+) {
+  let settingsRow = options?.settingsRow ?? null;
+  const activeProfile = options?.superadmin ? { ...profile, role: "superadmin" as const } : profile;
   return {
-    auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1", email: profile.email } }, error: null })) },
+    auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1", email: activeProfile.email } }, error: null })) },
     rpc: rpcMock,
     from: vi.fn((table: string) => {
       if (table === "profiles") {
         return {
           select() { return this; }, eq() { return this; },
-          maybeSingle: vi.fn(async () => ({ data: profile, error: null }))
+          maybeSingle: vi.fn(async () => ({ data: activeProfile, error: null }))
         };
       }
       if (table === "app_settings") {
         return {
           select() { return this; }, eq() { return this; },
-          maybeSingle: vi.fn(async () => ({ data: null, error: null }))
+          maybeSingle: vi.fn(async () => ({ data: settingsRow, error: null })),
+          upsert: vi.fn(async (payload: Record<string, unknown>) => {
+            settingsRow = payload;
+            return { error: null };
+          })
         };
       }
       if (table === "generation_sessions") {
@@ -68,8 +78,11 @@ const env = {
   AIVENE_BASE_URL: "https://api.aivene.com/v1",
   AIVENE_SCRIPT_MODEL: "qwen3.7-plus",
   AIVENE_REASONING_EFFORT: "medium",
+  ZAI_API_KEY: "zai-key",
+  ZAI_BASE_URL: "https://api.z.ai/api/paas/v4",
+  ZAI_SCRIPT_MODEL: "glm-5v-turbo",
   SCRIPT_PROVIDER: "aivene",
-  SCRIPT_FALLBACK_PROVIDER: "openrouter"
+  SCRIPT_FALLBACK_PROVIDER: "zai"
 };
 
 describe("generation session Worker workflow", () => {
@@ -137,6 +150,49 @@ describe("generation session Worker workflow", () => {
     expect(inserted[0]).not.toHaveProperty("include_subtitles");
   });
 
+  it("falls back directly to Z.AI GLM-5V Turbo when Aivene rejects a stage", async () => {
+    const inserted: unknown[] = [];
+    createClientMock.mockReturnValue(buildDb(inserted, vi.fn()));
+    const visualBrief = {
+      summary: "Produk terlihat jelas",
+      hook: { startSec: 0, endSec: 3, reason: "Produk muncul" },
+      timeline: [{
+        startSec: 0, endSec: 42, primaryVisual: "Produk", action: "Dipakai",
+        onScreenText: [], narrationFocus: "Kegunaan", avoidClaims: []
+      }],
+      mustMention: [], mustAvoid: [], uncertainties: []
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Aivene unavailable" } }), {
+        status: 400, headers: { "Content-Type": "application/json" }
+      }))
+      .mockResolvedValueOnce(chatResponse(visualBrief))
+      .mockResolvedValueOnce(chatResponse({
+        sceneText: "Natural", sampleContextText: "Ikuti visual", scriptText: "Produk praktis.",
+        captionText: "Produk praktis.", hashtags: ["#produk"]
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { handleApiRequest } = await import("./worker-api");
+
+    const response = await handleApiRequest(new Request("https://app.test/api/generation-sessions", {
+      method: "POST",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Produk", description: "Deskripsi", contentType: "affiliate",
+        socialPlatform: "instagram", contentLanguage: "id-ID", tone: "natural",
+        videoDurationSec: 42,
+        frames: [{ timestampSec: 0, mimeType: "image/jpeg", base64Data: "frame", width: 448, height: 252 }]
+      })
+    }), env);
+
+    expect(response.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://api.aivene.com/v1/chat/completions");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe("https://api.z.ai/api/paas/v4/chat/completions");
+    const fallbackBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as Record<string, unknown>;
+    expect(fallbackBody).toMatchObject({ model: "glm-5v-turbo", thinking: { type: "enabled" } });
+  });
+
   it("does not expose removed audio endpoints", async () => {
     createClientMock.mockReturnValue(buildDb([], vi.fn()));
     const { handleApiRequest } = await import("./worker-api");
@@ -146,5 +202,49 @@ describe("generation session Worker workflow", () => {
       }), env);
       expect(response.status).toBe(404);
     }
+  });
+
+  it("persists an admin model selection and returns the saved model instead of the env default", async () => {
+    const initialSettings = {
+      settings_key: "default",
+      script_provider: "aivene",
+      script_fallback_provider: "zai",
+      script_model: "qwen3.7-plus",
+      tax_rate_percent: 0,
+      language: "id-ID",
+      max_video_seconds: 60,
+      safety_mode: "safe_marketing",
+      concurrency: 1
+    };
+    createClientMock.mockReturnValue(buildDb([], vi.fn(), { settingsRow: initialSettings, superadmin: true }));
+    const { handleApiRequest } = await import("./worker-api");
+    const payload = {
+      scriptProvider: "aivene",
+      scriptFallbackProvider: "zai",
+      scriptModel: "qwen3.5-flash",
+      taxRatePercent: 0,
+      language: "id-ID",
+      maxVideoSeconds: 60,
+      safetyMode: "safe_marketing",
+      concurrency: 1
+    };
+
+    const response = await handleApiRequest(new Request("https://app.test/api/settings", {
+      method: "PUT",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }), env);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      scriptProvider: "aivene",
+      scriptFallbackProvider: "zai",
+      scriptModel: "qwen3.5-flash"
+    });
+
+    const getResponse = await handleApiRequest(new Request("https://app.test/api/settings", {
+      headers: { Authorization: "Bearer token" }
+    }), env);
+    await expect(getResponse.json()).resolves.toMatchObject({ scriptModel: "qwen3.5-flash" });
   });
 });

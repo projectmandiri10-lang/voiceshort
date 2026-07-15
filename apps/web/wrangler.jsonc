@@ -5,10 +5,12 @@
   "compatibility_date": "2026-05-28",
   "vars": {
     "SCRIPT_PROVIDER": "aivene",
-    "SCRIPT_FALLBACK_PROVIDER": "openrouter",
+    "SCRIPT_FALLBACK_PROVIDER": "zai",
     "AIVENE_BASE_URL": "https://api.aivene.com/v1",
     "AIVENE_SCRIPT_MODEL": "qwen3.7-plus",
     "AIVENE_REASONING_EFFORT": "medium",
+    "ZAI_BASE_URL": "https://api.z.ai/api/paas/v4",
+    "ZAI_SCRIPT_MODEL": "glm-5v-turbo",
     "SUPABASE_URL": "https://sluloqncvxbuyoybcacb.supabase.co",
     "GENERATE_PRICE_IDR": "2000"
   },
