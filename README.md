@@ -25,7 +25,7 @@ Video sumber tidak disimpan oleh Worker atau Supabase. Hanya frame terpilih yang
 ```env
 AIVENE_API_KEY=your_aivene_api_key
 AIVENE_BASE_URL=https://api.aivene.com/v1
-AIVENE_SCRIPT_MODEL=qwen3.7-plus
+AIVENE_SCRIPT_MODEL=qwen3.5-flash
 AIVENE_REASONING_EFFORT=medium
 ZAI_API_KEY=your_zai_api_key
 ZAI_BASE_URL=https://api.z.ai/api/paas/v4
