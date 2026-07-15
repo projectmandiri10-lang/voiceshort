@@ -95,6 +95,9 @@ export interface WorkerEnv {
   INTERACTIVE_QRIS_UNIQUE_CODE_MIN?: string;
   INTERACTIVE_QRIS_UNIQUE_CODE_MAX?: string;
   INTERACTIVE_QRIS_EXPIRY_MINUTES?: string;
+  INTERACTIVE_QRIS_TIME_ZONE?: string;
+  INTERACTIVE_QRIS_OPEN_HOUR?: string;
+  INTERACTIVE_QRIS_CLOSE_HOUR?: string;
   GENERATE_PRICE_IDR?: string;
   ASSETS?: WorkerAssetBinding;
 }
@@ -1331,7 +1334,45 @@ function qrisEnvInteger(env: WorkerEnv, key: keyof WorkerEnv, fallback: number, 
   return Number.isInteger(value) ? Math.max(min, Math.min(max, value)) : fallback;
 }
 
-function subscriptionConfig(settings: AppSettings, env: WorkerEnv) {
+const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+export function resolveQrisPaymentWindow(env: WorkerEnv, at = new Date()) {
+  const timeZone = String(env.INTERACTIVE_QRIS_TIME_ZONE || "Asia/Jakarta").trim() || "Asia/Jakarta";
+  const openHour = qrisEnvInteger(env, "INTERACTIVE_QRIS_OPEN_HOUR", 5, 0, 23);
+  const closeHour = qrisEnvInteger(env, "INTERACTIVE_QRIS_CLOSE_HOUR", 22, 1, 24);
+  const wibDate = new Date(at.getTime() + WIB_OFFSET_MS);
+  const currentHour = wibDate.getUTCHours();
+  const isOpen = openHour < closeHour && currentHour >= openHour && currentHour < closeHour;
+  let nextOpenAt: string | null = null;
+
+  if (!isOpen) {
+    const nextOpenWib = Date.UTC(
+      wibDate.getUTCFullYear(),
+      wibDate.getUTCMonth(),
+      wibDate.getUTCDate() + (currentHour >= closeHour ? 1 : 0),
+      openHour
+    );
+    nextOpenAt = new Date(nextOpenWib - WIB_OFFSET_MS).toISOString();
+  }
+
+  return {
+    timeZone,
+    opensAt: `${String(openHour).padStart(2, "0")}:00`,
+    closesAt: `${String(closeHour).padStart(2, "0")}:00`,
+    isOpen,
+    nextOpenAt
+  };
+}
+
+export function assertQrisPaymentWindowOpen(
+  paymentWindow: ReturnType<typeof resolveQrisPaymentWindow>
+): void {
+  if (!paymentWindow.isOpen) {
+    throw createHttpError(409, "Pembayaran QRIS sedang ditutup. Invoice baru tersedia kembali pukul 05.00 WIB.");
+  }
+}
+
+function subscriptionConfig(settings: AppSettings, env: WorkerEnv, at = new Date()) {
   return {
     priceIdr: settings.subscriptionPriceIdr,
     subscriptionDays: settings.subscriptionDays,
@@ -1341,6 +1382,7 @@ function subscriptionConfig(settings: AppSettings, env: WorkerEnv) {
     uniqueDigits: 2 as const,
     uniqueCodeMin: qrisEnvInteger(env, "INTERACTIVE_QRIS_UNIQUE_CODE_MIN", 71, 1, 99),
     uniqueCodeMax: qrisEnvInteger(env, "INTERACTIVE_QRIS_UNIQUE_CODE_MAX", 99, 1, 99),
+    paymentWindow: resolveQrisPaymentWindow(env, at),
     webhookConfigured: Boolean(
       String(env.INTERACTIVE_QRIS_WEBHOOK_SECRET || "").trim()
       && String(env.INTERACTIVE_QRIS_SOURCE_PACKAGE || "").trim()
@@ -1375,6 +1417,7 @@ async function createSubscriptionCheckout(context: AuthContext, env: WorkerEnv) 
   if (!config.qrisImageUrl) {
     throw createHttpError(503, "Gambar QRIS statis belum diisi oleh admin.");
   }
+  assertQrisPaymentWindowOpen(config.paymentWindow);
   if (config.uniqueCodeMin > config.uniqueCodeMax) {
     throw createHttpError(500, "Rentang kode unik QRIS tidak valid.");
   }
@@ -1385,7 +1428,7 @@ async function createSubscriptionCheckout(context: AuthContext, env: WorkerEnv) 
     target_subscription_days: settings.subscriptionDays,
     target_unique_code_min: config.uniqueCodeMin,
     target_unique_code_max: config.uniqueCodeMax,
-    target_expiry_minutes: qrisEnvInteger(env, "INTERACTIVE_QRIS_EXPIRY_MINUTES", 30, 5, 120)
+    target_expiry_minutes: qrisEnvInteger(env, "INTERACTIVE_QRIS_EXPIRY_MINUTES", 60, 5, 120)
   });
   if (result.error || !result.data) {
     throw result.error || createHttpError(500, "Invoice langganan tidak bisa dibuat.");

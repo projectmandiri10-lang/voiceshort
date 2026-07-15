@@ -1,6 +1,6 @@
 # MacroDroid untuk Langganan VoiceShort
 
-MacroDroid meneruskan notifikasi pembayaran dari aplikasi InterActive QRIS ke Worker VoiceShort. Makro web app lain tetap dipertahankan; tambahkan satu action HTTP Request baru untuk VoiceShort pada trigger notifikasi yang sama.
+MacroDroid meneruskan notifikasi pembayaran dari aplikasi InterActive QRIS ke Worker VoiceShort. File siap impor tersedia di `macrodroid/voiceshort-interactive-qris.macro`. Makro web app lain tetap dipertahankan karena file VoiceShort berdiri sendiri.
 
 ## Konfigurasi Worker
 
@@ -17,7 +17,7 @@ Content-Type: application/json
 x-interactive-qris-secret: {v=VOICESHORT_QRIS_SECRET}
 ```
 
-Isi secure variable `VOICESHORT_QRIS_SECRET` dengan nilai `INTERACTIVE_QRIS_WEBHOOK_SECRET` dari file `.env` lokal. Jangan memakai secret web app lain dan jangan membagikannya ke frontend.
+Setelah mengimpor file macro, isi secure variable `VOICESHORT_QRIS_SECRET` dengan nilai `INTERACTIVE_QRIS_WEBHOOK_SECRET` dari file `.env` lokal. Nilai variable sengaja dikosongkan di file impor. Jangan memakai secret web app lain dan jangan membagikannya ke frontend.
 
 Body JSON:
 
@@ -34,20 +34,20 @@ Jika MacroDroid tidak mengenali teks `{v=VOICESHORT_QRIS_SECRET}`, pilih variabl
 
 ## Langkah di MacroDroid
 
-1. Buka makro InterActive QRIS yang sudah digunakan web app lain.
-2. Pertahankan trigger `Notification Received` untuk aplikasi InterActive QRIS (`com.interactive.qrisid`).
-3. Tambahkan action `HTTP Request` baru setelah action webhook lama.
-4. Pilih method `POST`, masukkan endpoint, kedua header, dan body JSON di atas.
-5. Simpan response body ke string variable `qris_webhook_response`.
-6. Tambahkan action Log atau Toast yang menampilkan HTTP status dan `{v=qris_webhook_response}` saat pengujian.
-7. Aktifkan Notification Access, battery `Unrestricted`, dan background/auto-start untuk MacroDroid.
+1. Pindahkan `macrodroid/voiceshort-interactive-qris.macro` ke HP.
+2. Buka MacroDroid dan pilih menu import macro.
+3. Impor file tersebut tanpa menghapus makro web app lain.
+4. Buka secure global variable `VOICESHORT_QRIS_SECRET` dan isi nilainya dari `.env`.
+5. Pastikan trigger menampilkan InterActive QRIS dengan package `com.interactive.qrisid`.
+6. Aktifkan macro, Notification Access, battery `Unrestricted`, dan background/auto-start untuk MacroDroid.
 
 ## Cara kerja nominal unik
 
 - Harga dasar dan masa aktif diatur superadmin, default Rp20.000 untuk 30 hari.
 - VoiceShort menambahkan kode unik 2 digit dalam rentang `71` sampai `99`.
 - User wajib membayar persis nominal invoice. Contoh: harga Rp20.000 dan kode `73` berarti transfer Rp20.073.
-- Satu nominal hanya dipakai oleh satu invoice aktif dan invoice kedaluwarsa setelah 30 menit.
+- Satu nominal hanya dipakai oleh satu invoice aktif dan invoice kedaluwarsa tepat setelah 60 menit.
+- Invoice baru hanya dapat dibuat pukul 05.00–21.59 WIB. Invoice yang sudah dibuat tetap dapat dibayar sampai masa 60 menitnya berakhir, paling lambat sekitar pukul 22.59 WIB.
 - Webhook hanya mengaktifkan langganan bila ada invoice pending dengan nominal yang sama. Notifikasi lama atau kiriman ulang tidak memberi langganan dua kali.
 
 ## Membaca response webhook

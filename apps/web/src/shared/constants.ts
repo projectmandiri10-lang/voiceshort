@@ -34,8 +34,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   concurrency: 1,
   subscriptionPriceIdr: 20_000,
   subscriptionDays: 30,
-  qrisMerchantName: "VoiceShort",
-  qrisImageUrl: "",
+  qrisMerchantName: "MEGAKOMINDO",
+  qrisImageUrl: "/qris/megakomindo-qris.jpg",
   qrisInstructions: "Scan QRIS lalu bayar sesuai nominal unik sampai dua digit terakhir."
 };
 

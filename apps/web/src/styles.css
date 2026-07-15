@@ -3441,6 +3441,23 @@ button {
   font-size: clamp(1.6rem, 5vw, 2.4rem);
 }
 
+.payment-window-open,
+.payment-window-closed {
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 700;
+}
+
+.payment-window-open {
+  background: rgba(34, 197, 94, 0.1);
+  color: #15803d;
+}
+
+.payment-window-closed {
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+}
+
 .subscription-payment-grid {
   display: grid;
   grid-template-columns: minmax(220px, 0.8fr) minmax(260px, 1.2fr);

@@ -109,6 +109,10 @@ export interface SubscriptionConfig {
   priceIdr: number; subscriptionDays: number; merchantName: string;
   qrisImageUrl: string; instructions: string; uniqueDigits: 2;
   uniqueCodeMin: number; uniqueCodeMax: number; webhookConfigured: boolean;
+  paymentWindow: {
+    timeZone: string; opensAt: string; closesAt: string;
+    isOpen: boolean; nextOpenAt: string | null;
+  };
 }
 export interface SubscriptionCheckout {
   order: SubscriptionOrder;

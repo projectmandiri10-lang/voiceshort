@@ -25,11 +25,13 @@ export function SubscriptionPage({ user, onUserUpdated, onGenerate }: Subscripti
 
   useEffect(() => {
     let active = true;
-    void fetchSubscriptionConfig()
+    const loadConfig = () => fetchSubscriptionConfig()
       .then((value) => { if (active) setConfig(value); })
       .catch((cause) => { if (active) setError((cause as Error).message); })
       .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    void loadConfig();
+    const timer = window.setInterval(() => void loadConfig(), 60_000);
+    return () => { active = false; window.clearInterval(timer); };
   }, []);
 
   const refreshOrder = async () => {
@@ -71,6 +73,7 @@ export function SubscriptionPage({ user, onUserUpdated, onGenerate }: Subscripti
   };
 
   const activeSubscription = user.subscriptionStatus === "active" && Boolean(user.subscriptionExpiresAt);
+  const paymentOpen = Boolean(config?.paymentWindow.isOpen);
   if (loading) return <section className="card"><p>Memuat langganan...</p></section>;
 
   return (
@@ -112,12 +115,18 @@ export function SubscriptionPage({ user, onUserUpdated, onGenerate }: Subscripti
             <h2>{config ? `${config.subscriptionDays} hari akses premium` : "Akses premium"}</h2>
             <strong>{config ? rupiah(config.priceIdr) : "-"}</strong>
             <p>Pembayaran menggunakan QRIS statis. Nominal unik dua digit wajib dibayar tepat agar webhook dapat mengenali invoice Anda.</p>
+            <p className={paymentOpen ? "payment-window-open" : "payment-window-closed"}>
+              Jam pembayaran: 05.00–22.00 WIB. Invoice berlaku 60 menit.
+              {!paymentOpen && config?.paymentWindow.nextOpenAt
+                ? ` Dibuka kembali ${new Date(config.paymentWindow.nextOpenAt).toLocaleString("id-ID", { timeZone: config.paymentWindow.timeZone })}.`
+                : ""}
+            </p>
           </div>
 
           {!order || order.status === "expired" || order.status === "canceled" ? (
-            <button className="primary-button" disabled={creating || !config?.webhookConfigured || !config?.qrisImageUrl} onClick={() => void createOrder()}>
+            <button className="primary-button" disabled={creating || !config?.webhookConfigured || !config?.qrisImageUrl || !paymentOpen} onClick={() => void createOrder()}>
               {creating ? <LoaderCircle className="spin" size={17} /> : <QrCode size={17} />}
-              {creating ? "Membuat invoice..." : "Buat Invoice QRIS"}
+              {creating ? "Membuat invoice..." : paymentOpen ? "Buat Invoice QRIS" : "Pembayaran Ditutup"}
             </button>
           ) : null}
 

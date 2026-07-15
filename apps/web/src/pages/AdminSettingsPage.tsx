@@ -110,7 +110,7 @@ export function AdminSettingsPage() {
           </label>
           <label className="span-2">
             URL gambar QRIS statis
-            <input type="url" placeholder="https://.../qris.png" value={settings.qrisImageUrl} onChange={(event) => setSettings({ ...settings, qrisImageUrl: event.target.value })} />
+            <input type="text" placeholder="/qris/megakomindo-qris.jpg" value={settings.qrisImageUrl} onChange={(event) => setSettings({ ...settings, qrisImageUrl: event.target.value })} />
           </label>
           <label className="span-2">
             Instruksi pembayaran

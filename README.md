@@ -40,7 +40,10 @@ INTERACTIVE_QRIS_SOURCE_PACKAGE=com.interactive.qrisid
 INTERACTIVE_QRIS_UNIQUE_DIGITS=2
 INTERACTIVE_QRIS_UNIQUE_CODE_MIN=71
 INTERACTIVE_QRIS_UNIQUE_CODE_MAX=99
-INTERACTIVE_QRIS_EXPIRY_MINUTES=30
+INTERACTIVE_QRIS_EXPIRY_MINUTES=60
+INTERACTIVE_QRIS_TIME_ZONE=Asia/Jakarta
+INTERACTIVE_QRIS_OPEN_HOUR=5
+INTERACTIVE_QRIS_CLOSE_HOUR=22
 VITE_SUPABASE_URL=https://your_project_ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your_anon_key
 ```
@@ -49,7 +52,7 @@ VITE_SUPABASE_ANON_KEY=your_anon_key
 
 ## Langganan QRIS
 
-Harga default langganan adalah Rp20.000 untuk 30 hari. Invoice menggunakan kode unik 2 digit `71-99`, dan notifikasi sukses dari InterActive QRIS diteruskan oleh MacroDroid ke webhook Worker. Konfigurasi lengkap tersedia di [MACRODROID_QRIS_SETUP.md](./MACRODROID_QRIS_SETUP.md).
+Harga default langganan adalah Rp20.000 untuk 30 hari. Invoice menggunakan kode unik 2 digit `71-99`, berlaku 60 menit, dan hanya dapat dibuat pukul 05.00–21.59 WIB. Notifikasi sukses dari InterActive QRIS diteruskan oleh MacroDroid ke webhook Worker. Konfigurasi lengkap tersedia di [MACRODROID_QRIS_SETUP.md](./MACRODROID_QRIS_SETUP.md).
 
 ## Commands
 
@@ -61,4 +64,4 @@ npm run build -w apps/web
 npm run build -w apps/server
 ```
 
-Migration workflow dan langganan terbaru: `supabase/migrations/20260715133000_add_free_trials_and_qris_subscriptions.sql`.
+Migration QRIS terbaru: `supabase/migrations/20260715143000_configure_qris_asset_and_schedule.sql`.
