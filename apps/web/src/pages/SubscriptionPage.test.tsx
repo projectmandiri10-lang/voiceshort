@@ -79,6 +79,14 @@ const wallet: WalletSummary = {
   isUnlimited: false,
   packages: [
     {
+      code: "1_video",
+      label: "1 generate",
+      payAmountIdr: 2000,
+      creditAmountIdr: 2000,
+      bonusAmountIdr: 0,
+      generateCredits: 1
+    },
+    {
       code: "10_video",
       label: "10 generate",
       payAmountIdr: 20000,
@@ -93,18 +101,18 @@ const wallet: WalletSummary = {
 
 const pendingOrder: PaymentOrder = {
   id: "order-1",
-  packageCode: "10_video",
+  packageCode: "1_video",
   provider: "interactive_qris",
-  payAmountIdr: 20000,
-  creditAmountIdr: 20000,
+  payAmountIdr: 2000,
+  creditAmountIdr: 2000,
   taxRatePercent: 0,
   taxAmountIdr: 0,
-  netAmountIdr: 20000,
+  netAmountIdr: 2000,
   merchantOrderId: "VSQRIS-1",
   webqrisInvoiceId: null,
   qrisPayload: null,
   uniqueCode: 71,
-  totalAmountIdr: 20071,
+  totalAmountIdr: 2071,
   status: "pending",
   expiredAt: "2099-07-15T15:00:00Z",
   paidAt: null,
@@ -146,14 +154,14 @@ describe("SubscriptionPage", () => {
     fetchTopupConfigMock.mockResolvedValue(config);
     fetchWalletMock
       .mockResolvedValueOnce(wallet)
-      .mockResolvedValueOnce({ ...wallet, walletBalanceIdr: 20000, generateCreditsRemaining: 10 })
-      .mockResolvedValue({ ...wallet, walletBalanceIdr: 20000, generateCreditsRemaining: 10 });
+      .mockResolvedValueOnce({ ...wallet, walletBalanceIdr: 2000, generateCreditsRemaining: 1 })
+      .mockResolvedValue({ ...wallet, walletBalanceIdr: 2000, generateCreditsRemaining: 1 });
     createTopupMock.mockResolvedValue(pendingOrder);
     fetchTopupStatusMock.mockResolvedValue(paidOrder);
     fetchSessionMock.mockResolvedValue({
       ...user,
-      walletBalanceIdr: 20000,
-      generateCreditsRemaining: 10,
+      walletBalanceIdr: 2000,
+      generateCreditsRemaining: 1,
       hasAnalysisAccess: true
     });
   });
@@ -173,7 +181,7 @@ describe("SubscriptionPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Buat Invoice Top Up" }));
 
     await screen.findByText("Bayar tepat sebesar");
-    expect(createTopupMock).toHaveBeenCalledWith("10_video");
+    expect(createTopupMock).toHaveBeenCalledWith("1_video");
     expect(channelOnMock).toHaveBeenCalledTimes(1);
     expect(subscribeMock).toHaveBeenCalledTimes(1);
 
@@ -187,7 +195,7 @@ describe("SubscriptionPage", () => {
     expect(fetchTopupStatusMock).toHaveBeenCalledWith("order-1");
     expect(screen.getByText(/Pembayaran berhasil diverifikasi/)).toBeTruthy();
     expect(onUserUpdated).toHaveBeenCalledWith(expect.objectContaining({
-      walletBalanceIdr: 20000,
+      walletBalanceIdr: 2000,
       hasAnalysisAccess: true
     }));
     await act(async () => {

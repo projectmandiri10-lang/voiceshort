@@ -52,7 +52,7 @@ VITE_SUPABASE_ANON_KEY=your_anon_key
 
 ## Top Up QRIS
 
-Paket top up memakai nominal unik 2 digit `71-99`, berlaku 60 menit, dan hanya dapat dibuat pukul 05.00-21.59 WIB. Notifikasi sukses dari InterActive QRIS diteruskan oleh MacroDroid ke webhook Worker dan langsung menambah credit wallet user. Konfigurasi lengkap tersedia di [MACRODROID_QRIS_SETUP.md](./MACRODROID_QRIS_SETUP.md).
+Paket top up memakai nominal unik 2 digit `71-99`, berlaku 60 menit, dan hanya dapat dibuat pukul 05.00-21.59 WIB. Top up minimum adalah Rp2.000 untuk 1 generate. Notifikasi sukses dari InterActive QRIS diteruskan oleh MacroDroid ke webhook Worker dan langsung menambah credit wallet user. Konfigurasi lengkap tersedia di [MACRODROID_QRIS_SETUP.md](./MACRODROID_QRIS_SETUP.md).
 
 ## Commands
 

@@ -45,6 +45,13 @@ const SUPERADMIN_WHITELIST_EMAIL = "jho.j80@gmail.com";
 const DEFAULT_GENERATE_PRICE_IDR = 2000;
 const DEPOSIT_PACKAGES = [
   {
+    code: "1_video",
+    label: "1 generate",
+    payAmountIdr: 2_000,
+    creditAmountIdr: 2_000,
+    bonusAmountIdr: 0
+  },
+  {
     code: "10_video",
     label: "10 generate",
     payAmountIdr: 20_000,

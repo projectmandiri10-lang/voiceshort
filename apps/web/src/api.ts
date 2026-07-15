@@ -71,7 +71,7 @@ export interface AuthResult {
 }
 
 export interface DepositPackage {
-  code: "10_video" | "50_video" | "100_video";
+  code: "1_video" | "10_video" | "50_video" | "100_video";
   label: string;
   payAmountIdr: number;
   creditAmountIdr: number;

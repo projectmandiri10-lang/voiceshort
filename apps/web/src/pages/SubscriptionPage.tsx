@@ -23,7 +23,7 @@ function rupiah(value: number): string {
 export function SubscriptionPage({ user, onUserUpdated, onGenerate }: SubscriptionPageProps) {
   const [config, setConfig] = useState<TopupConfig | null>(null);
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
-  const [selectedPackageCode, setSelectedPackageCode] = useState<DepositPackage["code"]>("10_video");
+  const [selectedPackageCode, setSelectedPackageCode] = useState<DepositPackage["code"]>("1_video");
   const [order, setOrder] = useState<PaymentOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
