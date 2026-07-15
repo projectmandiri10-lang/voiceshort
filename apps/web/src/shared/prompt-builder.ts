@@ -106,7 +106,7 @@ export function buildAiStudioPackagePrompt(input: PromptInput & { visualBrief: V
       hashtags: ["#tag"]
     }),
     "Rules:",
-    `- sceneText must request a single-speaker ${languageName} voice over with the requested tone. It must command the speaker to read every script word exactly once, without adding, repeating, paraphrasing, or omitting anything.`,
+    `- sceneText must request a single-speaker ${languageName} spoken delivery with the requested tone. It must command the speaker to read every script word exactly once, without adding, repeating, paraphrasing, or omitting anything.`,
     `- sceneText and sampleContextText must preserve this voice-direction rule exactly: ${buildVoiceDeliveryInstruction(input)}`,
     `- sceneText must command the final spoken word to finish at ${timing.speechTargetSec.toFixed(2)} seconds, followed by ${timing.safetyMarginSec.toFixed(2)} seconds of silence, so the audio totals exactly ${input.videoDurationSec.toFixed(2)} seconds.`,
     "- sceneText must tell the speech model to adjust speaking pace and natural pauses, with no intro, outro, audio tags, or long opening/closing silence.",
