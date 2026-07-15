@@ -17,9 +17,9 @@ export const AI_PROVIDER_LABEL: Record<AiProvider, string> = {
 };
 
 export const DEFAULT_AIVENE_BASE_URL = "https://api.aivene.com/v1";
-export const DEFAULT_AIVENE_SCRIPT_MODEL = "qwen3.7-plus";
-export const FREE_USER_AIVENE_SCRIPT_MODEL = "qwen3.5-flash";
-export const AIVENE_SCRIPT_MODELS = ["qwen3.5-flash", "qwen3.6-plus", "qwen3.7-plus"] as const;
+export const DEFAULT_AIVENE_SCRIPT_MODEL = "gpt-4o-mini";
+export const FREE_USER_AIVENE_SCRIPT_MODEL = "gpt-4o-mini";
+export const AIVENE_SCRIPT_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"] as const;
 export const DEFAULT_ZAI_BASE_URL = "https://api.z.ai/api/paas/v4";
 export const DEFAULT_ZAI_SCRIPT_MODEL = "glm-5v-turbo";
 
