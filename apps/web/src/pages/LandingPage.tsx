@@ -65,8 +65,8 @@ export function LandingPage({ locale, authError, onAuthenticated }: LandingPageP
           <h1>{id ? "Ubah video pendek." : "Turn short videos."}<br /><span>{id ? "Jadi paket konten siap pakai." : "Into ready-to-use content."}</span></h1>
           <p className="landing-copy-lead">
             {id
-              ? "Upload video maksimal 60 detik dan dapatkan analisis visual, hook, Scene, Sample Context, naskah, caption, hashtag, serta CTA. Setiap akun mendapat 10 analisis gratis, lalu dapat melanjutkan dengan langganan."
-              : "Upload a video up to 60 seconds and get visual analysis, hooks, Scene, Sample Context, scripts, captions, hashtags, and CTAs. Every account gets 10 free analyses, with subscription access afterward."}
+              ? "Upload video maksimal 60 detik dan dapatkan analisis visual, hook, Scene, Sample Context, naskah, caption, hashtag, serta CTA. Setiap akun mendapat 10 analisis gratis, lalu dapat melanjutkan dengan top up credit."
+              : "Upload a video up to 60 seconds and get visual analysis, hooks, Scene, Sample Context, scripts, captions, hashtags, and CTAs. Every account gets 10 free analyses, then continues with wallet credits."}
           </p>
           <div className="hero-actions landing-hero-actions">
             <a className="primary-btn" href="#masuk" onClick={() => setMode("register")}><Sparkles size={17} />{id ? "Coba 10 Analisis Gratis" : "Try 10 Free Analyses"}</a>

@@ -118,20 +118,36 @@ export interface SubscriptionCheckout {
   order: SubscriptionOrder;
   config: SubscriptionConfig;
 }
+export interface TopupConfig {
+  merchantName: string;
+  qrisImageUrl: string;
+  instructions: string;
+  uniqueDigits: 2;
+  uniqueCodeMin: number;
+  uniqueCodeMax: number;
+  webhookConfigured: boolean;
+  paymentWindow: {
+    timeZone: string;
+    opensAt: string;
+    closesAt: string;
+    isOpen: boolean;
+    nextOpenAt: string | null;
+  };
+}
 export interface DepositPackage {
   code: "10_video" | "50_video" | "100_video"; label: string; payAmountIdr: number;
   creditAmountIdr: number; bonusAmountIdr: number; generateCredits: number;
 }
 export interface PaymentOrder {
-  id: string; packageCode: DepositPackage["code"]; payAmountIdr: number; creditAmountIdr: number;
+  id: string; packageCode: DepositPackage["code"]; provider: "webqris" | "interactive_qris"; payAmountIdr: number; creditAmountIdr: number;
   taxRatePercent: number; taxAmountIdr: number; netAmountIdr: number; merchantOrderId: string;
   webqrisInvoiceId?: string | null; qrisPayload?: string | null; uniqueCode?: number | null;
   totalAmountIdr?: number | null; status: "pending" | "paid" | "expired" | "failed" | "canceled";
-  expiredAt: string; paidAt?: string | null; paymentMethod?: string | null;
+  expiredAt?: string | null; paidAt?: string | null; paymentMethod?: string | null;
 }
 export interface WalletLedgerEntry {
   id: string; amountIdr: number; balanceAfterIdr: number; entryType: string; sourceType: string;
-  sourceId: string; description: string; metadata: Record<string, unknown>; createdAt: string;
+  sourceId?: string | null; description: string; metadata: Record<string, unknown>; createdAt: string;
 }
 export interface WalletSummary {
   walletBalanceIdr: number; generatePriceIdr: number; generateCreditsRemaining: number | null;

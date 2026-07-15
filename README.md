@@ -15,10 +15,10 @@ Video sumber tidak disimpan oleh Worker atau Supabase. Hanya frame terpilih yang
 - Frontend dan API aktif: `apps/web` di Cloudflare Worker + Static Assets.
 - Analisis utama: Aivene melalui `/chat/completions`.
 - Setiap pengguna mendapat 10 analisis gratis dengan Aivene `qwen3.5-flash`.
-- Pelanggan aktif memakai model Aivene yang dipilih dari halaman Pengaturan AI tanpa akses atau fallback Z.AI direct.
+- Setelah 10 gratis habis, pengguna melanjutkan dengan top up credit wallet dan tetap memakai model Aivene yang dipilih dari halaman Pengaturan AI.
 - Fallback GLM-5V Turbo melalui API Z.AI direct hanya tersedia untuk superadmin.
 - `apps/server` hanya server kompatibilitas; create/retry job lama merespons `410 Gone`.
-- Generate session pengguna biasa maupun superadmin tidak memotong saldo dan menyimpan `charged_amount_idr = 0`.
+- Generate session gratis menyimpan `charged_amount_idr = 0`, sedangkan generate berbayar memotong credit wallet sesuai `GENERATE_PRICE_IDR`.
 
 ## Environment
 
@@ -48,11 +48,11 @@ VITE_SUPABASE_URL=https://your_project_ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your_anon_key
 ```
 
-`AIVENE_API_KEY`, `ZAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, dan `INTERACTIVE_QRIS_WEBHOOK_SECRET` harus disimpan sebagai Cloudflare Worker secrets. Variabel non-secret sudah didefinisikan di `apps/web/wrangler.jsonc`. Model utama Aivene memakai `reasoning_effort` medium. Z.AI direct dengan `glm-5v-turbo` dibatasi hanya untuk fallback superadmin; seluruh user biasa dan pelanggan selalu memakai Aivene saja.
+`AIVENE_API_KEY`, `ZAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, dan `INTERACTIVE_QRIS_WEBHOOK_SECRET` harus disimpan sebagai Cloudflare Worker secrets. Variabel non-secret sudah didefinisikan di `apps/web/wrangler.jsonc`. Model utama Aivene memakai `reasoning_effort` medium. Z.AI direct dengan `glm-5v-turbo` dibatasi hanya untuk fallback superadmin; seluruh user biasa dan user yang sudah top up selalu memakai Aivene saja.
 
-## Langganan QRIS
+## Top Up QRIS
 
-Harga default langganan adalah Rp20.000 untuk 30 hari. Invoice menggunakan kode unik 2 digit `71-99`, berlaku 60 menit, dan hanya dapat dibuat pukul 05.00–21.59 WIB. Notifikasi sukses dari InterActive QRIS diteruskan oleh MacroDroid ke webhook Worker. Konfigurasi lengkap tersedia di [MACRODROID_QRIS_SETUP.md](./MACRODROID_QRIS_SETUP.md).
+Paket top up memakai nominal unik 2 digit `71-99`, berlaku 60 menit, dan hanya dapat dibuat pukul 05.00-21.59 WIB. Notifikasi sukses dari InterActive QRIS diteruskan oleh MacroDroid ke webhook Worker dan langsung menambah credit wallet user. Konfigurasi lengkap tersedia di [MACRODROID_QRIS_SETUP.md](./MACRODROID_QRIS_SETUP.md).
 
 ## Commands
 
@@ -64,4 +64,4 @@ npm run build -w apps/web
 npm run build -w apps/server
 ```
 
-Migration QRIS terbaru: `supabase/migrations/20260715143000_configure_qris_asset_and_schedule.sql`.
+Migration QRIS terbaru: `supabase/migrations/20260715234500_migrate_interactive_qris_to_wallet_topups.sql`.

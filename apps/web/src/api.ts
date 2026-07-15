@@ -8,7 +8,8 @@ import type {
   GenerationSessionRecord,
   SubscriptionCheckout,
   SubscriptionConfig,
-  SubscriptionOrder
+  SubscriptionOrder,
+  TopupConfig
 } from "./types";
 import { isSupabaseAuthReady, supabase } from "./supabase";
 import { getRuntimeConfig } from "./runtime-config";
@@ -80,6 +81,7 @@ export interface DepositPackage {
 export interface PaymentOrder {
   id: string;
   packageCode: DepositPackage["code"];
+  provider: "webqris" | "interactive_qris";
   payAmountIdr: number;
   creditAmountIdr: number;
   taxRatePercent: number;
@@ -612,6 +614,10 @@ export async function createTopup(packageCode: DepositPackage["code"]): Promise<
 
 export async function fetchTopupStatus(orderId: string): Promise<PaymentOrder> {
   return await apiFetch<PaymentOrder>(`/api/billing/topups/${encodeURIComponent(orderId)}/status`);
+}
+
+export async function fetchTopupConfig(): Promise<TopupConfig> {
+  return await apiFetch<TopupConfig>("/api/billing/topups/config");
 }
 
 export async function fetchSubscriptionConfig(): Promise<SubscriptionConfig> {

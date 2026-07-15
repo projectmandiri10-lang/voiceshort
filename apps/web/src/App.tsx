@@ -16,7 +16,7 @@ type PersonalView = "generate" | "jobs" | "subscription" | "admin";
 const personalTabs: DashboardTabDefinition<PersonalView>[] = [
   { id: "generate", label: "Generate", icon: Sparkles },
   { id: "jobs", label: "Riwayat", icon: FolderClock },
-  { id: "subscription", label: "Berlangganan", icon: CreditCard }
+  { id: "subscription", label: "Top Up", icon: CreditCard }
 ];
 
 function personalView(route: AppRoute, isSuperadmin: boolean): PersonalView {

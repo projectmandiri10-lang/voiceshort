@@ -45,6 +45,10 @@ const initialForm: FormState = {
   referenceLink: ""
 };
 
+function rupiah(value: number): string {
+  return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(value);
+}
+
 export function GeneratePage({ locale, user, onViewJobs, onSubscribe, onUserUpdated, resumeSessionId }: GeneratePageProps) {
   const [form, setForm] = useState<FormState>(initialForm);
   const [session, setSession] = useState<GenerationSessionRecord | null>(null);
@@ -157,9 +161,11 @@ export function GeneratePage({ locale, user, onViewJobs, onSubscribe, onUserUpda
             {user.subscriptionStatus === "active" || user.isUnlimited
               ? "Akses premium aktif · model mengikuti pengaturan admin."
               : user.hasAnalysisAccess
-                ? `Gratis tersisa ${user.freeAnalysisRemaining} dari ${user.freeAnalysisLimit} analisis.`
-                : "10 analisis gratis sudah habis. Aktifkan langganan untuk melanjutkan."}
-            {!user.hasAnalysisAccess ? <button type="button" onClick={onSubscribe}>Berlangganan</button> : null}
+                ? user.freeAnalysisRemaining > 0
+                  ? `Gratis tersisa ${user.freeAnalysisRemaining} dari ${user.freeAnalysisLimit} analisis.`
+                  : `Saldo aktif ${rupiah(user.walletBalanceIdr)} · siap untuk ${user.generateCreditsRemaining ?? 0} analisis lagi.`
+                : "10 analisis gratis sudah habis. Top up credit untuk melanjutkan."}
+            {!user.hasAnalysisAccess ? <button type="button" onClick={onSubscribe}>Top Up</button> : null}
           </div>
           <label className="personal-dropzone">
             <UploadCloud size={28} />

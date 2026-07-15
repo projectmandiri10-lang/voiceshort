@@ -43,7 +43,7 @@ export function AdminSettingsPage() {
         scriptFallbackProvider: "zai"
       });
       setSettings(saved);
-      window.alert("Pengaturan AI dan langganan berhasil disimpan.");
+      window.alert("Pengaturan AI dan top up berhasil disimpan.");
     } catch (cause) {
       const message = (cause as Error).message || "Pengaturan model AI gagal disimpan.";
       setError(message);
@@ -82,29 +82,21 @@ export function AdminSettingsPage() {
 
         <div className="settings-provider-summary">
           <p><strong>Provider utama:</strong> Aivene</p>
-          <p><strong>Fallback superadmin:</strong> Z.AI direct · GLM-5V Turbo</p>
-          <p><strong>User gratis & pelanggan:</strong> Aivene saja · tanpa Z.AI direct</p>
+          <p><strong>Fallback superadmin:</strong> Z.AI direct - GLM-5V Turbo</p>
+          <p><strong>User gratis & top up:</strong> Aivene saja - tanpa Z.AI direct</p>
           <p><strong>Reasoning utama:</strong> Medium</p>
         </div>
 
         <p className="settings-hint">
-          Sepuluh analisis gratis memakai {FREE_USER_AIVENE_SCRIPT_MODEL}. Pelanggan aktif memakai model Aivene yang dipilih di atas. Hanya superadmin yang boleh memakai fallback Z.AI direct.
+          Sepuluh analisis gratis memakai {FREE_USER_AIVENE_SCRIPT_MODEL}. User yang sudah top up memakai model Aivene yang dipilih di atas. Hanya superadmin yang boleh memakai fallback Z.AI direct.
         </p>
 
         <div className="settings-section-divider">
-          <h3>Langganan QRIS statis</h3>
-          <p>Pengguna memperoleh 10 analisis gratis. Pelanggan aktif memakai model utama yang dipilih di atas.</p>
+          <h3>Top up QRIS statis</h3>
+          <p>Admin cukup mengatur merchant, gambar QRIS, dan instruksi pembayaran. Paket top up dan nominal unik dikelola worker.</p>
         </div>
 
         <div className="personal-form-grid">
-          <label>
-            Harga langganan (Rp)
-            <input type="number" min="1000" max="10000000" value={settings.subscriptionPriceIdr} onChange={(event) => setSettings({ ...settings, subscriptionPriceIdr: Number(event.target.value) })} />
-          </label>
-          <label>
-            Masa aktif (hari)
-            <input type="number" min="1" max="365" value={settings.subscriptionDays} onChange={(event) => setSettings({ ...settings, subscriptionDays: Number(event.target.value) })} />
-          </label>
           <label className="span-2">
             Nama merchant
             <input value={settings.qrisMerchantName} onChange={(event) => setSettings({ ...settings, qrisMerchantName: event.target.value })} />

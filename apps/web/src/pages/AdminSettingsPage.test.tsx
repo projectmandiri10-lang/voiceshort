@@ -44,10 +44,11 @@ describe("AdminSettingsPage", () => {
       ...settings,
       scriptModel: "qwen3.5-flash"
     }));
-    expect(window.alert).toHaveBeenCalledWith("Pengaturan AI dan langganan berhasil disimpan.");
+    expect(window.alert).toHaveBeenCalledWith("Pengaturan AI dan top up berhasil disimpan.");
     expect(screen.getByText(/Fallback superadmin:/)).toBeTruthy();
-    expect(screen.getByText(/User gratis & pelanggan:/)).toBeTruthy();
+    expect(screen.getByText(/User gratis & top up:/)).toBeTruthy();
     expect(screen.getByText(/tanpa Z\.AI direct/)).toBeTruthy();
+    expect(screen.getByText(/Top up QRIS statis/)).toBeTruthy();
   });
 
   it("offers the preconfigured MacroDroid export without embedding the secret", async () => {

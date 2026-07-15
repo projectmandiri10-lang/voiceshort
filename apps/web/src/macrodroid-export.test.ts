@@ -22,7 +22,7 @@ describe("VoiceShort MacroDroid export", () => {
       paramName: "x-interactive-qris-secret",
       paramValue: "{v=VOICESHORT_QRIS_SECRET}"
     });
-    expect(request.contentBodyText).toContain("{not_app_package}");
+    expect(request.contentBodyText).toContain("\"packageName\": \"com.interactive.qrisid\"");
     expect(request.contentBodyText).toContain("{not_title}");
     expect(request.contentBodyText).toContain("{notification}");
     expect(request.contentBodyText).toContain("{not_text_big}");

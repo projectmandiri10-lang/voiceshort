@@ -192,6 +192,7 @@ interface PaymentOrderRow {
   package_code: DepositPackageCode;
   pay_amount_idr: number;
   credit_amount_idr: number;
+  provider: "webqris" | "interactive_qris";
   merchant_order_id: string;
   webqris_invoice_id: string | null;
   qris_payload: string | null;
@@ -440,7 +441,11 @@ function mapProfileToAuthUser(profile: ProfileRow, generatePriceIdr: number): Au
     freeAnalysisUsed,
     freeAnalysisRemaining: Math.max(0, FREE_ANALYSIS_LIMIT - freeAnalysisUsed),
     subscriptionExpiresAt,
-    hasAnalysisAccess: unlimited || subscriptionActive || freeAnalysisUsed < FREE_ANALYSIS_LIMIT
+    hasAnalysisAccess:
+      unlimited
+      || subscriptionActive
+      || freeAnalysisUsed < FREE_ANALYSIS_LIMIT
+      || Math.max(0, Math.trunc(profile.wallet_balance_idr || 0)) >= generatePriceIdr
   };
 }
 
@@ -840,7 +845,27 @@ async function readQrisWebhookPayload(request: Request): Promise<Record<string, 
 function extractCurrencyInt(fragment: string): number | null {
   const digits = String(fragment || "").replace(/[^\d]/g, "");
   const value = Number.parseInt(digits, 10);
-  return Number.isInteger(value) && value >= 1_000 ? value : null;
+  return Number.isSafeInteger(value) && value >= 1_000 && value <= 10_000_000 ? value : null;
+}
+
+function normalizeQrisPackageText(value: string): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function payloadLooksLikeInteractiveQris(payload: Record<string, unknown>): boolean {
+  const texts = [payload.packageName, payload.title, payload.text, payload.raw]
+    .map((value) => typeof value === "string" ? value : value ? JSON.stringify(value) : "")
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+  if (!texts) return false;
+  return texts.includes("interactive qris")
+    || texts.includes("interactiveqris")
+    || texts.includes("pembayaran qris")
+    || texts.includes("transaksi qris");
 }
 
 function extractQrisAmountCandidates(payload: Record<string, unknown>): number[] {
@@ -848,7 +873,11 @@ function extractQrisAmountCandidates(payload: Record<string, unknown>): number[]
     .map((value) => typeof value === "string" ? value : value ? JSON.stringify(value) : "")
     .filter(Boolean);
   const candidates = new Set<number>();
-  const patterns = [/(?:rp|idr)\s*([0-9][0-9.,\s]{0,20})/gi, /\b\d{1,3}(?:[.,]\d{3})+\b/g, /\b\d{4,}\b/g];
+  const patterns = [
+    /(?:rp|idr)\s*([0-9][0-9.,\s]{0,20})/gi,
+    /\b\d{1,3}(?:[.,]\d{3})+\b/g,
+    /(?:sebesar|nominal|total|bayar(?:\s+tepat)?|amount)\D{0,12}(\d{4,6})\b/gi
+  ];
   for (const text of texts) {
     for (const pattern of patterns) {
       for (const match of text.matchAll(pattern)) {
@@ -1060,14 +1089,17 @@ async function generateTextWithProvider(
 }
 
 interface AnalysisAccessReservation {
-  accessType: "free" | "subscription" | "unlimited";
+  accessType: "free" | "subscription" | "unlimited" | "wallet";
   freeAnalysisUsed: number;
   freeAnalysisRemaining: number;
+  chargedAmountIdr: number;
 }
 
 async function reserveAnalysisAccess(
   context: AuthContext,
-  sessionId: string
+  env: WorkerEnv,
+  sessionId: string,
+  videoDurationSec: number
 ): Promise<AnalysisAccessReservation> {
   const result = await context.serviceDb.rpc("reserve_analysis_access", {
     target_user_id: context.user.id,
@@ -1076,19 +1108,52 @@ async function reserveAnalysisAccess(
   if (result.error) {
     const message = String(result.error.message || "");
     if (message.includes("FREE_ANALYSIS_LIMIT_REACHED")) {
-      throw createHttpError(402, "10 analisis gratis sudah habis. Aktifkan langganan untuk melanjutkan dengan model premium.");
+      const chargeAmountIdr = getGeneratePriceIdr(env);
+      const walletCharge = await context.serviceDb.rpc("reserve_generate_credit", {
+        job_id: sessionId,
+        target_user_id: context.user.id,
+        charge_amount_idr: chargeAmountIdr,
+        billed_minutes: 1,
+        video_duration_sec: videoDurationSec
+      });
+      if (walletCharge.error) {
+        throw createHttpError(402, "10 analisis gratis sudah habis. Top up credit terlebih dahulu untuk melanjutkan.");
+      }
+      return {
+        accessType: "wallet",
+        freeAnalysisUsed: FREE_ANALYSIS_LIMIT,
+        freeAnalysisRemaining: 0,
+        chargedAmountIdr: chargeAmountIdr
+      };
     }
     throw result.error;
   }
   const value = (result.data || {}) as Partial<AnalysisAccessReservation>;
   return {
-    accessType: value.accessType === "subscription" || value.accessType === "unlimited" ? value.accessType : "free",
+    accessType:
+      value.accessType === "subscription" || value.accessType === "unlimited"
+      ? value.accessType
+      : "free",
     freeAnalysisUsed: Math.max(0, Math.trunc(Number(value.freeAnalysisUsed) || 0)),
-    freeAnalysisRemaining: Math.max(0, Math.trunc(Number(value.freeAnalysisRemaining) || 0))
+    freeAnalysisRemaining: Math.max(0, Math.trunc(Number(value.freeAnalysisRemaining) || 0)),
+    chargedAmountIdr: 0
   };
 }
 
-async function releaseAnalysisAccess(context: AuthContext, sessionId: string): Promise<void> {
+async function releaseAnalysisAccess(
+  context: AuthContext,
+  sessionId: string,
+  accessType: AnalysisAccessReservation["accessType"]
+): Promise<void> {
+  if (accessType === "wallet") {
+    const refund = await context.serviceDb.rpc("refund_generate_credit", {
+      job_id: sessionId,
+      target_user_id: context.user.id,
+      reason: "Refund analisis yang gagal diproses"
+    });
+    if (refund.error) console.warn("Gagal refund saldo analisis.", refund.error);
+    return;
+  }
   const result = await context.serviceDb.rpc("release_analysis_access", { target_session_id: sessionId });
   if (result.error) console.warn("Gagal mengembalikan kuota analisis.", result.error);
 }
@@ -1104,7 +1169,7 @@ async function createGenerationSession(
   input: GenerationSessionCreateInput
 ): Promise<GenerationSessionRecord> {
   const sessionId = crypto.randomUUID();
-  const access = await reserveAnalysisAccess(context, sessionId);
+  const access = await reserveAnalysisAccess(context, env, sessionId, input.videoDurationSec);
   try {
   const savedSettings = await getSettings(context.serviceDb, env);
   const isSuperadmin = context.user.role === "superadmin";
@@ -1189,7 +1254,7 @@ async function createGenerationSession(
     script_text: aiPackage.scriptText,
     caption_text: aiPackage.captionText,
     hashtags: aiPackage.hashtags,
-    charged_amount_idr: 0,
+    charged_amount_idr: access.chargedAmountIdr,
     error_message: null,
     render_summary: {}
   };
@@ -1206,7 +1271,7 @@ async function createGenerationSession(
   await completeAnalysisAccess(context, sessionId);
   return mapGenerationSession(insertResult.data);
   } catch (error) {
-    await releaseAnalysisAccess(context, sessionId);
+    await releaseAnalysisAccess(context, sessionId, access.accessType);
     throw error;
   }
 }
@@ -1396,6 +1461,22 @@ function subscriptionConfig(settings: AppSettings, env: WorkerEnv, at = new Date
   };
 }
 
+function topupConfig(settings: AppSettings, env: WorkerEnv, at = new Date()) {
+  return {
+    merchantName: settings.qrisMerchantName,
+    qrisImageUrl: settings.qrisImageUrl,
+    instructions: settings.qrisInstructions,
+    uniqueDigits: 2 as const,
+    uniqueCodeMin: qrisEnvInteger(env, "INTERACTIVE_QRIS_UNIQUE_CODE_MIN", 71, 1, 99),
+    uniqueCodeMax: qrisEnvInteger(env, "INTERACTIVE_QRIS_UNIQUE_CODE_MAX", 99, 1, 99),
+    paymentWindow: resolveQrisPaymentWindow(env, at),
+    webhookConfigured: Boolean(
+      String(env.INTERACTIVE_QRIS_WEBHOOK_SECRET || "").trim()
+      && String(env.INTERACTIVE_QRIS_SOURCE_PACKAGE || "").trim()
+    )
+  };
+}
+
 function mapSubscriptionOrder(row: SubscriptionOrderRow) {
   return {
     id: row.id,
@@ -1412,6 +1493,10 @@ function mapSubscriptionOrder(row: SubscriptionOrderRow) {
 
 async function getSubscriptionConfig(context: AuthContext, env: WorkerEnv) {
   return subscriptionConfig(await getSettings(context.serviceDb, env), env);
+}
+
+async function getTopupConfig(context: AuthContext, env: WorkerEnv) {
+  return topupConfig(await getSettings(context.serviceDb, env), env);
 }
 
 async function createSubscriptionCheckout(context: AuthContext, env: WorkerEnv) {
@@ -1472,7 +1557,8 @@ async function recordQrisWebhookEvent(
     amountCandidates: number[];
     processingStatus: "processed" | "ignored" | "failed";
     reason?: string;
-    orderId?: string;
+    paymentOrderId?: string;
+    subscriptionOrderId?: string;
     payload: Record<string, unknown>;
   }
 ): Promise<void> {
@@ -1482,7 +1568,8 @@ async function recordQrisWebhookEvent(
     amount_candidates: input.amountCandidates,
     processing_status: input.processingStatus,
     reason: input.reason || null,
-    subscription_order_id: input.orderId || null,
+    payment_order_id: input.paymentOrderId || null,
+    subscription_order_id: input.subscriptionOrderId || null,
     raw_payload: input.payload
   });
   if (result.error && String(result.error.code || "") !== "23505") throw result.error;
@@ -1499,6 +1586,12 @@ async function handleInteractiveQrisWebhook(request: Request, env: WorkerEnv): P
 
   const body = await readQrisWebhookPayload(request);
   const packageName = String(body.packageName || "").trim().toLowerCase();
+  const expectedPackageNormalized = normalizeQrisPackageText(expectedPackage);
+  const packageNameNormalized = normalizeQrisPackageText(packageName);
+  const packageAccepted =
+    !packageNameNormalized
+    || packageNameNormalized === expectedPackageNormalized
+    || payloadLooksLikeInteractiveQris(body);
   const amountCandidates = extractQrisAmountCandidates(body);
   const payloadHash = await sha256Hex(JSON.stringify(body));
   const serviceDb = createServiceClient(env);
@@ -1511,7 +1604,7 @@ async function handleInteractiveQrisWebhook(request: Request, env: WorkerEnv): P
   if (duplicate.data) {
     return jsonResponse({ received: true, credited: false, duplicate: true, reason: duplicate.data.reason || "already_processed" }, { headers: buildCorsHeaders(request) });
   }
-  if (packageName !== expectedPackage) {
+  if (!packageAccepted) {
     await recordQrisWebhookEvent(serviceDb, { payloadHash, packageName, amountCandidates, processingStatus: "ignored", reason: "unexpected_package", payload: body });
     return jsonResponse({ received: true, credited: false, ignored: true, reason: "unexpected_package" }, { headers: buildCorsHeaders(request) });
   }
@@ -1520,17 +1613,18 @@ async function handleInteractiveQrisWebhook(request: Request, env: WorkerEnv): P
     return jsonResponse({ received: true, credited: false, ignored: true, reason: "amount_not_found" }, { headers: buildCorsHeaders(request) });
   }
 
-  const expireResult = await serviceDb.from("subscription_orders").update({ status: "expired", updated_at: nowIso() })
-    .eq("status", "pending").lte("expires_at", nowIso());
+  const expireResult = await serviceDb.from("payment_orders").update({ status: "expired", updated_at: nowIso() })
+    .eq("provider", "interactive_qris").eq("status", "pending").lte("expired_at", nowIso());
   if (expireResult.error) throw expireResult.error;
   const pending = await serviceDb
-    .from("subscription_orders")
+    .from("payment_orders")
     .select("*")
+    .eq("provider", "interactive_qris")
     .eq("status", "pending")
-    .gt("expires_at", nowIso())
+    .gt("expired_at", nowIso())
     .in("total_amount_idr", amountCandidates);
   if (pending.error) throw pending.error;
-  const matches = (pending.data || []) as SubscriptionOrderRow[];
+  const matches = (pending.data || []) as PaymentOrderRow[];
   if (matches.length !== 1) {
     const reason = matches.length > 1 ? "ambiguous_amount_match" : "payment_not_found";
     await recordQrisWebhookEvent(serviceDb, { payloadHash, packageName, amountCandidates, processingStatus: "ignored", reason, payload: body });
@@ -1538,20 +1632,27 @@ async function handleInteractiveQrisWebhook(request: Request, env: WorkerEnv): P
   }
 
   const matchedOrder = matches[0]!;
-  const settled = await serviceDb.rpc("settle_subscription_order", {
-    target_order_id: matchedOrder.id,
-    webhook_payload: { ...body, matchedAmountIdr: matchedOrder.total_amount_idr }
+  const settled = await serviceDb.rpc("credit_wallet_from_payment", {
+    order_id: matchedOrder.id,
+    webhook_payload: {
+      ...body,
+      matchedAmountIdr: matchedOrder.total_amount_idr,
+      data: {
+        payment_method: "interactive_qris",
+        paid_at: nowIso()
+      }
+    }
   });
-  if (settled.error || !settled.data) throw settled.error || createHttpError(500, "Langganan tidak bisa diaktifkan.");
-  const order = settled.data as SubscriptionOrderRow;
-  await recordQrisWebhookEvent(serviceDb, { payloadHash, packageName, amountCandidates, processingStatus: "processed", orderId: order.id, payload: body });
+  if (settled.error || !settled.data) throw settled.error || createHttpError(500, "Top up credit tidak bisa dikreditkan.");
+  const order = settled.data as PaymentOrderRow;
+  await recordQrisWebhookEvent(serviceDb, { payloadHash, packageName, amountCandidates, processingStatus: "processed", paymentOrderId: order.id, payload: body });
   return jsonResponse({
     received: true,
     credited: true,
     orderId: order.id,
     ownerEmail: order.owner_email,
     paidAmountIdr: order.total_amount_idr,
-    subscriptionExpiresAt: order.subscription_expires_at
+    creditAmountIdr: order.credit_amount_idr
   }, { headers: buildCorsHeaders(request) });
 }
 
@@ -1560,89 +1661,36 @@ async function createTopup(context: AuthContext, env: WorkerEnv, packageCode: st
   if (!selectedPackage) {
     throw createHttpError(400, "Paket deposit tidak tersedia.");
   }
-  const apiToken = String(env.WEBQRIS_API_TOKEN || "").trim();
-  if (!apiToken) {
-    throw createHttpError(503, "WEBQRIS_API_TOKEN belum dikonfigurasi.");
+  const settings = await getSettings(context.serviceDb, env);
+  const config = topupConfig(settings, env);
+  if (!config.webhookConfigured) {
+    throw createHttpError(503, "Webhook QRIS belum dikonfigurasi di Worker.");
   }
-  const settingsResult = await context.serviceDb
-    .from("app_settings")
-    .select("tax_rate_percent")
-    .eq("settings_key", "default")
-    .maybeSingle<{ tax_rate_percent?: number | string | null }>();
-  if (settingsResult.error) {
-    throw settingsResult.error;
+  if (!config.qrisImageUrl) {
+    throw createHttpError(503, "Gambar QRIS statis belum diisi oleh admin.");
   }
-  const taxRatePercent = normalizeTaxRatePercent(settingsResult.data?.tax_rate_percent);
+  assertQrisPaymentWindowOpen(config.paymentWindow);
+  const taxRatePercent = normalizeTaxRatePercent(settings.taxRatePercent);
   const taxAmountIdr = calculateTaxAmountIdr(selectedPackage.payAmountIdr, taxRatePercent);
 
-  const merchantOrderId = `VS-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-  const inserted = await context.serviceDb
-    .from("payment_orders")
-    .insert({
-      owner_user_id: context.user.id,
-      owner_email: context.user.email,
-      package_code: selectedPackage.code,
-      pay_amount_idr: selectedPackage.payAmountIdr,
-      credit_amount_idr: selectedPackage.creditAmountIdr,
-      tax_rate_percent: taxRatePercent,
-      tax_amount_idr: taxAmountIdr,
-      merchant_order_id: merchantOrderId
-    })
-    .select("*")
-    .single<PaymentOrderRow>();
-  if (inserted.error || !inserted.data) {
-    throw inserted.error || createHttpError(500, "Invoice top up tidak bisa dibuat.");
-  }
-
-  const webqrisBaseUrl = trimTrailingSlash(String(env.WEBQRIS_BASE_URL || "https://webqris.com"));
-  const response = await fetch(`${webqrisBaseUrl}/api/payments/qris/create`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      amount: selectedPackage.payAmountIdr,
-      merchant_order_id: merchantOrderId,
-      customer_name: context.user.displayName || context.user.email
-    })
+  const merchantOrderId = `VSQRIS-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+  const created = await context.serviceDb.rpc("create_static_qris_payment_order", {
+    target_user_id: context.user.id,
+    target_owner_email: context.user.email,
+    target_package_code: selectedPackage.code,
+    target_pay_amount_idr: selectedPackage.payAmountIdr,
+    target_credit_amount_idr: selectedPackage.creditAmountIdr,
+    target_tax_rate_percent: taxRatePercent,
+    target_tax_amount_idr: taxAmountIdr,
+    target_merchant_order_id: merchantOrderId,
+    target_unique_code_min: config.uniqueCodeMin,
+    target_unique_code_max: config.uniqueCodeMax,
+    target_expiry_minutes: qrisEnvInteger(env, "INTERACTIVE_QRIS_EXPIRY_MINUTES", 60, 5, 120)
   });
-  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (
-    !response.ok ||
-    payload.success !== true ||
-    typeof payload.invoice_id !== "string" ||
-    typeof payload.qris_payload !== "string"
-  ) {
-    await context.serviceDb
-      .from("payment_orders")
-      .update({
-        status: "failed",
-        raw_create_response: payload,
-        updated_at: nowIso()
-      })
-      .eq("id", inserted.data.id);
-    throw createHttpError(response.ok ? 502 : response.status, String(payload.message || "Gagal membuat invoice WebQRIS."));
+  if (created.error || !created.data) {
+    throw created.error || createHttpError(500, "Invoice top up QRIS tidak bisa dibuat.");
   }
-
-  const updated = await context.serviceDb
-    .from("payment_orders")
-    .update({
-      webqris_invoice_id: payload.invoice_id,
-      qris_payload: payload.qris_payload,
-      unique_code: Number(payload.unique_code) || null,
-      total_amount_idr: Number(payload.total_amount || payload.amount) || selectedPackage.payAmountIdr,
-      expired_at: typeof payload.expired_at === "string" ? payload.expired_at : null,
-      raw_create_response: payload,
-      updated_at: nowIso()
-    })
-    .eq("id", inserted.data.id)
-    .select("*")
-    .single<PaymentOrderRow>();
-  if (updated.error || !updated.data) {
-    throw updated.error || createHttpError(500, "Invoice WebQRIS tidak bisa disimpan.");
-  }
-  return walletSummaryToApiTopup(updated.data);
+  return walletSummaryToApiTopup(created.data as PaymentOrderRow);
 }
 
 function walletSummaryToApiTopup(entry: PaymentOrderRow) {
@@ -1657,6 +1705,7 @@ function walletSummaryToApiTopup(entry: PaymentOrderRow) {
   return {
     id: entry.id,
     packageCode: entry.package_code,
+    provider: entry.provider,
     payAmountIdr: entry.pay_amount_idr,
     creditAmountIdr: entry.credit_amount_idr,
     taxRatePercent,
@@ -1677,6 +1726,9 @@ function walletSummaryToApiTopup(entry: PaymentOrderRow) {
 }
 
 async function maybeCreditTopupStatus(env: WorkerEnv, context: AuthContext, order: PaymentOrderRow) {
+  if (order.provider === "interactive_qris") {
+    return;
+  }
   const apiToken = String(env.WEBQRIS_API_TOKEN || "").trim();
   if (!apiToken || order.status !== "pending" || !order.webqris_invoice_id) {
     return;
@@ -1724,6 +1776,19 @@ async function getTopupStatus(context: AuthContext, env: WorkerEnv, orderId: str
   }
   if (!result.data) {
     throw createHttpError(404, "Top up tidak ditemukan.");
+  }
+
+  if (result.data.status === "pending" && result.data.expired_at && new Date(result.data.expired_at).getTime() <= Date.now()) {
+    const expired = await context.serviceDb
+      .from("payment_orders")
+      .update({ status: "expired", updated_at: nowIso() })
+      .eq("id", result.data.id)
+      .select("*")
+      .single<PaymentOrderRow>();
+    if (expired.error || !expired.data) {
+      throw expired.error || createHttpError(500, "Status top up tidak bisa diperbarui.");
+    }
+    return walletSummaryToApiTopup(expired.data);
   }
 
   await maybeCreditTopupStatus(env, context, result.data);
@@ -2067,6 +2132,10 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
 
     if (route.path === "/api/billing/subscription/config" && request.method === "GET") {
       return jsonResponse(await getSubscriptionConfig(context, env), { headers: buildCorsHeaders(request) });
+    }
+
+    if (route.path === "/api/billing/topups/config" && request.method === "GET") {
+      return jsonResponse(await getTopupConfig(context, env), { headers: buildCorsHeaders(request) });
     }
 
     if (route.path === "/api/billing/subscription/orders" && request.method === "POST") {

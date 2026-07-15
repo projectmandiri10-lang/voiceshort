@@ -16,10 +16,13 @@ const profile = {
 function buildDb(
   inserted: unknown[],
   rpcMock: ReturnType<typeof vi.fn>,
-  options?: { settingsRow?: Record<string, unknown> | null; superadmin?: boolean }
+  options?: { settingsRow?: Record<string, unknown> | null; superadmin?: boolean; profileOverrides?: Record<string, unknown> }
 ) {
   let settingsRow = options?.settingsRow ?? null;
-  const activeProfile = options?.superadmin ? { ...profile, role: "superadmin" as const } : profile;
+  const activeProfile = {
+    ...(options?.superadmin ? { ...profile, role: "superadmin" as const } : profile),
+    ...(options?.profileOverrides || {})
+  };
   return {
     auth: { getUser: vi.fn(async () => ({ data: { user: { id: "user-1", email: activeProfile.email } }, error: null })) },
     rpc: rpcMock,
@@ -163,6 +166,81 @@ describe("generation session Worker workflow", () => {
     expect(inserted[0]).not.toHaveProperty("include_subtitles");
   });
 
+  it("uses wallet credit after 10 free analyses are exhausted", async () => {
+    const inserted: unknown[] = [];
+    const rpcMock = vi.fn(async (name: string) => {
+      if (name === "reserve_analysis_access") {
+        return { data: null, error: { message: "FREE_ANALYSIS_LIMIT_REACHED" } };
+      }
+      if (name === "reserve_generate_credit" || name === "complete_analysis_access") {
+        return { data: null, error: null };
+      }
+      if (name === "release_analysis_access" || name === "refund_generate_credit") {
+        return { data: null, error: null };
+      }
+      return { data: null, error: null };
+    });
+    createClientMock.mockReturnValue(buildDb(inserted, rpcMock, {
+      profileOverrides: {
+        subscription_status: "inactive",
+        wallet_balance_idr: 2000,
+        free_analysis_used: 10
+      },
+      settingsRow: {
+        settings_key: "default",
+        script_provider: "aivene",
+        script_fallback_provider: "zai",
+        script_model: "qwen3.7-plus",
+        tax_rate_percent: 0,
+        language: "id-ID",
+        max_video_seconds: 60,
+        safety_mode: "safe_marketing",
+        concurrency: 1
+      }
+    }));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(chatResponse({
+        summary: "Produk terlihat jelas",
+        hook: { startSec: 0, endSec: 3, reason: "Perubahan visual" },
+        timeline: [{
+          startSec: 0, endSec: 42, primaryVisual: "Produk", action: "Digunakan",
+          onScreenText: [], narrationFocus: "Manfaat produk", avoidClaims: []
+        }],
+        mustMention: ["manfaat"], mustAvoid: ["klaim berlebihan"], uncertainties: []
+      }))
+      .mockResolvedValueOnce(chatResponse({
+        sceneText: "Narator santai dengan pace natural.",
+        sampleContextText: "Ikuti visual utama.",
+        scriptText: "Produk ini cocok dipakai setiap hari.",
+        captionText: "Cocok untuk kebutuhan harian.",
+        hashtags: ["#produk"]
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { handleApiRequest } = await import("./worker-api");
+
+    const response = await handleApiRequest(new Request("https://app.test/api/generation-sessions", {
+      method: "POST",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Produk", description: "Deskripsi produk", contentType: "affiliate",
+        socialPlatform: "instagram", contentLanguage: "id-ID",
+        tone: "natural", referenceLink: "https://example.com/produk", videoDurationSec: 42,
+        frames: [{ timestampSec: 0, mimeType: "image/jpeg", base64Data: "frame", width: 448, height: 252 }]
+      })
+    }), env);
+
+    expect(response.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const aiBodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+    expect(aiBodies.every((payload) => payload.model === "qwen3.7-plus")).toBe(true);
+    expect(rpcMock.mock.calls.map(([name]) => name)).toEqual([
+      "reserve_analysis_access",
+      "reserve_generate_credit",
+      "complete_analysis_access"
+    ]);
+    expect(inserted[0]).toMatchObject({ charged_amount_idr: 2000 });
+  });
+
   it("allows only a superadmin to fall back directly to Z.AI GLM-5V Turbo", async () => {
     const inserted: unknown[] = [];
     createClientMock.mockReturnValue(buildDb(inserted, analysisRpcMock("unlimited"), { superadmin: true }));
@@ -274,9 +352,15 @@ describe("generation session Worker workflow", () => {
   });
 
   it("blocks the eleventh free analysis before calling a provider", async () => {
-    const rpcMock = vi.fn(async (name: string) => name === "reserve_analysis_access"
-      ? { data: null, error: { message: "FREE_ANALYSIS_LIMIT_REACHED" } }
-      : { data: null, error: null });
+    const rpcMock = vi.fn(async (name: string) => {
+      if (name === "reserve_analysis_access") {
+        return { data: null, error: { message: "FREE_ANALYSIS_LIMIT_REACHED" } };
+      }
+      if (name === "reserve_generate_credit") {
+        return { data: null, error: { message: "Saldo deposit tidak cukup." } };
+      }
+      return { data: null, error: null };
+    });
     createClientMock.mockReturnValue(buildDb([], rpcMock));
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

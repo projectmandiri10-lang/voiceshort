@@ -1,9 +1,14 @@
-import { useEffect, useState } from "react";
-import { CheckCircle2, Clipboard, LoaderCircle, QrCode, RefreshCw, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, Clipboard, LoaderCircle, QrCode, RefreshCw, Sparkles, Wallet } from "lucide-react";
 import {
-  createSubscriptionCheckout, fetchSession, fetchSubscriptionConfig, fetchSubscriptionOrderStatus
+  createTopup,
+  fetchSession,
+  fetchTopupConfig,
+  fetchTopupStatus,
+  fetchWallet
 } from "../api";
-import type { AuthUser, SubscriptionConfig, SubscriptionOrder } from "../types";
+import { supabase } from "../supabase";
+import type { AuthUser, DepositPackage, PaymentOrder, TopupConfig, WalletSummary } from "../types";
 
 interface SubscriptionPageProps {
   user: AuthUser;
@@ -16,39 +21,103 @@ function rupiah(value: number): string {
 }
 
 export function SubscriptionPage({ user, onUserUpdated, onGenerate }: SubscriptionPageProps) {
-  const [config, setConfig] = useState<SubscriptionConfig | null>(null);
-  const [order, setOrder] = useState<SubscriptionOrder | null>(null);
+  const [config, setConfig] = useState<TopupConfig | null>(null);
+  const [wallet, setWallet] = useState<WalletSummary | null>(null);
+  const [selectedPackageCode, setSelectedPackageCode] = useState<DepositPackage["code"]>("10_video");
+  const [order, setOrder] = useState<PaymentOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const handledPaidOrderIdRef = useRef<string | null>(null);
+  const redirectTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let active = true;
-    const loadConfig = () => fetchSubscriptionConfig()
-      .then((value) => { if (active) setConfig(value); })
+    const load = async () => {
+      const [nextWallet, nextConfig] = await Promise.all([fetchWallet(), fetchTopupConfig()]);
+      if (!active) return;
+      setWallet(nextWallet);
+      setConfig(nextConfig);
+      const latestPending = nextWallet.recentTopups.find((item) => item.provider === "interactive_qris" && item.status === "pending") || null;
+      if (latestPending) {
+        setOrder((current) => current?.status === "paid" ? current : latestPending);
+      }
+      if (nextWallet.packages.length && !nextWallet.packages.some((item) => item.code === selectedPackageCode)) {
+        setSelectedPackageCode(nextWallet.packages[0]!.code);
+      }
+    };
+
+    void load()
       .catch((cause) => { if (active) setError((cause as Error).message); })
       .finally(() => { if (active) setLoading(false); });
-    void loadConfig();
-    const timer = window.setInterval(() => void loadConfig(), 60_000);
-    return () => { active = false; window.clearInterval(timer); };
+
+    const timer = window.setInterval(() => void load().catch((cause) => active && setError((cause as Error).message)), 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [selectedPackageCode]);
+
+  useEffect(() => () => {
+    if (redirectTimerRef.current) {
+      window.clearTimeout(redirectTimerRef.current);
+    }
   }, []);
+
+  const refreshWallet = async () => {
+    const nextWallet = await fetchWallet();
+    setWallet(nextWallet);
+  };
+
+  const handlePaidOrder = async (next: PaymentOrder) => {
+    if (handledPaidOrderIdRef.current === next.id) return;
+    handledPaidOrderIdRef.current = next.id;
+    setOrder(next);
+    const [nextUser] = await Promise.all([
+      fetchSession(),
+      refreshWallet()
+    ]);
+    if (nextUser) onUserUpdated(nextUser);
+    setNotice("Pembayaran berhasil diverifikasi. Credit sudah masuk dan Anda diarahkan ke halaman Generate...");
+    if (redirectTimerRef.current) window.clearTimeout(redirectTimerRef.current);
+    redirectTimerRef.current = window.setTimeout(() => {
+      onGenerate();
+    }, 1500);
+  };
 
   const refreshOrder = async () => {
     if (!order) return;
-    const next = await fetchSubscriptionOrderStatus(order.id);
+    const next = await fetchTopupStatus(order.id);
     setOrder(next);
     if (next.status === "paid") {
-      const nextUser = await fetchSession();
-      if (nextUser) onUserUpdated(nextUser);
-      setNotice("Pembayaran berhasil diverifikasi. Langganan Anda sudah aktif.");
+      await handlePaidOrder(next);
     }
   };
 
   useEffect(() => {
     if (!order || order.status !== "pending") return;
     const timer = window.setInterval(() => void refreshOrder().catch((cause) => setError((cause as Error).message)), 5000);
-    return () => window.clearInterval(timer);
+    const channel = supabase?.channel(`payment-order-${order.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "payment_orders",
+          filter: `id=eq.${order.id}`
+        },
+        () => {
+          void refreshOrder().catch((cause) => setError((cause as Error).message));
+        }
+      )
+      .subscribe();
+    return () => {
+      window.clearInterval(timer);
+      if (channel && supabase) {
+        void supabase.removeChannel(channel);
+      }
+    };
   }, [order?.id, order?.status]);
 
   const createOrder = async () => {
@@ -56,9 +125,9 @@ export function SubscriptionPage({ user, onUserUpdated, onGenerate }: Subscripti
     setError("");
     setNotice("");
     try {
-      const checkout = await createSubscriptionCheckout();
-      setConfig(checkout.config);
-      setOrder(checkout.order);
+      const next = await createTopup(selectedPackageCode);
+      setOrder(next);
+      await refreshWallet();
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
@@ -67,22 +136,23 @@ export function SubscriptionPage({ user, onUserUpdated, onGenerate }: Subscripti
   };
 
   const copyAmount = async () => {
-    if (!order) return;
+    if (!order?.totalAmountIdr) return;
     await navigator.clipboard.writeText(String(order.totalAmountIdr));
     setNotice("Nominal pembayaran disalin.");
   };
 
-  const activeSubscription = user.subscriptionStatus === "active" && Boolean(user.subscriptionExpiresAt);
+  const selectedPackage = wallet?.packages.find((item) => item.code === selectedPackageCode) || wallet?.packages[0] || null;
   const paymentOpen = Boolean(config?.paymentWindow.isOpen);
-  if (loading) return <section className="card"><p>Memuat langganan...</p></section>;
+
+  if (loading) return <section className="card"><p>Memuat top up credit...</p></section>;
 
   return (
     <section className="personal-workspace">
       <header className="personal-workspace-head">
         <div>
-          <span className="eyebrow"><Sparkles size={15} /> LANGGANAN</span>
-          <h1>Analisis premium dengan model admin.</h1>
-          <p>Setiap akun memperoleh 10 analisis gratis. Setelah itu, aktifkan langganan untuk terus menggunakan model utama yang dipilih admin.</p>
+          <span className="eyebrow"><Sparkles size={15} /> TOP UP CREDIT</span>
+          <h1>Isi saldo untuk lanjut analisis video.</h1>
+          <p>Setelah 10 analisis gratis habis, setiap analisis memakai credit wallet. Pembayaran dilakukan dengan QRIS statis dan nominal unik.</p>
         </div>
       </header>
 
@@ -92,67 +162,105 @@ export function SubscriptionPage({ user, onUserUpdated, onGenerate }: Subscripti
           <strong>{user.freeAnalysisRemaining} dari {user.freeAnalysisLimit}</strong>
         </div>
         <div>
-          <span>Status langganan</span>
-          <strong>{activeSubscription ? "Aktif" : "Belum aktif"}</strong>
+          <span>Saldo saat ini</span>
+          <strong>{rupiah(wallet?.walletBalanceIdr || 0)}</strong>
         </div>
-        {activeSubscription ? (
-          <div>
-            <span>Berlaku sampai</span>
-            <strong>{new Date(user.subscriptionExpiresAt!).toLocaleString("id-ID")}</strong>
-          </div>
-        ) : null}
+        <div>
+          <span>Sisa analisis dari saldo</span>
+          <strong>{wallet?.generateCreditsRemaining ?? "Unlimited"}</strong>
+        </div>
       </section>
 
-      {activeSubscription ? (
-        <section className="card subscription-active-card">
-          <CheckCircle2 size={32} />
-          <div><h2>Langganan aktif</h2><p>Anda dapat menganalisis video menggunakan model yang sama dengan superadmin.</p></div>
-          <button className="primary-button" onClick={onGenerate}>Mulai Analisis</button>
-        </section>
-      ) : (
-        <section className="card subscription-checkout-card">
-          <div className="subscription-plan-copy">
-            <h2>{config ? `${config.subscriptionDays} hari akses premium` : "Akses premium"}</h2>
-            <strong>{config ? rupiah(config.priceIdr) : "-"}</strong>
-            <p>Pembayaran menggunakan QRIS statis. Nominal unik dua digit wajib dibayar tepat agar webhook dapat mengenali invoice Anda.</p>
-            <p className={paymentOpen ? "payment-window-open" : "payment-window-closed"}>
-              Jam pembayaran: 05.00–22.00 WIB. Invoice berlaku 60 menit.
-              {!paymentOpen && config?.paymentWindow.nextOpenAt
-                ? ` Dibuka kembali ${new Date(config.paymentWindow.nextOpenAt).toLocaleString("id-ID", { timeZone: config.paymentWindow.timeZone })}.`
-                : ""}
-            </p>
+      <section className="card subscription-checkout-card">
+        <div className="subscription-plan-copy">
+          <h2>Pilih paket top up</h2>
+          <p>Harga per analisis mengikuti credit wallet. Admin tetap mengatur model utama Aivene yang dipakai user berbayar.</p>
+          <p className={paymentOpen ? "payment-window-open" : "payment-window-closed"}>
+            Jam pembayaran: 05.00-22.00 WIB. Invoice berlaku 60 menit.
+            {!paymentOpen && config?.paymentWindow.nextOpenAt
+              ? ` Dibuka kembali ${new Date(config.paymentWindow.nextOpenAt).toLocaleString("id-ID", { timeZone: config.paymentWindow.timeZone })}.`
+              : ""}
+          </p>
+        </div>
+
+        <div className="deposit-layout">
+          <div className="deposit-package-grid">
+            {(wallet?.packages || []).map((item) => (
+              <button
+                key={item.code}
+                type="button"
+                className={`deposit-package ${selectedPackageCode === item.code ? "active" : ""}`}
+                onClick={() => setSelectedPackageCode(item.code)}
+              >
+                <strong>{item.label}</strong>
+                <p>{rupiah(item.payAmountIdr)}</p>
+                <span>Masuk saldo {rupiah(item.creditAmountIdr)}</span>
+                <span>{item.generateCredits} analisis</span>
+                {item.bonusAmountIdr > 0 ? <span>Bonus {rupiah(item.bonusAmountIdr)}</span> : null}
+              </button>
+            ))}
           </div>
 
-          {!order || order.status === "expired" || order.status === "canceled" ? (
-            <button className="primary-button" disabled={creating || !config?.webhookConfigured || !config?.qrisImageUrl || !paymentOpen} onClick={() => void createOrder()}>
-              {creating ? <LoaderCircle className="spin" size={17} /> : <QrCode size={17} />}
-              {creating ? "Membuat invoice..." : paymentOpen ? "Buat Invoice QRIS" : "Pembayaran Ditutup"}
-            </button>
-          ) : null}
-
-          {config && (!config.webhookConfigured || !config.qrisImageUrl) ? (
-            <p className="err-text">QRIS langganan belum lengkap dikonfigurasi oleh admin.</p>
-          ) : null}
-
-          {order?.status === "pending" && config ? (
-            <div className="subscription-payment-grid">
-              <div className="subscription-qris-image-wrap">
-                <img src={config.qrisImageUrl} alt={`QRIS ${config.merchantName}`} className="subscription-qris-image" />
-                <strong>{config.merchantName}</strong>
+          <div className="deposit-checkout">
+            <div className="meta-grid">
+              <div className="meta-card">
+                <span>Paket terpilih</span>
+                <strong>{selectedPackage?.label || "-"}</strong>
               </div>
-              <div className="subscription-payment-detail">
-                <span>Bayar tepat sebesar</span>
-                <strong className="subscription-total">{rupiah(order.totalAmountIdr)}</strong>
-                <button className="secondary-button" onClick={() => void copyAmount()}><Clipboard size={15} /> Salin nominal</button>
-                <p>Harga {rupiah(order.baseAmountIdr)} + kode unik <strong>{order.uniqueCode}</strong>.</p>
-                <p>{config.instructions}</p>
-                <p>Invoice berlaku sampai {new Date(order.expiresAt).toLocaleString("id-ID")}.</p>
-                <button className="secondary-button" onClick={() => void refreshOrder().catch((cause) => setError((cause as Error).message))}><RefreshCw size={15} /> Periksa Pembayaran</button>
+              <div className="meta-card">
+                <span>Bayar dasar</span>
+                <strong>{selectedPackage ? rupiah(selectedPackage.payAmountIdr) : "-"}</strong>
+              </div>
+              <div className="meta-card">
+                <span>Credit masuk</span>
+                <strong>{selectedPackage ? rupiah(selectedPackage.creditAmountIdr) : "-"}</strong>
               </div>
             </div>
-          ) : null}
-        </section>
-      )}
+
+            {!order || order.status === "expired" || order.status === "failed" || order.status === "canceled" ? (
+              <button
+                className="primary-button"
+                disabled={creating || !selectedPackage || !config?.webhookConfigured || !config?.qrisImageUrl || !paymentOpen}
+                onClick={() => void createOrder()}
+              >
+                {creating ? <LoaderCircle className="spin" size={17} /> : <Wallet size={17} />}
+                {creating ? "Membuat invoice..." : paymentOpen ? "Buat Invoice Top Up" : "Pembayaran Ditutup"}
+              </button>
+            ) : null}
+
+            {config && (!config.webhookConfigured || !config.qrisImageUrl) ? (
+              <p className="err-text">QRIS top up belum lengkap dikonfigurasi oleh admin.</p>
+            ) : null}
+          </div>
+        </div>
+
+        {order?.status === "pending" && config ? (
+          <div className="subscription-payment-grid">
+            <div className="subscription-qris-image-wrap">
+              <img src={config.qrisImageUrl} alt={`QRIS ${config.merchantName}`} className="subscription-qris-image" />
+              <strong>{config.merchantName}</strong>
+            </div>
+            <div className="subscription-payment-detail">
+              <span>Bayar tepat sebesar</span>
+              <strong className="subscription-total">{rupiah(order.totalAmountIdr || 0)}</strong>
+              <button className="secondary-button" onClick={() => void copyAmount()}><Clipboard size={15} /> Salin nominal</button>
+              <p>Harga {rupiah(order.payAmountIdr)} + pajak {rupiah(order.taxAmountIdr)} + kode unik <strong>{String(order.uniqueCode || "").padStart(2, "0")}</strong>.</p>
+              <p>Credit yang masuk: <strong>{rupiah(order.creditAmountIdr)}</strong>.</p>
+              <p>{config.instructions}</p>
+              <p>Invoice berlaku sampai {order.expiredAt ? new Date(order.expiredAt).toLocaleString("id-ID") : "-" }.</p>
+              <button className="secondary-button" onClick={() => void refreshOrder().catch((cause) => setError((cause as Error).message))}><RefreshCw size={15} /> Periksa Pembayaran</button>
+            </div>
+          </div>
+        ) : null}
+
+        {order?.status === "paid" ? (
+          <section className="subscription-active-card">
+            <CheckCircle2 size={32} />
+            <div><h2>Top up berhasil</h2><p>Saldo sudah bertambah dan analisis bisa dilanjutkan.</p></div>
+            <button className="primary-button" onClick={onGenerate}>Mulai Analisis</button>
+          </section>
+        ) : null}
+      </section>
 
       {notice ? <p className="success-text">{notice}</p> : null}
       {error ? <p className="err-text">{error}</p> : null}
