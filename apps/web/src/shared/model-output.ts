@@ -2,9 +2,16 @@ import type { AiStudioPackage, VisualBrief, VisualBriefTimelineItem } from "../t
 
 function stripCodeFence(input: string): string {
   const trimmed = input.trim();
-  if (!trimmed.startsWith("```")) return trimmed;
-  const lines = trimmed.split("\n");
-  return lines.slice(1, lines[lines.length - 1]?.startsWith("```") ? -1 : undefined).join("\n").trim();
+  const match = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (match && match[1] !== undefined) return match[1].trim();
+  
+  const start = trimmed.indexOf('{');
+  const end = trimmed.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end >= start) {
+    return trimmed.substring(start, end + 1);
+  }
+  
+  return trimmed;
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> | undefined {

@@ -1126,7 +1126,7 @@ async function generateTextWithProvider(
 
   const payload = await callAiveneText(env, {
     model: normalizeScriptModel(model, provider),
-    reasoning_effort: resolveAiveneReasoningEffort(env),
+    ...(normalizeScriptModel(model, provider).startsWith("gpt") ? {} : { reasoning_effort: resolveAiveneReasoningEffort(env) }),
     messages: [
       {
         role: "user",
