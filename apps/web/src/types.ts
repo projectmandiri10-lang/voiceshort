@@ -24,6 +24,11 @@ export interface AppSettings {
   maxVideoSeconds: number;
   safetyMode: "safe_marketing";
   concurrency: 1;
+  subscriptionPriceIdr: number;
+  subscriptionDays: number;
+  qrisMerchantName: string;
+  qrisImageUrl: string;
+  qrisInstructions: string;
 }
 
 export interface AdminTransactionRecord {
@@ -41,6 +46,8 @@ export interface AuthUser {
   videoQuotaRemaining: number | null; walletBalanceIdr: number; generatePriceIdr: number;
   generateCreditsRemaining: number | null; isUnlimited: boolean; disabledAt?: string | null;
   disabledReason?: string | null; assignedPackageCode?: AssignedPackageCode | null;
+  freeAnalysisLimit: number; freeAnalysisUsed: number; freeAnalysisRemaining: number;
+  subscriptionExpiresAt?: string | null; hasAnalysisAccess: boolean;
 }
 
 export interface AdminUserRecord extends AuthUser {
@@ -93,6 +100,20 @@ export interface GenerationSessionCreateInput {
   frames: Array<{ timestampSec: number; mimeType: "image/jpeg"; base64Data: string; width: number; height: number }>;
 }
 export interface GenerationSessionCreateResult { session: GenerationSessionRecord; }
+export interface SubscriptionOrder {
+  id: string; baseAmountIdr: number; uniqueCode: string; totalAmountIdr: number;
+  subscriptionDays: number; status: "pending" | "paid" | "expired" | "canceled";
+  expiresAt: string; paidAt?: string | null; subscriptionExpiresAt?: string | null;
+}
+export interface SubscriptionConfig {
+  priceIdr: number; subscriptionDays: number; merchantName: string;
+  qrisImageUrl: string; instructions: string; uniqueDigits: 2;
+  uniqueCodeMin: number; uniqueCodeMax: number; webhookConfigured: boolean;
+}
+export interface SubscriptionCheckout {
+  order: SubscriptionOrder;
+  config: SubscriptionConfig;
+}
 export interface DepositPackage {
   code: "10_video" | "50_video" | "100_video"; label: string; payAmountIdr: number;
   creditAmountIdr: number; bonusAmountIdr: number; generateCredits: number;

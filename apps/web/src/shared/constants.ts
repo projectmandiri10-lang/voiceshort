@@ -4,6 +4,7 @@ export const ABSOLUTE_MAX_VIDEO_SECONDS = 60;
 export const FRAME_EXTRACTION_MAX_WIDTH = 448;
 export const FRAME_EXTRACTION_MAX_FRAMES = 18;
 export const FRAME_EXTRACTION_MIN_FRAMES = 6;
+export const FREE_ANALYSIS_LIMIT = 10;
 export const FINAL_VIDEO_CRF = 26;
 export const FINAL_VIDEO_MAX_DIMENSION = 1280;
 export const FINAL_AUDIO_BITRATE = "64k";
@@ -30,7 +31,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   language: "id-ID",
   maxVideoSeconds: ABSOLUTE_MAX_VIDEO_SECONDS,
   safetyMode: "safe_marketing",
-  concurrency: 1
+  concurrency: 1,
+  subscriptionPriceIdr: 20_000,
+  subscriptionDays: 30,
+  qrisMerchantName: "VoiceShort",
+  qrisImageUrl: "",
+  qrisInstructions: "Scan QRIS lalu bayar sesuai nominal unik sampai dua digit terakhir."
 };
 
 export function normalizeScriptProvider(

@@ -43,11 +43,11 @@ export function AdminSettingsPage() {
         scriptFallbackProvider: "zai"
       });
       setSettings(saved);
-      window.alert("Pengaturan model AI berhasil disimpan.");
+      window.alert("Pengaturan AI dan langganan berhasil disimpan.");
     } catch (cause) {
       const message = (cause as Error).message || "Pengaturan model AI gagal disimpan.";
       setError(message);
-      window.alert(`Gagal menyimpan pengaturan model AI: ${message}`);
+      window.alert(`Gagal menyimpan pengaturan: ${message}`);
     } finally {
       setSaving(false);
     }
@@ -87,8 +87,36 @@ export function AdminSettingsPage() {
         </div>
 
         <p className="settings-hint">
-          Pengguna biasa memakai {FREE_USER_AIVENE_SCRIPT_MODEL} dari Aivene tanpa potongan saldo. Pilihan model di atas dipakai untuk akun superadmin.
+          Sepuluh analisis gratis memakai {FREE_USER_AIVENE_SCRIPT_MODEL} dari Aivene. Superadmin dan pelanggan aktif memakai model yang dipilih di atas.
         </p>
+
+        <div className="settings-section-divider">
+          <h3>Langganan QRIS statis</h3>
+          <p>Pengguna memperoleh 10 analisis gratis. Pelanggan aktif memakai model utama yang dipilih di atas.</p>
+        </div>
+
+        <div className="personal-form-grid">
+          <label>
+            Harga langganan (Rp)
+            <input type="number" min="1000" max="10000000" value={settings.subscriptionPriceIdr} onChange={(event) => setSettings({ ...settings, subscriptionPriceIdr: Number(event.target.value) })} />
+          </label>
+          <label>
+            Masa aktif (hari)
+            <input type="number" min="1" max="365" value={settings.subscriptionDays} onChange={(event) => setSettings({ ...settings, subscriptionDays: Number(event.target.value) })} />
+          </label>
+          <label className="span-2">
+            Nama merchant
+            <input value={settings.qrisMerchantName} onChange={(event) => setSettings({ ...settings, qrisMerchantName: event.target.value })} />
+          </label>
+          <label className="span-2">
+            URL gambar QRIS statis
+            <input type="url" placeholder="https://.../qris.png" value={settings.qrisImageUrl} onChange={(event) => setSettings({ ...settings, qrisImageUrl: event.target.value })} />
+          </label>
+          <label className="span-2">
+            Instruksi pembayaran
+            <textarea rows={3} value={settings.qrisInstructions} onChange={(event) => setSettings({ ...settings, qrisInstructions: event.target.value })} />
+          </label>
+        </div>
 
         {error ? <p className="err-text">{error}</p> : null}
         <button type="submit" className="primary-button" disabled={saving}>

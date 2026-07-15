@@ -14,8 +14,8 @@ Video sumber tidak disimpan oleh Worker atau Supabase. Hanya frame terpilih yang
 
 - Frontend dan API aktif: `apps/web` di Cloudflare Worker + Static Assets.
 - Analisis utama: Aivene melalui `/chat/completions`.
-- Pengguna biasa: Aivene `qwen3.5-flash` tanpa potongan saldo aplikasi.
-- Superadmin: model Aivene yang dipilih dari halaman Pengaturan AI.
+- Setiap pengguna mendapat 10 analisis gratis dengan Aivene `qwen3.5-flash`.
+- Pelanggan aktif dan superadmin memakai model Aivene yang dipilih dari halaman Pengaturan AI.
 - Fallback analisis: GLM-5V Turbo melalui API Z.AI direct.
 - `apps/server` hanya server kompatibilitas; create/retry job lama merespons `410 Gone`.
 - Generate session pengguna biasa maupun superadmin tidak memotong saldo dan menyimpan `charged_amount_idr = 0`.
@@ -35,11 +35,21 @@ SCRIPT_FALLBACK_PROVIDER=zai
 SUPABASE_URL=https://your_project_ref.supabase.co
 SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+INTERACTIVE_QRIS_WEBHOOK_SECRET=use_a_long_random_secret
+INTERACTIVE_QRIS_SOURCE_PACKAGE=com.interactive.qrisid
+INTERACTIVE_QRIS_UNIQUE_DIGITS=2
+INTERACTIVE_QRIS_UNIQUE_CODE_MIN=71
+INTERACTIVE_QRIS_UNIQUE_CODE_MAX=99
+INTERACTIVE_QRIS_EXPIRY_MINUTES=30
 VITE_SUPABASE_URL=https://your_project_ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your_anon_key
 ```
 
-`AIVENE_API_KEY`, `ZAI_API_KEY`, dan `SUPABASE_SERVICE_ROLE_KEY` harus disimpan sebagai Cloudflare Worker secrets. Variabel non-secret sudah didefinisikan di `apps/web/wrangler.jsonc`. Model utama Aivene dipilih dari halaman Pengaturan AI superadmin dengan `reasoning_effort` medium; fallback tetap memakai `glm-5v-turbo` direct Z.AI.
+`AIVENE_API_KEY`, `ZAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, dan `INTERACTIVE_QRIS_WEBHOOK_SECRET` harus disimpan sebagai Cloudflare Worker secrets. Variabel non-secret sudah didefinisikan di `apps/web/wrangler.jsonc`. Model utama Aivene dipilih dari halaman Pengaturan AI superadmin dengan `reasoning_effort` medium; fallback tetap memakai `glm-5v-turbo` direct Z.AI.
+
+## Langganan QRIS
+
+Harga default langganan adalah Rp20.000 untuk 30 hari. Invoice menggunakan kode unik 2 digit `71-99`, dan notifikasi sukses dari InterActive QRIS diteruskan oleh MacroDroid ke webhook Worker. Konfigurasi lengkap tersedia di [MACRODROID_QRIS_SETUP.md](./MACRODROID_QRIS_SETUP.md).
 
 ## Commands
 
@@ -51,4 +61,4 @@ npm run build -w apps/web
 npm run build -w apps/server
 ```
 
-Migration workflow baru: `supabase/migrations/20260713233000_ai_studio_voice_upload_workflow.sql`.
+Migration workflow dan langganan terbaru: `supabase/migrations/20260715133000_add_free_trials_and_qris_subscriptions.sql`.

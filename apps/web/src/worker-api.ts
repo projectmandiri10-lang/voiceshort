@@ -6,6 +6,7 @@ import {
   DEFAULT_AIVENE_BASE_URL,
   DEFAULT_ZAI_BASE_URL,
   DEFAULT_ZAI_SCRIPT_MODEL,
+  FREE_ANALYSIS_LIMIT,
   FREE_USER_AIVENE_SCRIPT_MODEL,
   normalizeScriptModel,
   normalizeScriptProvider
@@ -88,6 +89,12 @@ export interface WorkerEnv {
   WEBQRIS_BASE_URL?: string;
   WEBQRIS_API_TOKEN?: string;
   WEBQRIS_WEBHOOK_SECRET?: string;
+  INTERACTIVE_QRIS_WEBHOOK_SECRET?: string;
+  INTERACTIVE_QRIS_SOURCE_PACKAGE?: string;
+  INTERACTIVE_QRIS_UNIQUE_DIGITS?: string;
+  INTERACTIVE_QRIS_UNIQUE_CODE_MIN?: string;
+  INTERACTIVE_QRIS_UNIQUE_CODE_MAX?: string;
+  INTERACTIVE_QRIS_EXPIRY_MINUTES?: string;
   GENERATE_PRICE_IDR?: string;
   ASSETS?: WorkerAssetBinding;
 }
@@ -109,6 +116,8 @@ interface ProfileRow {
   has_password: boolean;
   created_at: string;
   updated_at: string;
+  free_analysis_used?: number;
+  subscription_expires_at?: string | null;
 }
 
 interface AppSettingsRow {
@@ -121,6 +130,27 @@ interface AppSettingsRow {
   max_video_seconds: number;
   safety_mode: "safe_marketing";
   concurrency: 1;
+  subscription_price_idr?: number | null;
+  subscription_days?: number | null;
+  qris_merchant_name?: string | null;
+  qris_image_url?: string | null;
+  qris_instructions?: string | null;
+}
+
+interface SubscriptionOrderRow {
+  id: string;
+  owner_user_id: string;
+  owner_email: string;
+  base_amount_idr: number;
+  unique_code: number;
+  total_amount_idr: number;
+  subscription_days: number;
+  status: "pending" | "paid" | "expired" | "canceled";
+  expires_at: string;
+  paid_at: string | null;
+  subscription_expires_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface GenerationSessionRow {
@@ -236,7 +266,7 @@ function buildCorsHeaders(request: Request): Record<string, string> {
 
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Headers": "authorization, content-type, x-webhook-signature, x-signature",
+    "Access-Control-Allow-Headers": "authorization, content-type, x-webhook-signature, x-signature, x-interactive-qris-secret",
     "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS"
   };
 }
@@ -379,6 +409,11 @@ function isWhitelistedSuperadmin(email: string): boolean {
 function mapProfileToAuthUser(profile: ProfileRow, generatePriceIdr: number): AuthUser {
   const email = profile.email.trim().toLowerCase();
   const unlimited = Boolean(profile.is_unlimited) || isWhitelistedSuperadmin(email);
+  const freeAnalysisUsed = Math.max(0, Math.min(FREE_ANALYSIS_LIMIT, Math.trunc(profile.free_analysis_used || 0)));
+  const subscriptionExpiresAt = profile.subscription_expires_at || null;
+  const subscriptionActive = Boolean(
+    subscriptionExpiresAt && new Date(subscriptionExpiresAt).getTime() > Date.now()
+  );
   const generateCreditsRemaining = unlimited
     ? null
     : Math.floor(Math.max(0, Math.trunc(profile.wallet_balance_idr || 0)) / generatePriceIdr);
@@ -387,10 +422,7 @@ function mapProfileToAuthUser(profile: ProfileRow, generatePriceIdr: number): Au
     email,
     displayName: profile.display_name.trim() || email.split("@")[0] || email,
     role: isWhitelistedSuperadmin(email) || profile.role === "superadmin" ? "superadmin" : "user",
-    subscriptionStatus:
-      isWhitelistedSuperadmin(email) || profile.subscription_status === "active"
-        ? "active"
-        : "inactive",
+    subscriptionStatus: isWhitelistedSuperadmin(email) || subscriptionActive ? "active" : "inactive",
     videoQuotaTotal: Math.max(0, Math.trunc(profile.video_quota_total || 0)),
     videoQuotaUsed: Math.max(0, Math.trunc(profile.video_quota_used || 0)),
     videoQuotaRemaining: generateCreditsRemaining,
@@ -400,7 +432,12 @@ function mapProfileToAuthUser(profile: ProfileRow, generatePriceIdr: number): Au
     isUnlimited: unlimited,
     disabledAt: unlimited && isWhitelistedSuperadmin(email) ? null : profile.disabled_at,
     disabledReason: unlimited && isWhitelistedSuperadmin(email) ? null : profile.disabled_reason,
-    assignedPackageCode: profile.assigned_package_code ?? null
+    assignedPackageCode: profile.assigned_package_code ?? null,
+    freeAnalysisLimit: FREE_ANALYSIS_LIMIT,
+    freeAnalysisUsed,
+    freeAnalysisRemaining: Math.max(0, FREE_ANALYSIS_LIMIT - freeAnalysisUsed),
+    subscriptionExpiresAt,
+    hasAnalysisAccess: unlimited || subscriptionActive || freeAnalysisUsed < FREE_ANALYSIS_LIMIT
   };
 }
 
@@ -427,7 +464,12 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
         language: row.language,
         maxVideoSeconds: row.max_video_seconds,
         safetyMode: row.safety_mode,
-        concurrency: row.concurrency
+        concurrency: row.concurrency,
+        subscriptionPriceIdr: row.subscription_price_idr,
+        subscriptionDays: row.subscription_days,
+        qrisMerchantName: row.qris_merchant_name,
+        qrisImageUrl: row.qris_image_url,
+        qrisInstructions: row.qris_instructions
       }
     : DEFAULT_SETTINGS;
 
@@ -448,7 +490,12 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
     language: "id-ID",
     maxVideoSeconds: Math.max(10, Math.min(ABSOLUTE_MAX_VIDEO_SECONDS, Math.trunc(source.maxVideoSeconds || DEFAULT_SETTINGS.maxVideoSeconds))),
     safetyMode: "safe_marketing",
-    concurrency: 1
+    concurrency: 1,
+    subscriptionPriceIdr: Math.max(1_000, Math.min(10_000_000, Math.trunc(Number(source.subscriptionPriceIdr) || DEFAULT_SETTINGS.subscriptionPriceIdr))),
+    subscriptionDays: Math.max(1, Math.min(365, Math.trunc(Number(source.subscriptionDays) || DEFAULT_SETTINGS.subscriptionDays))),
+    qrisMerchantName: String(source.qrisMerchantName || DEFAULT_SETTINGS.qrisMerchantName).trim() || DEFAULT_SETTINGS.qrisMerchantName,
+    qrisImageUrl: String(source.qrisImageUrl || "").trim(),
+    qrisInstructions: String(source.qrisInstructions || DEFAULT_SETTINGS.qrisInstructions).trim() || DEFAULT_SETTINGS.qrisInstructions
   };
 }
 
@@ -668,7 +715,12 @@ function parseSettingsInput(input: unknown): AppSettings {
       )
     ),
     safetyMode: "safe_marketing",
-    concurrency: 1
+    concurrency: 1,
+    subscriptionPriceIdr: Math.max(1_000, Math.min(10_000_000, Math.trunc(Number(body.subscriptionPriceIdr) || DEFAULT_SETTINGS.subscriptionPriceIdr))),
+    subscriptionDays: Math.max(1, Math.min(365, Math.trunc(Number(body.subscriptionDays) || DEFAULT_SETTINGS.subscriptionDays))),
+    qrisMerchantName: assertString(body.qrisMerchantName, "Nama merchant QRIS", { required: false, max: 120 }) || DEFAULT_SETTINGS.qrisMerchantName,
+    qrisImageUrl: assertString(body.qrisImageUrl, "URL gambar QRIS", { required: false, max: 1000 }) || "",
+    qrisInstructions: assertString(body.qrisInstructions, "Instruksi QRIS", { required: false, max: 500 }) || DEFAULT_SETTINGS.qrisInstructions
   };
 }
 
@@ -742,6 +794,72 @@ async function getSettings(serviceDb: SupabaseClient, env: WorkerEnv): Promise<A
     throw result.error;
   }
   return applyRuntimeSettingsEnvOverrides(normalizeSettings(result.data), env, !result.data);
+}
+
+function cleanQrisWebhookField(value: string): string {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, "\\")
+    .trim();
+}
+
+function extractMalformedQrisPayload(rawText: string): Record<string, unknown> {
+  const text = String(rawText || "");
+  const packageName = /"packageName"\s*:\s*"([\s\S]*?)"\s*,\s*"title"/i.exec(text)?.[1] || "";
+  const title = /"title"\s*:\s*"([\s\S]*?)"\s*,\s*"text"/i.exec(text)?.[1] || "";
+  const bodyText = /"text"\s*:\s*"([\s\S]*?)"\s*,\s*"(?:postedAt|raw)"/i.exec(text)?.[1] || "";
+  const postedAt = /"postedAt"\s*:\s*"([\s\S]*?)"\s*,\s*"raw"/i.exec(text)?.[1] || "";
+  const raw = /"raw"\s*:\s*"([\s\S]*?)"\s*}/i.exec(text)?.[1] || "";
+  if (!packageName && !title && !bodyText && !raw) return {};
+  return {
+    packageName: cleanQrisWebhookField(packageName),
+    title: cleanQrisWebhookField(title),
+    text: cleanQrisWebhookField(bodyText),
+    postedAt: cleanQrisWebhookField(postedAt),
+    raw: cleanQrisWebhookField(raw)
+  };
+}
+
+async function readQrisWebhookPayload(request: Request): Promise<Record<string, unknown>> {
+  const rawText = await request.text().catch(() => "");
+  if (!rawText.trim()) return {};
+  try {
+    const parsed = JSON.parse(rawText);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return extractMalformedQrisPayload(rawText);
+  }
+}
+
+function extractCurrencyInt(fragment: string): number | null {
+  const digits = String(fragment || "").replace(/[^\d]/g, "");
+  const value = Number.parseInt(digits, 10);
+  return Number.isInteger(value) && value >= 1_000 ? value : null;
+}
+
+function extractQrisAmountCandidates(payload: Record<string, unknown>): number[] {
+  const texts = [payload.title, payload.text, payload.raw]
+    .map((value) => typeof value === "string" ? value : value ? JSON.stringify(value) : "")
+    .filter(Boolean);
+  const candidates = new Set<number>();
+  const patterns = [/(?:rp|idr)\s*([0-9][0-9.,\s]{0,20})/gi, /\b\d{1,3}(?:[.,]\d{3})+\b/g, /\b\d{4,}\b/g];
+  for (const text of texts) {
+    for (const pattern of patterns) {
+      for (const match of text.matchAll(pattern)) {
+        const value = extractCurrencyInt(match[1] || match[0]);
+        if (value) candidates.add(value);
+      }
+    }
+  }
+  return [...candidates].sort((left, right) => left - right);
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function callAiveneText(
@@ -938,20 +1056,62 @@ async function generateTextWithProvider(
   return chatPayloadToGeminiLike(payload);
 }
 
+interface AnalysisAccessReservation {
+  accessType: "free" | "subscription" | "unlimited";
+  freeAnalysisUsed: number;
+  freeAnalysisRemaining: number;
+}
+
+async function reserveAnalysisAccess(
+  context: AuthContext,
+  sessionId: string
+): Promise<AnalysisAccessReservation> {
+  const result = await context.serviceDb.rpc("reserve_analysis_access", {
+    target_user_id: context.user.id,
+    target_session_id: sessionId
+  });
+  if (result.error) {
+    const message = String(result.error.message || "");
+    if (message.includes("FREE_ANALYSIS_LIMIT_REACHED")) {
+      throw createHttpError(402, "10 analisis gratis sudah habis. Aktifkan langganan untuk melanjutkan dengan model premium.");
+    }
+    throw result.error;
+  }
+  const value = (result.data || {}) as Partial<AnalysisAccessReservation>;
+  return {
+    accessType: value.accessType === "subscription" || value.accessType === "unlimited" ? value.accessType : "free",
+    freeAnalysisUsed: Math.max(0, Math.trunc(Number(value.freeAnalysisUsed) || 0)),
+    freeAnalysisRemaining: Math.max(0, Math.trunc(Number(value.freeAnalysisRemaining) || 0))
+  };
+}
+
+async function releaseAnalysisAccess(context: AuthContext, sessionId: string): Promise<void> {
+  const result = await context.serviceDb.rpc("release_analysis_access", { target_session_id: sessionId });
+  if (result.error) console.warn("Gagal mengembalikan kuota analisis.", result.error);
+}
+
+async function completeAnalysisAccess(context: AuthContext, sessionId: string): Promise<void> {
+  const result = await context.serviceDb.rpc("complete_analysis_access", { target_session_id: sessionId });
+  if (result.error) console.warn("Gagal menandai penggunaan analisis selesai.", result.error);
+}
+
 async function createGenerationSession(
   env: WorkerEnv,
   context: AuthContext,
   input: GenerationSessionCreateInput
 ): Promise<GenerationSessionRecord> {
+  const sessionId = crypto.randomUUID();
+  const access = await reserveAnalysisAccess(context, sessionId);
+  try {
   const savedSettings = await getSettings(context.serviceDb, env);
-  const settings = context.user.role === "superadmin"
-    ? savedSettings
-    : {
+  const settings = access.accessType === "free"
+    ? {
         ...savedSettings,
         scriptProvider: "aivene" as const,
         scriptFallbackProvider: "zai" as const,
         scriptModel: FREE_USER_AIVENE_SCRIPT_MODEL
-      };
+      }
+    : savedSettings;
   if (input.videoDurationSec > settings.maxVideoSeconds) {
     throw createHttpError(
       400,
@@ -998,7 +1158,6 @@ async function createGenerationSession(
       )
   });
 
-  const sessionId = crypto.randomUUID();
   const insertPayload = {
     session_id: sessionId,
     owner_user_id: context.user.id,
@@ -1035,7 +1194,12 @@ async function createGenerationSession(
     throw insertResult.error || createHttpError(500, "Session generate tidak bisa disimpan.");
   }
 
+  await completeAnalysisAccess(context, sessionId);
   return mapGenerationSession(insertResult.data);
+  } catch (error) {
+    await releaseAnalysisAccess(context, sessionId);
+    throw error;
+  }
 }
 
 async function getGenerationSessionForUser(
@@ -1160,6 +1324,186 @@ async function getWallet(context: AuthContext, env: WorkerEnv) {
     recentTopups: (topups || []) as PaymentOrderRow[],
     generatePriceIdr: getGeneratePriceIdr(env)
   });
+}
+
+function qrisEnvInteger(env: WorkerEnv, key: keyof WorkerEnv, fallback: number, min: number, max: number): number {
+  const value = Number.parseInt(String(env[key] || ""), 10);
+  return Number.isInteger(value) ? Math.max(min, Math.min(max, value)) : fallback;
+}
+
+function subscriptionConfig(settings: AppSettings, env: WorkerEnv) {
+  return {
+    priceIdr: settings.subscriptionPriceIdr,
+    subscriptionDays: settings.subscriptionDays,
+    merchantName: settings.qrisMerchantName,
+    qrisImageUrl: settings.qrisImageUrl,
+    instructions: settings.qrisInstructions,
+    uniqueDigits: 2 as const,
+    uniqueCodeMin: qrisEnvInteger(env, "INTERACTIVE_QRIS_UNIQUE_CODE_MIN", 71, 1, 99),
+    uniqueCodeMax: qrisEnvInteger(env, "INTERACTIVE_QRIS_UNIQUE_CODE_MAX", 99, 1, 99),
+    webhookConfigured: Boolean(
+      String(env.INTERACTIVE_QRIS_WEBHOOK_SECRET || "").trim()
+      && String(env.INTERACTIVE_QRIS_SOURCE_PACKAGE || "").trim()
+    )
+  };
+}
+
+function mapSubscriptionOrder(row: SubscriptionOrderRow) {
+  return {
+    id: row.id,
+    baseAmountIdr: Math.trunc(row.base_amount_idr),
+    uniqueCode: String(Math.trunc(row.unique_code)).padStart(2, "0"),
+    totalAmountIdr: Math.trunc(row.total_amount_idr),
+    subscriptionDays: Math.trunc(row.subscription_days),
+    status: row.status,
+    expiresAt: row.expires_at,
+    paidAt: row.paid_at,
+    subscriptionExpiresAt: row.subscription_expires_at
+  };
+}
+
+async function getSubscriptionConfig(context: AuthContext, env: WorkerEnv) {
+  return subscriptionConfig(await getSettings(context.serviceDb, env), env);
+}
+
+async function createSubscriptionCheckout(context: AuthContext, env: WorkerEnv) {
+  const settings = await getSettings(context.serviceDb, env);
+  const config = subscriptionConfig(settings, env);
+  if (!config.webhookConfigured) {
+    throw createHttpError(503, "Webhook QRIS belum dikonfigurasi di Worker.");
+  }
+  if (!config.qrisImageUrl) {
+    throw createHttpError(503, "Gambar QRIS statis belum diisi oleh admin.");
+  }
+  if (config.uniqueCodeMin > config.uniqueCodeMax) {
+    throw createHttpError(500, "Rentang kode unik QRIS tidak valid.");
+  }
+  const result = await context.serviceDb.rpc("create_subscription_order", {
+    target_user_id: context.user.id,
+    target_owner_email: context.user.email,
+    target_base_amount_idr: settings.subscriptionPriceIdr,
+    target_subscription_days: settings.subscriptionDays,
+    target_unique_code_min: config.uniqueCodeMin,
+    target_unique_code_max: config.uniqueCodeMax,
+    target_expiry_minutes: qrisEnvInteger(env, "INTERACTIVE_QRIS_EXPIRY_MINUTES", 30, 5, 120)
+  });
+  if (result.error || !result.data) {
+    throw result.error || createHttpError(500, "Invoice langganan tidak bisa dibuat.");
+  }
+  return { order: mapSubscriptionOrder(result.data as SubscriptionOrderRow), config };
+}
+
+async function getSubscriptionOrder(context: AuthContext, orderId: string) {
+  const result = await context.serviceDb
+    .from("subscription_orders")
+    .select("*")
+    .eq("id", orderId)
+    .eq("owner_user_id", context.user.id)
+    .maybeSingle<SubscriptionOrderRow>();
+  if (result.error) throw result.error;
+  if (!result.data) throw createHttpError(404, "Invoice langganan tidak ditemukan.");
+  if (result.data.status === "pending" && new Date(result.data.expires_at).getTime() <= Date.now()) {
+    const expired = await context.serviceDb
+      .from("subscription_orders")
+      .update({ status: "expired", updated_at: nowIso() })
+      .eq("id", result.data.id)
+      .select("*")
+      .single<SubscriptionOrderRow>();
+    if (expired.error || !expired.data) throw expired.error || createHttpError(500, "Status invoice tidak bisa diperbarui.");
+    return mapSubscriptionOrder(expired.data);
+  }
+  return mapSubscriptionOrder(result.data);
+}
+
+async function recordQrisWebhookEvent(
+  serviceDb: SupabaseClient,
+  input: {
+    payloadHash: string;
+    packageName: string;
+    amountCandidates: number[];
+    processingStatus: "processed" | "ignored" | "failed";
+    reason?: string;
+    orderId?: string;
+    payload: Record<string, unknown>;
+  }
+): Promise<void> {
+  const result = await serviceDb.from("qris_webhook_events").insert({
+    payload_hash: input.payloadHash,
+    package_name: input.packageName || null,
+    amount_candidates: input.amountCandidates,
+    processing_status: input.processingStatus,
+    reason: input.reason || null,
+    subscription_order_id: input.orderId || null,
+    raw_payload: input.payload
+  });
+  if (result.error && String(result.error.code || "") !== "23505") throw result.error;
+}
+
+async function handleInteractiveQrisWebhook(request: Request, env: WorkerEnv): Promise<Response> {
+  const expectedSecret = String(env.INTERACTIVE_QRIS_WEBHOOK_SECRET || "").trim();
+  const expectedPackage = String(env.INTERACTIVE_QRIS_SOURCE_PACKAGE || "").trim().toLowerCase();
+  if (!expectedSecret || !expectedPackage) {
+    throw createHttpError(503, "Webhook QRIS belum dikonfigurasi di Worker.");
+  }
+  const receivedSecret = String(request.headers.get("x-interactive-qris-secret") || "").trim();
+  if (receivedSecret !== expectedSecret) throw createHttpError(401, "Secret QRIS tidak valid.");
+
+  const body = await readQrisWebhookPayload(request);
+  const packageName = String(body.packageName || "").trim().toLowerCase();
+  const amountCandidates = extractQrisAmountCandidates(body);
+  const payloadHash = await sha256Hex(JSON.stringify(body));
+  const serviceDb = createServiceClient(env);
+  const duplicate = await serviceDb
+    .from("qris_webhook_events")
+    .select("id,processing_status,reason")
+    .eq("payload_hash", payloadHash)
+    .maybeSingle<{ id: string; processing_status: string; reason: string | null }>();
+  if (duplicate.error) throw duplicate.error;
+  if (duplicate.data) {
+    return jsonResponse({ received: true, credited: false, duplicate: true, reason: duplicate.data.reason || "already_processed" }, { headers: buildCorsHeaders(request) });
+  }
+  if (packageName !== expectedPackage) {
+    await recordQrisWebhookEvent(serviceDb, { payloadHash, packageName, amountCandidates, processingStatus: "ignored", reason: "unexpected_package", payload: body });
+    return jsonResponse({ received: true, credited: false, ignored: true, reason: "unexpected_package" }, { headers: buildCorsHeaders(request) });
+  }
+  if (!amountCandidates.length) {
+    await recordQrisWebhookEvent(serviceDb, { payloadHash, packageName, amountCandidates, processingStatus: "ignored", reason: "amount_not_found", payload: body });
+    return jsonResponse({ received: true, credited: false, ignored: true, reason: "amount_not_found" }, { headers: buildCorsHeaders(request) });
+  }
+
+  const expireResult = await serviceDb.from("subscription_orders").update({ status: "expired", updated_at: nowIso() })
+    .eq("status", "pending").lte("expires_at", nowIso());
+  if (expireResult.error) throw expireResult.error;
+  const pending = await serviceDb
+    .from("subscription_orders")
+    .select("*")
+    .eq("status", "pending")
+    .gt("expires_at", nowIso())
+    .in("total_amount_idr", amountCandidates);
+  if (pending.error) throw pending.error;
+  const matches = (pending.data || []) as SubscriptionOrderRow[];
+  if (matches.length !== 1) {
+    const reason = matches.length > 1 ? "ambiguous_amount_match" : "payment_not_found";
+    await recordQrisWebhookEvent(serviceDb, { payloadHash, packageName, amountCandidates, processingStatus: "ignored", reason, payload: body });
+    return jsonResponse({ received: true, credited: false, ignored: true, reason, amountCandidates }, { headers: buildCorsHeaders(request) });
+  }
+
+  const matchedOrder = matches[0]!;
+  const settled = await serviceDb.rpc("settle_subscription_order", {
+    target_order_id: matchedOrder.id,
+    webhook_payload: { ...body, matchedAmountIdr: matchedOrder.total_amount_idr }
+  });
+  if (settled.error || !settled.data) throw settled.error || createHttpError(500, "Langganan tidak bisa diaktifkan.");
+  const order = settled.data as SubscriptionOrderRow;
+  await recordQrisWebhookEvent(serviceDb, { payloadHash, packageName, amountCandidates, processingStatus: "processed", orderId: order.id, payload: body });
+  return jsonResponse({
+    received: true,
+    credited: true,
+    orderId: order.id,
+    ownerEmail: order.owner_email,
+    paidAmountIdr: order.total_amount_idr,
+    subscriptionExpiresAt: order.subscription_expires_at
+  }, { headers: buildCorsHeaders(request) });
 }
 
 async function createTopup(context: AuthContext, env: WorkerEnv, packageCode: string) {
@@ -1666,7 +2010,23 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
       }
     }
 
+    if (route.path === "/api/webhooks/interactive-qris" && request.method === "POST") {
+      return await handleInteractiveQrisWebhook(request, env);
+    }
+
     const context = await requireAuth(request, env);
+
+    if (route.path === "/api/billing/subscription/config" && request.method === "GET") {
+      return jsonResponse(await getSubscriptionConfig(context, env), { headers: buildCorsHeaders(request) });
+    }
+
+    if (route.path === "/api/billing/subscription/orders" && request.method === "POST") {
+      return jsonResponse(await createSubscriptionCheckout(context, env), { status: 201, headers: buildCorsHeaders(request) });
+    }
+
+    if (route.parts[0] === "api" && route.parts[1] === "billing" && route.parts[2] === "subscription" && route.parts[3] === "orders" && route.parts[5] === "status" && request.method === "GET") {
+      return jsonResponse(await getSubscriptionOrder(context, route.parts[4] || ""), { headers: buildCorsHeaders(request) });
+    }
 
     if (route.path === "/api/billing/wallet" && request.method === "GET") {
       return jsonResponse(await getWallet(context, env), { headers: buildCorsHeaders(request) });
@@ -1757,7 +2117,12 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
           language: nextSettings.language,
           max_video_seconds: nextSettings.maxVideoSeconds,
           safety_mode: nextSettings.safetyMode,
-          concurrency: nextSettings.concurrency
+          concurrency: nextSettings.concurrency,
+          subscription_price_idr: nextSettings.subscriptionPriceIdr,
+          subscription_days: nextSettings.subscriptionDays,
+          qris_merchant_name: nextSettings.qrisMerchantName,
+          qris_image_url: nextSettings.qrisImageUrl,
+          qris_instructions: nextSettings.qrisInstructions
         }, { onConflict: "settings_key" });
       if (result.error) {
         throw result.error;

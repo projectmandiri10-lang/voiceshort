@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Clipboard, ExternalLink, FolderClock, Link2, LoaderCircle, Sparkles, UploadCloud } from "lucide-react";
-import { createGenerationSession, fetchGenerationSession } from "../api";
+import { createGenerationSession, fetchGenerationSession, fetchSession } from "../api";
 import { extractFramesFromVideo } from "../frame-extractor";
 import {
   getContentLabel, getPlatformLabel, getToneLabel, PLATFORM_OPTIONS, TONE_OPTIONS
 } from "../job-form-options";
-import type { ContentLanguage, ContentType, GenerationSessionRecord, SocialPlatform } from "../types";
+import type { AuthUser, ContentLanguage, ContentType, GenerationSessionRecord, SocialPlatform } from "../types";
 import { CONTENT_TYPES } from "../types";
 import { readVideoDuration } from "../video-duration";
 import { formatVideoDuration } from "../utils/billing";
@@ -14,7 +14,10 @@ const AI_STUDIO_URL = "https://aistudio.google.com/generate-speech";
 
 interface GeneratePageProps {
   locale: ContentLanguage;
+  user: AuthUser;
   onViewJobs: (jobId?: string) => void;
+  onSubscribe: () => void;
+  onUserUpdated: (user: AuthUser) => void;
   resumeSessionId?: string;
 }
 
@@ -42,7 +45,7 @@ const initialForm: FormState = {
   referenceLink: ""
 };
 
-export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePageProps) {
+export function GeneratePage({ locale, user, onViewJobs, onSubscribe, onUserUpdated, resumeSessionId }: GeneratePageProps) {
   const [form, setForm] = useState<FormState>(initialForm);
   const [session, setSession] = useState<GenerationSessionRecord | null>(null);
   const [busy, setBusy] = useState<"" | "video" | "analysis">("");
@@ -110,6 +113,8 @@ export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePa
       });
       setProgress(100);
       setSession(result.session);
+      const nextUser = await fetchSession();
+      if (nextUser) onUserUpdated(nextUser);
       setNotice("Analisis selesai. Semua teks siap disalin dan digunakan.");
     } catch (analysisError) {
       setError((analysisError as Error).message);
@@ -148,6 +153,14 @@ export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePa
         <div className="personal-step-number">01</div>
         <div className="personal-step-content">
           <h2>Upload dan analisa video</h2>
+          <div className={user.hasAnalysisAccess ? "analysis-access-note" : "analysis-access-note exhausted"}>
+            {user.subscriptionStatus === "active" || user.isUnlimited
+              ? "Akses premium aktif · model mengikuti pengaturan admin."
+              : user.hasAnalysisAccess
+                ? `Gratis tersisa ${user.freeAnalysisRemaining} dari ${user.freeAnalysisLimit} analisis.`
+                : "10 analisis gratis sudah habis. Aktifkan langganan untuk melanjutkan."}
+            {!user.hasAnalysisAccess ? <button type="button" onClick={onSubscribe}>Berlangganan</button> : null}
+          </div>
           <label className="personal-dropzone">
             <UploadCloud size={28} />
             <strong>{form.video?.name || "Pilih video MP4 atau MOV"}</strong>
@@ -163,7 +176,7 @@ export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePa
             <label>CTA opsional<input value={form.ctaText} onChange={(e) => setForm({ ...form, ctaText: e.target.value })} /></label>
             <label className="span-2">Link referensi opsional<input type="url" value={form.referenceLink} onChange={(e) => setForm({ ...form, referenceLink: e.target.value })} placeholder="https://..." /></label>
           </div>
-          <button className="primary-action" disabled={Boolean(busy)}>
+          <button className="primary-action" disabled={Boolean(busy) || !user.hasAnalysisAccess}>
             {busy === "analysis" ? <LoaderCircle className="spin" size={18} /> : <Sparkles size={18} />}
             {busy === "analysis" ? `Menganalisa ${progress}%` : "Analisa Video"}
           </button>

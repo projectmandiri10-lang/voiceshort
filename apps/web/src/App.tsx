@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { FolderClock, Settings, Sparkles } from "lucide-react";
+import { CreditCard, FolderClock, Settings, Sparkles } from "lucide-react";
 import { completeGoogleOAuthRedirect, fetchSession, logout, subscribeToAuthState } from "./api";
 import { DashboardShell, type DashboardTabDefinition } from "./components/DashboardShell";
 import { navigateToRoute, parseCurrentRoute, type AppRoute } from "./navigation";
@@ -7,18 +7,21 @@ import { GeneratePage } from "./pages/GeneratePage";
 import { JobsPage } from "./pages/JobsPage";
 import { LandingPage } from "./pages/LandingPage";
 import { AdminSettingsPage } from "./pages/AdminSettingsPage";
+import { SubscriptionPage } from "./pages/SubscriptionPage";
 import type { AuthUser } from "./types";
 import { resolveBrowserLocale } from "./user-locale";
 
-type PersonalView = "generate" | "jobs" | "admin";
+type PersonalView = "generate" | "jobs" | "subscription" | "admin";
 
 const personalTabs: DashboardTabDefinition<PersonalView>[] = [
   { id: "generate", label: "Generate", icon: Sparkles },
-  { id: "jobs", label: "Riwayat", icon: FolderClock }
+  { id: "jobs", label: "Riwayat", icon: FolderClock },
+  { id: "subscription", label: "Berlangganan", icon: CreditCard }
 ];
 
 function personalView(route: AppRoute, isSuperadmin: boolean): PersonalView {
   if (route.view === "admin" && isSuperadmin) return "admin";
+  if (route.view === "subscription") return "subscription";
   return route.view === "jobs" ? "jobs" : "generate";
 }
 
@@ -90,13 +93,22 @@ export default function App() {
       onLogout={async () => { await logout(); setUser(null); setRoute(navigateToRoute({ view: "landing" }, true)); }}
     >
       {activeView === "generate" ? (
-        <GeneratePage locale={locale} resumeSessionId={route.jobId} onViewJobs={(jobId) => navigate("jobs", jobId)} />
+        <GeneratePage
+          locale={locale}
+          user={user}
+          resumeSessionId={route.jobId}
+          onViewJobs={(jobId) => navigate("jobs", jobId)}
+          onSubscribe={() => navigate("subscription")}
+          onUserUpdated={setUser}
+        />
       ) : activeView === "jobs" ? (
         <JobsPage
           locale={locale}
           selectedJobId={route.jobId}
           onSelectJob={(jobId) => navigate("jobs", jobId)}
         />
+      ) : activeView === "subscription" ? (
+        <SubscriptionPage user={user} onUserUpdated={setUser} onGenerate={() => navigate("generate")} />
       ) : (
         <AdminSettingsPage />
       )}

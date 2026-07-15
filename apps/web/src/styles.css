@@ -3359,6 +3359,122 @@ button {
   background: rgba(15, 255, 255, 0.04);
 }
 
+.settings-section-divider {
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.settings-section-divider h3,
+.settings-section-divider p {
+  margin: 0 0 0.4rem;
+}
+
+.analysis-access-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 1rem;
+  border-radius: 0.8rem;
+  background: rgba(34, 211, 238, 0.09);
+  border: 1px solid rgba(34, 211, 238, 0.22);
+}
+
+.analysis-access-note.exhausted {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.25);
+}
+
+.analysis-access-note button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  cursor: pointer;
+}
+
+.subscription-summary-card {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.subscription-summary-card div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.subscription-summary-card span,
+.subscription-payment-detail span {
+  color: var(--muted-text);
+  font-size: 0.85rem;
+}
+
+.subscription-active-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.subscription-active-card div {
+  flex: 1;
+}
+
+.subscription-checkout-card,
+.subscription-plan-copy,
+.subscription-payment-detail,
+.subscription-qris-image-wrap {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.subscription-plan-copy h2,
+.subscription-plan-copy p,
+.subscription-payment-detail p,
+.subscription-active-card h2,
+.subscription-active-card p {
+  margin: 0;
+}
+
+.subscription-plan-copy > strong,
+.subscription-total {
+  font-size: clamp(1.6rem, 5vw, 2.4rem);
+}
+
+.subscription-payment-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(260px, 1.2fr);
+  gap: 1.2rem;
+  align-items: center;
+}
+
+.subscription-qris-image-wrap {
+  justify-items: center;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: white;
+  color: #0f172a;
+}
+
+.subscription-qris-image {
+  width: min(100%, 320px);
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+@media (max-width: 720px) {
+  .subscription-summary-card,
+  .subscription-payment-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .subscription-active-card,
+  .analysis-access-note {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .settings-provider-summary p {
   margin: 0;
   color: var(--text-soft);

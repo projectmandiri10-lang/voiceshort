@@ -18,7 +18,12 @@ const settings = {
   language: "id-ID" as const,
   maxVideoSeconds: 60,
   safetyMode: "safe_marketing" as const,
-  concurrency: 1 as const
+  concurrency: 1 as const,
+  subscriptionPriceIdr: 20000,
+  subscriptionDays: 30,
+  qrisMerchantName: "VoiceShort",
+  qrisImageUrl: "https://example.com/qris.png",
+  qrisInstructions: "Bayar sesuai nominal unik."
 };
 
 describe("AdminSettingsPage", () => {
@@ -39,7 +44,7 @@ describe("AdminSettingsPage", () => {
       ...settings,
       scriptModel: "qwen3.5-flash"
     }));
-    expect(window.alert).toHaveBeenCalledWith("Pengaturan model AI berhasil disimpan.");
+    expect(window.alert).toHaveBeenCalledWith("Pengaturan AI dan langganan berhasil disimpan.");
     expect(screen.getAllByText(/GLM-5V Turbo/)).toHaveLength(2);
   });
 });

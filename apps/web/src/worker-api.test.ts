@@ -70,6 +70,18 @@ function chatResponse(content: Record<string, unknown>): Response {
   });
 }
 
+function analysisRpcMock(accessType: "free" | "subscription" | "unlimited" = "free") {
+  return vi.fn(async (name: string) => {
+    if (name === "reserve_analysis_access") {
+      return { data: { accessType, freeAnalysisUsed: accessType === "free" ? 1 : 10, freeAnalysisRemaining: accessType === "free" ? 9 : 0 }, error: null };
+    }
+    if (name === "complete_analysis_access" || name === "release_analysis_access") {
+      return { data: null, error: null };
+    }
+    return { data: null, error: null };
+  });
+}
+
 const env = {
   SUPABASE_URL: "https://project.supabase.co",
   SUPABASE_ANON_KEY: "anon",
@@ -96,7 +108,7 @@ describe("generation session Worker workflow", () => {
 
   it("uses exactly two text calls, stores the AI Studio package, and never charges balance", async () => {
     const inserted: unknown[] = [];
-    const rpcMock = vi.fn();
+    const rpcMock = analysisRpcMock();
     createClientMock.mockReturnValue(buildDb(inserted, rpcMock));
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(chatResponse({
@@ -143,7 +155,7 @@ describe("generation session Worker workflow", () => {
     expect(aiBodies.every((payload) => payload.model === "qwen3.5-flash")).toBe(true);
     expect(aiBodies.every((payload) => payload.reasoning_effort === "medium")).toBe(true);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("audio/speech"))).toBe(false);
-    expect(rpcMock).not.toHaveBeenCalled();
+    expect(rpcMock.mock.calls.map(([name]) => name)).toEqual(["reserve_analysis_access", "complete_analysis_access"]);
     expect(inserted[0]).toMatchObject({ status: "completed", charged_amount_idr: 0 });
     expect(inserted[0]).toHaveProperty("completed_at");
     expect(inserted[0]).not.toHaveProperty("voice_name");
@@ -153,7 +165,7 @@ describe("generation session Worker workflow", () => {
 
   it("falls back directly to Z.AI GLM-5V Turbo when Aivene rejects a stage", async () => {
     const inserted: unknown[] = [];
-    createClientMock.mockReturnValue(buildDb(inserted, vi.fn()));
+    createClientMock.mockReturnValue(buildDb(inserted, analysisRpcMock()));
     const visualBrief = {
       summary: "Produk terlihat jelas",
       hook: { startSec: 0, endSec: 3, reason: "Produk muncul" },
@@ -192,6 +204,61 @@ describe("generation session Worker workflow", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe("https://api.z.ai/api/paas/v4/chat/completions");
     const fallbackBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as Record<string, unknown>;
     expect(fallbackBody).toMatchObject({ model: "glm-5v-turbo", thinking: { type: "enabled" } });
+  });
+
+  it("uses the admin-selected model for subscribed users", async () => {
+    const inserted: unknown[] = [];
+    createClientMock.mockReturnValue(buildDb(inserted, analysisRpcMock("subscription"), {
+      settingsRow: {
+        settings_key: "default", script_provider: "aivene", script_fallback_provider: "zai",
+        script_model: "qwen3.7-plus", language: "id-ID", max_video_seconds: 60,
+        safety_mode: "safe_marketing", concurrency: 1
+      }
+    }));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(chatResponse({
+        summary: "Produk", hook: { startSec: 0, endSec: 3, reason: "Hook" },
+        timeline: [{ startSec: 0, endSec: 42, primaryVisual: "Produk", action: "Dipakai", onScreenText: [], narrationFocus: "Produk", avoidClaims: [] }],
+        mustMention: [], mustAvoid: [], uncertainties: []
+      }))
+      .mockResolvedValueOnce(chatResponse({
+        sceneText: "Scene", sampleContextText: "Context", scriptText: "Naskah produk.",
+        captionText: "Caption", hashtags: ["#produk"]
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(new Request("https://app.test/api/generation-sessions", {
+      method: "POST", headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Produk", description: "Deskripsi", contentType: "affiliate", socialPlatform: "instagram",
+        contentLanguage: "id-ID", tone: "natural", videoDurationSec: 42,
+        frames: [{ timestampSec: 0, mimeType: "image/jpeg", base64Data: "frame", width: 448, height: 252 }]
+      })
+    }), env);
+    expect(response.status).toBe(201);
+    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+    expect(bodies.every((body) => body.model === "qwen3.7-plus")).toBe(true);
+  });
+
+  it("blocks the eleventh free analysis before calling a provider", async () => {
+    const rpcMock = vi.fn(async (name: string) => name === "reserve_analysis_access"
+      ? { data: null, error: { message: "FREE_ANALYSIS_LIMIT_REACHED" } }
+      : { data: null, error: null });
+    createClientMock.mockReturnValue(buildDb([], rpcMock));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { handleApiRequest } = await import("./worker-api");
+    const response = await handleApiRequest(new Request("https://app.test/api/generation-sessions", {
+      method: "POST", headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Produk", description: "Deskripsi", contentType: "affiliate", socialPlatform: "instagram",
+        contentLanguage: "id-ID", tone: "natural", videoDurationSec: 42,
+        frames: [{ timestampSec: 0, mimeType: "image/jpeg", base64Data: "frame", width: 448, height: 252 }]
+      })
+    }), env);
+    expect(response.status).toBe(402);
+    await expect(response.json()).resolves.toMatchObject({ message: expect.stringContaining("10 analisis gratis") });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("does not expose removed audio endpoints", async () => {

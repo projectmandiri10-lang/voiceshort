@@ -1,12 +1,13 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeneratePage } from "./pages/GeneratePage";
-import type { GenerationSessionRecord } from "./types";
+import type { AuthUser, GenerationSessionRecord } from "./types";
 import * as api from "./api";
 
 vi.mock("./api", () => ({
   createGenerationSession: vi.fn(),
-  fetchGenerationSession: vi.fn()
+  fetchGenerationSession: vi.fn(),
+  fetchSession: vi.fn()
 }));
 vi.mock("./video-duration", () => ({ readVideoDuration: vi.fn(async () => 42) }));
 vi.mock("./frame-extractor", () => ({
@@ -29,6 +30,15 @@ const completedSession: GenerationSessionRecord = {
   captionText: "Solusi praktis untuk rutinitas harian.", hashtags: ["#produk", "#praktis"]
 };
 
+const user: AuthUser = {
+  id: "user-1", email: "user@test.dev", displayName: "User", role: "user",
+  subscriptionStatus: "inactive", videoQuotaTotal: 0, videoQuotaUsed: 0,
+  videoQuotaRemaining: 0, walletBalanceIdr: 0, generatePriceIdr: 2000,
+  generateCreditsRemaining: 0, isUnlimited: false, assignedPackageCode: null,
+  freeAnalysisLimit: 10, freeAnalysisUsed: 0, freeAnalysisRemaining: 10,
+  subscriptionExpiresAt: null, hasAnalysisAccess: true
+};
+
 describe("analysis-only workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -36,10 +46,11 @@ describe("analysis-only workflow", () => {
       configurable: true, value: { writeText: vi.fn(async () => undefined) }
     });
     vi.mocked(api.createGenerationSession).mockResolvedValue({ session: completedSession });
+    vi.mocked(api.fetchSession).mockResolvedValue({ ...user, freeAnalysisUsed: 1, freeAnalysisRemaining: 9 });
   });
 
   it("shows every publishing output immediately after analysis", async () => {
-    const { container } = render(<GeneratePage locale="id-ID" onViewJobs={vi.fn()} />);
+    const { container } = render(<GeneratePage locale="id-ID" user={user} onViewJobs={vi.fn()} onSubscribe={vi.fn()} onUserUpdated={vi.fn()} />);
     const video = new File(["video"], "source.mp4", { type: "video/mp4" });
     fireEvent.change(container.querySelector('input[type="file"][accept="video/*"]')!, { target: { files: [video] } });
     fireEvent.change(screen.getByLabelText("Judul"), { target: { value: "Produk" } });
@@ -58,7 +69,7 @@ describe("analysis-only workflow", () => {
 
   it("loads a completed analysis from history", async () => {
     vi.mocked(api.fetchGenerationSession).mockResolvedValue(completedSession);
-    render(<GeneratePage locale="id-ID" onViewJobs={vi.fn()} resumeSessionId="session-1" />);
+    render(<GeneratePage locale="id-ID" user={user} onViewJobs={vi.fn()} onSubscribe={vi.fn()} onUserUpdated={vi.fn()} resumeSessionId="session-1" />);
     expect(await screen.findByText(completedSession.captionText)).toBeTruthy();
   });
 });

@@ -5,7 +5,10 @@ import type {
   AuthUser,
   GenerationSessionCreateInput,
   GenerationSessionCreateResult,
-  GenerationSessionRecord
+  GenerationSessionRecord,
+  SubscriptionCheckout,
+  SubscriptionConfig,
+  SubscriptionOrder
 } from "./types";
 import { isSupabaseAuthReady, supabase } from "./supabase";
 import { getRuntimeConfig } from "./runtime-config";
@@ -609,6 +612,18 @@ export async function createTopup(packageCode: DepositPackage["code"]): Promise<
 
 export async function fetchTopupStatus(orderId: string): Promise<PaymentOrder> {
   return await apiFetch<PaymentOrder>(`/api/billing/topups/${encodeURIComponent(orderId)}/status`);
+}
+
+export async function fetchSubscriptionConfig(): Promise<SubscriptionConfig> {
+  return await apiFetch<SubscriptionConfig>("/api/billing/subscription/config");
+}
+
+export async function createSubscriptionCheckout(): Promise<SubscriptionCheckout> {
+  return await apiFetch<SubscriptionCheckout>("/api/billing/subscription/orders", { method: "POST" });
+}
+
+export async function fetchSubscriptionOrderStatus(orderId: string): Promise<SubscriptionOrder> {
+  return await apiFetch<SubscriptionOrder>(`/api/billing/subscription/orders/${encodeURIComponent(orderId)}/status`);
 }
 
 export async function createGenerationSession(
