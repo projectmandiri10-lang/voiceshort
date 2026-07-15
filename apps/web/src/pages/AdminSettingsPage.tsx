@@ -5,9 +5,9 @@ import { AIVENE_SCRIPT_MODELS, FREE_USER_AIVENE_SCRIPT_MODEL } from "../shared/c
 import type { AppSettings, QrisManualOverrideMode, TopupConfig } from "../types";
 
 const MODEL_LABELS: Record<(typeof AIVENE_SCRIPT_MODELS)[number], string> = {
-  "gpt-4o-mini": "GPT-4o Mini - paling hemat",
-  "gpt-4o": "GPT-4o",
-  "gpt-4.1-mini": "GPT-4.1 Mini - rekomendasi"
+  "qwen3.5-flash": "gpt-4o-mini - paling hemat",
+  "qwen3.6-plus": "Qwen 3.6 Plus",
+  "qwen3.7-plus": "Qwen 3.7 Plus - rekomendasi"
 };
 
 export function AdminSettingsPage() {
