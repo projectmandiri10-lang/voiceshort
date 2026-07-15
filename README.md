@@ -15,8 +15,8 @@ Video sumber tidak disimpan oleh Worker atau Supabase. Hanya frame terpilih yang
 - Frontend dan API aktif: `apps/web` di Cloudflare Worker + Static Assets.
 - Analisis utama: Aivene melalui `/chat/completions`.
 - Setiap pengguna mendapat 10 analisis gratis dengan Aivene `qwen3.5-flash`.
-- Pelanggan aktif dan superadmin memakai model Aivene yang dipilih dari halaman Pengaturan AI.
-- Fallback analisis: GLM-5V Turbo melalui API Z.AI direct.
+- Pelanggan aktif memakai model Aivene yang dipilih dari halaman Pengaturan AI tanpa akses atau fallback Z.AI direct.
+- Fallback GLM-5V Turbo melalui API Z.AI direct hanya tersedia untuk superadmin.
 - `apps/server` hanya server kompatibilitas; create/retry job lama merespons `410 Gone`.
 - Generate session pengguna biasa maupun superadmin tidak memotong saldo dan menyimpan `charged_amount_idr = 0`.
 
@@ -48,7 +48,7 @@ VITE_SUPABASE_URL=https://your_project_ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your_anon_key
 ```
 
-`AIVENE_API_KEY`, `ZAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, dan `INTERACTIVE_QRIS_WEBHOOK_SECRET` harus disimpan sebagai Cloudflare Worker secrets. Variabel non-secret sudah didefinisikan di `apps/web/wrangler.jsonc`. Model utama Aivene dipilih dari halaman Pengaturan AI superadmin dengan `reasoning_effort` medium; fallback tetap memakai `glm-5v-turbo` direct Z.AI.
+`AIVENE_API_KEY`, `ZAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, dan `INTERACTIVE_QRIS_WEBHOOK_SECRET` harus disimpan sebagai Cloudflare Worker secrets. Variabel non-secret sudah didefinisikan di `apps/web/wrangler.jsonc`. Model utama Aivene memakai `reasoning_effort` medium. Z.AI direct dengan `glm-5v-turbo` dibatasi hanya untuk fallback superadmin; seluruh user biasa dan pelanggan selalu memakai Aivene saja.
 
 ## Langganan QRIS
 

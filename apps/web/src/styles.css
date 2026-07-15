@@ -1191,6 +1191,14 @@ button {
   gap: 12px;
 }
 
+.landing-hero-actions .primary-btn {
+  width: auto;
+}
+
+.landing-hero-actions a {
+  text-decoration: none;
+}
+
 .primary-btn,
 .ghost-button,
 .google-btn,

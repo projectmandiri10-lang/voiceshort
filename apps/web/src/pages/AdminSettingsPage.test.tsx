@@ -45,6 +45,8 @@ describe("AdminSettingsPage", () => {
       scriptModel: "qwen3.5-flash"
     }));
     expect(window.alert).toHaveBeenCalledWith("Pengaturan AI dan langganan berhasil disimpan.");
-    expect(screen.getAllByText(/GLM-5V Turbo/)).toHaveLength(2);
+    expect(screen.getByText(/Fallback superadmin:/)).toBeTruthy();
+    expect(screen.getByText(/User gratis & pelanggan:/)).toBeTruthy();
+    expect(screen.getByText(/tanpa Z\.AI direct/)).toBeTruthy();
   });
 });

@@ -163,9 +163,9 @@ describe("generation session Worker workflow", () => {
     expect(inserted[0]).not.toHaveProperty("include_subtitles");
   });
 
-  it("falls back directly to Z.AI GLM-5V Turbo when Aivene rejects a stage", async () => {
+  it("allows only a superadmin to fall back directly to Z.AI GLM-5V Turbo", async () => {
     const inserted: unknown[] = [];
-    createClientMock.mockReturnValue(buildDb(inserted, analysisRpcMock()));
+    createClientMock.mockReturnValue(buildDb(inserted, analysisRpcMock("unlimited"), { superadmin: true }));
     const visualBrief = {
       summary: "Produk terlihat jelas",
       hook: { startSec: 0, endSec: 3, reason: "Produk muncul" },
@@ -204,6 +204,39 @@ describe("generation session Worker workflow", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe("https://api.z.ai/api/paas/v4/chat/completions");
     const fallbackBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as Record<string, unknown>;
     expect(fallbackBody).toMatchObject({ model: "glm-5v-turbo", thinking: { type: "enabled" } });
+  });
+
+  it("never sends a subscribed user directly to Z.AI when Aivene fails", async () => {
+    const inserted: unknown[] = [];
+    const rpcMock = analysisRpcMock("subscription");
+    createClientMock.mockReturnValue(buildDb(inserted, rpcMock, {
+      settingsRow: {
+        settings_key: "default", script_provider: "aivene", script_fallback_provider: "zai",
+        script_model: "qwen3.7-plus", language: "id-ID", max_video_seconds: 60,
+        safety_mode: "safe_marketing", concurrency: 1
+      }
+    }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: { message: "Aivene unavailable" }
+    }), { status: 400, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { handleApiRequest } = await import("./worker-api");
+
+    const response = await handleApiRequest(new Request("https://app.test/api/generation-sessions", {
+      method: "POST", headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Produk", description: "Deskripsi", contentType: "affiliate",
+        socialPlatform: "instagram", contentLanguage: "id-ID", tone: "natural",
+        videoDurationSec: 42,
+        frames: [{ timestampSec: 0, mimeType: "image/jpeg", base64Data: "frame", width: 448, height: 252 }]
+      })
+    }), env);
+
+    expect(response.status).toBe(400);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://api.aivene.com/v1/chat/completions");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("api.z.ai"))).toBe(false);
+    expect(rpcMock.mock.calls.map(([name]) => name)).toEqual(["reserve_analysis_access", "release_analysis_access"]);
   });
 
   it("uses the admin-selected model for subscribed users", async () => {

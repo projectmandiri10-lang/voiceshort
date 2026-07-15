@@ -62,7 +62,7 @@ export function AdminSettingsPage() {
         <div>
           <span className="eyebrow"><ShieldCheck size={15} /> Superadmin</span>
           <h2>Model analisis video</h2>
-          <p>Pilih model utama Aivene. Jika gagal, Worker otomatis memakai GLM-5V Turbo langsung dari Z.AI.</p>
+          <p>Pilih model utama Aivene. Fallback Z.AI direct hanya tersedia untuk superadmin.</p>
         </div>
       </header>
 
@@ -82,12 +82,13 @@ export function AdminSettingsPage() {
 
         <div className="settings-provider-summary">
           <p><strong>Provider utama:</strong> Aivene</p>
-          <p><strong>Fallback:</strong> Z.AI direct · GLM-5V Turbo</p>
+          <p><strong>Fallback superadmin:</strong> Z.AI direct · GLM-5V Turbo</p>
+          <p><strong>User gratis & pelanggan:</strong> Aivene saja · tanpa Z.AI direct</p>
           <p><strong>Reasoning utama:</strong> Medium</p>
         </div>
 
         <p className="settings-hint">
-          Sepuluh analisis gratis memakai {FREE_USER_AIVENE_SCRIPT_MODEL} dari Aivene. Superadmin dan pelanggan aktif memakai model yang dipilih di atas.
+          Sepuluh analisis gratis memakai {FREE_USER_AIVENE_SCRIPT_MODEL}. Pelanggan aktif memakai model Aivene yang dipilih di atas. Hanya superadmin yang boleh memakai fallback Z.AI direct.
         </p>
 
         <div className="settings-section-divider">

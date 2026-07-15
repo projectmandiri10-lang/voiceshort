@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { FileText, Hash, LogIn, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, FileText, Hash, LogIn, ShieldCheck, Sparkles } from "lucide-react";
 import { isAuthReady, login, register, startGoogleLogin } from "../api";
 import type { AuthUser, ContentLanguage } from "../types";
 
@@ -52,29 +52,42 @@ export function LandingPage({ locale, authError, onAuthenticated }: LandingPageP
       <div className="landing-orb landing-orb-cyan" aria-hidden="true" />
       <div className="landing-orb landing-orb-magenta" aria-hidden="true" />
       <nav className="landing-nav">
-        <div className="landing-brand-lockup"><div className="landing-brand-mark">V</div><span className="landing-brand-name">VoiceShort Personal</span></div>
-        <a className="landing-nav-cta" href="#masuk">{id ? "Masuk" : "Sign in"}</a>
+        <div className="landing-brand-lockup"><div className="landing-brand-mark">V</div><span className="landing-brand-name">VoiceShort</span></div>
+        <div className="landing-nav-actions">
+          <a className="landing-nav-link" href="#masuk" onClick={() => setMode("login")}>{id ? "Masuk" : "Sign in"}</a>
+          <a className="landing-nav-cta" href="#masuk" onClick={() => setMode("register")}>{id ? "Coba Gratis" : "Try free"}</a>
+        </div>
       </nav>
 
       <section className="hero-grid personal-landing-grid">
         <div className="landing-copy">
-          <div className="badge"><span className="badge-dot" />{id ? "WORKFLOW VIDEO PRIBADI" : "PERSONAL VIDEO WORKFLOW"}</div>
-          <h1>{id ? "Analisa video." : "Analyze video."}<br /><span>{id ? "Siapkan konten lebih cepat." : "Prepare content faster."}</span></h1>
+          <div className="badge"><span className="badge-dot" />{id ? "ANALISIS VIDEO PENDEK · 10 GRATIS" : "SHORT VIDEO ANALYSIS · 10 FREE"}</div>
+          <h1>{id ? "Ubah video pendek." : "Turn short videos."}<br /><span>{id ? "Jadi paket konten siap pakai." : "Into ready-to-use content."}</span></h1>
           <p className="landing-copy-lead">
             {id
-              ? "Dapatkan analisis visual, Scene, Sample Context, naskah, caption, dan hashtag dalam satu alur. Pengguna baru dapat mencoba analisis secara gratis."
-              : "Get visual analysis, Scene, Sample Context, script, caption, and hashtags in one flow. New users can try the analysis for free."}
+              ? "Upload video maksimal 60 detik dan dapatkan analisis visual, hook, Scene, Sample Context, naskah, caption, hashtag, serta CTA. Setiap akun mendapat 10 analisis gratis, lalu dapat melanjutkan dengan langganan."
+              : "Upload a video up to 60 seconds and get visual analysis, hooks, Scene, Sample Context, scripts, captions, hashtags, and CTAs. Every account gets 10 free analyses, with subscription access afterward."}
           </p>
-          <div className="feature-grid personal-feature-grid">
-            <article className="feature-step"><Sparkles size={20} /><div><h3>1. {id ? "Analisa" : "Analyze"}</h3><p>{id ? "Dua tahap AI menghasilkan paket naskah." : "Two AI stages create the script package."}</p></div></article>
-            <article className="feature-step"><FileText size={20} /><div><h3>2. {id ? "Naskah" : "Script"}</h3><p>{id ? "Salin naskah dan arahan suara yang siap digunakan." : "Copy the ready-to-use script and voice direction."}</p></div></article>
-            <article className="feature-step"><Hash size={20} /><div><h3>3. {id ? "Publikasi" : "Publish"}</h3><p>{id ? "Gunakan caption, hashtag, dan CTA yang sudah disiapkan." : "Use the prepared caption, hashtags, and CTA."}</p></div></article>
+          <div className="hero-actions landing-hero-actions">
+            <a className="primary-btn" href="#masuk" onClick={() => setMode("register")}><Sparkles size={17} />{id ? "Coba 10 Analisis Gratis" : "Try 10 Free Analyses"}</a>
+            <a className="ghost-button" href="#cara-kerja">{id ? "Lihat Alur Analisis" : "See How It Works"}<ArrowRight size={17} /></a>
           </div>
-          <p className="auth-security"><span><ShieldCheck size={14} />{id ? "Video sumber tidak disimpan oleh aplikasi" : "Source videos are not stored by the app"}</span></p>
+          <div className="feature-grid personal-feature-grid" id="cara-kerja">
+            <article className="feature-step"><Sparkles size={20} /><div><h3>1. {id ? "Upload & Analisis" : "Upload & Analyze"}</h3><p>{id ? "Pilih video MP4 atau MOV maksimal 60 detik." : "Choose an MP4 or MOV video up to 60 seconds."}</p></div></article>
+            <article className="feature-step"><FileText size={20} /><div><h3>2. {id ? "Paket Konten" : "Content Package"}</h3><p>{id ? "Dapatkan naskah, Scene, Sample Context, dan analisis visual." : "Get scripts, Scene, Sample Context, and visual analysis."}</p></div></article>
+            <article className="feature-step"><Hash size={20} /><div><h3>3. {id ? "Salin & Publikasikan" : "Copy & Publish"}</h3><p>{id ? "Salin caption, hashtag, CTA, atau buka Google AI Studio." : "Copy captions, hashtags, CTAs, or open Google AI Studio."}</p></div></article>
+          </div>
+          <p className="auth-security">
+            <span><ShieldCheck size={14} />{id ? "Video sumber tidak disimpan" : "Source videos are not stored"}</span>
+            <span>{id ? "Analisis teks saja · tanpa TTS" : "Text analysis only · no TTS"}</span>
+          </p>
         </div>
 
         <aside className="auth-card landing-auth-card" id="masuk">
-          <div className="auth-head"><h2>{id ? "Masuk ke workspace" : "Sign in to workspace"}</h2><p>{id ? "Akses Generate dan Riwayat." : "Access Generate and History."}</p></div>
+          <div className="auth-head">
+            <h2>{mode === "register" ? (id ? "Mulai 10 analisis gratis" : "Start 10 free analyses") : (id ? "Lanjutkan analisis Anda" : "Continue your analyses")}</h2>
+            <p>{mode === "register" ? (id ? "Buat akun dan langsung analisis video pertama." : "Create an account and analyze your first video.") : (id ? "Masuk untuk membuka Generate dan Riwayat." : "Sign in to access Generate and History.")}</p>
+          </div>
           <button className="google-btn" type="button" disabled={loading} onClick={() => void onGoogleLogin()}><LogIn size={19} />Google</button>
           <div className="auth-divider"><span>{id ? "atau email" : "or email"}</span></div>
           <div className="tab-pill" role="tablist">

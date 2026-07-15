@@ -1107,14 +1107,20 @@ async function createGenerationSession(
   const access = await reserveAnalysisAccess(context, sessionId);
   try {
   const savedSettings = await getSettings(context.serviceDb, env);
-  const settings = access.accessType === "free"
-    ? {
+  const isSuperadmin = context.user.role === "superadmin";
+  const selectedUserModel = access.accessType === "free"
+    ? FREE_USER_AIVENE_SCRIPT_MODEL
+    : AIVENE_SCRIPT_MODELS.includes(savedSettings.scriptModel as (typeof AIVENE_SCRIPT_MODELS)[number])
+      ? savedSettings.scriptModel
+      : DEFAULT_SETTINGS.scriptModel;
+  const settings = isSuperadmin
+    ? savedSettings
+    : {
         ...savedSettings,
         scriptProvider: "aivene" as const,
-        scriptFallbackProvider: "zai" as const,
-        scriptModel: FREE_USER_AIVENE_SCRIPT_MODEL
-      }
-    : savedSettings;
+        scriptFallbackProvider: "aivene" as const,
+        scriptModel: selectedUserModel
+      };
   if (input.videoDurationSec > settings.maxVideoSeconds) {
     throw createHttpError(
       400,
