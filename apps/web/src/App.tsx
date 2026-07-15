@@ -94,10 +94,8 @@ export default function App() {
       ) : activeView === "jobs" ? (
         <JobsPage
           locale={locale}
-          currentUser={user}
           selectedJobId={route.jobId}
           onSelectJob={(jobId) => navigate("jobs", jobId)}
-          onResumeSession={(jobId) => navigate("generate", jobId)}
         />
       ) : (
         <AdminSettingsPage />

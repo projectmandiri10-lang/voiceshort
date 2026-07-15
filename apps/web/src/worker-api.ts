@@ -6,6 +6,7 @@ import {
   DEFAULT_AIVENE_BASE_URL,
   DEFAULT_ZAI_BASE_URL,
   DEFAULT_ZAI_SCRIPT_MODEL,
+  FREE_USER_AIVENE_SCRIPT_MODEL,
   normalizeScriptModel,
   normalizeScriptProvider
 } from "./shared/constants";
@@ -29,7 +30,6 @@ import {
   type AuthUser,
   type ContentLanguage,
   type ContentType,
-  type GenerationSessionCompleteInput,
   type GenerationSessionCreateInput,
   type GenerationSessionRecord,
   type GenerationSessionStatus,
@@ -724,26 +724,6 @@ function parseGenerationSessionCreateInput(input: unknown): GenerationSessionCre
   };
 }
 
-function parseGenerationSessionCompleteInput(input: unknown): GenerationSessionCompleteInput {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw createHttpError(400, "Payload penyelesaian render tidak valid.");
-  }
-  const body = input as Record<string, unknown>;
-  const finalDurationSec = Number(body.finalDurationSec);
-  const finalSizeBytes = Number(body.finalSizeBytes);
-  if (!Number.isFinite(finalDurationSec) || finalDurationSec <= 0) {
-    throw createHttpError(400, "Durasi final video tidak valid.");
-  }
-  if (!Number.isFinite(finalSizeBytes) || finalSizeBytes <= 0) {
-    throw createHttpError(400, "Ukuran file final tidak valid.");
-  }
-  return {
-    finalDurationSec,
-    finalSizeBytes,
-    localFileName: assertString(body.localFileName, "Nama file final", { required: false, max: 255 })
-  };
-}
-
 async function parseJsonRequest(request: Request): Promise<unknown> {
   try {
     return await request.json();
@@ -963,7 +943,15 @@ async function createGenerationSession(
   context: AuthContext,
   input: GenerationSessionCreateInput
 ): Promise<GenerationSessionRecord> {
-  const settings = await getSettings(context.serviceDb, env);
+  const savedSettings = await getSettings(context.serviceDb, env);
+  const settings = context.user.role === "superadmin"
+    ? savedSettings
+    : {
+        ...savedSettings,
+        scriptProvider: "aivene" as const,
+        scriptFallbackProvider: "zai" as const,
+        scriptModel: FREE_USER_AIVENE_SCRIPT_MODEL
+      };
   if (input.videoDurationSec > settings.maxVideoSeconds) {
     throw createHttpError(
       400,
@@ -1025,7 +1013,8 @@ async function createGenerationSession(
     reference_link: input.referenceLink ?? null,
     video_duration_sec: input.videoDurationSec,
     frame_count: input.frames.length,
-    status: "ready_for_voice_upload",
+    status: "completed",
+    completed_at: nowIso(),
     visual_brief: visualBrief,
     scene_text: aiPackage.sceneText,
     sample_context_text: aiPackage.sampleContextText,
@@ -1086,61 +1075,6 @@ async function listGenerationSessions(context: AuthContext): Promise<GenerationS
     throw result.error;
   }
   return (result.data || []).map((row) => mapGenerationSession(row as GenerationSessionRow));
-}
-
-async function markGenerationSessionComplete(
-  context: AuthContext,
-  sessionId: string,
-  input: GenerationSessionCompleteInput
-): Promise<GenerationSessionRecord> {
-  await getGenerationSessionForUser(context, sessionId);
-  const result = await context.serviceDb
-    .from("generation_sessions")
-    .update({
-      status: "completed",
-      completed_at: nowIso(),
-      error_message: null,
-      render_summary: {
-        finalDurationSec: Number(input.finalDurationSec.toFixed(2)),
-        finalSizeBytes: Math.trunc(input.finalSizeBytes),
-        localFileName: input.localFileName ?? null,
-        renderedAt: nowIso()
-      }
-    })
-    .eq("session_id", sessionId)
-    .select("*")
-    .single<GenerationSessionRow>();
-  if (result.error || !result.data) {
-    throw result.error || createHttpError(500, "Gagal menyimpan hasil render lokal.");
-  }
-  return mapGenerationSession(result.data);
-}
-
-async function markGenerationSessionFailed(
-  context: AuthContext,
-  sessionId: string,
-  input: { reason?: string; retryable?: boolean }
-): Promise<GenerationSessionRecord> {
-  const current = await getGenerationSessionForUser(context, sessionId);
-  const reason = assertString(input.reason, "Alasan gagal", { required: false, max: 500 });
-  const nextStatus: GenerationSessionStatus = input.retryable === false ? "failed" : "ready_for_voice_upload";
-  const result = await context.serviceDb
-    .from("generation_sessions")
-    .update({
-      status: nextStatus,
-      error_message: nextStatus === "failed" ? reason ?? "Render lokal gagal." : null,
-      render_summary: {
-        ...(current.render_summary || {}),
-        lastClientError: reason ?? "Render lokal gagal."
-      }
-    })
-    .eq("session_id", sessionId)
-    .select("*")
-    .single<GenerationSessionRow>();
-  if (result.error || !result.data) {
-    throw result.error || createHttpError(500, "Status gagal render tidak bisa disimpan.");
-  }
-  return mapGenerationSession(result.data);
 }
 
 function walletSummaryToApi(input: {
@@ -1853,29 +1787,6 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
     if (route.parts[0] === "api" && route.parts[1] === "generation-sessions" && route.parts.length === 3 && request.method === "GET") {
       const session = await getGenerationSessionForUser(context, route.parts[2] || "");
       return jsonResponse({ session: mapGenerationSession(session) }, { headers: buildCorsHeaders(request) });
-    }
-
-    if (route.parts[0] === "api" && route.parts[1] === "generation-sessions" && route.parts[3] === "complete" && request.method === "POST") {
-      const payload = parseGenerationSessionCompleteInput(await parseJsonRequest(request));
-      return jsonResponse(
-        {
-          session: await markGenerationSessionComplete(context, route.parts[2] || "", payload)
-        },
-        { headers: buildCorsHeaders(request) }
-      );
-    }
-
-    if (route.parts[0] === "api" && route.parts[1] === "generation-sessions" && route.parts[3] === "fail" && request.method === "POST") {
-      const payload = (await parseJsonRequest(request)) as Record<string, unknown>;
-      return jsonResponse(
-        {
-          session: await markGenerationSessionFailed(context, route.parts[2] || "", {
-            reason: typeof payload.reason === "string" ? payload.reason : undefined,
-            retryable: payload.retryable === undefined ? true : Boolean(payload.retryable)
-          })
-        },
-        { headers: buildCorsHeaders(request) }
-      );
     }
 
     throw createHttpError(404, "Route API tidak ditemukan.");

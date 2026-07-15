@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { FileAudio, Film, LogIn, ShieldCheck, Sparkles } from "lucide-react";
+import { FileText, Hash, LogIn, ShieldCheck, Sparkles } from "lucide-react";
 import { isAuthReady, login, register, startGoogleLogin } from "../api";
 import type { AuthUser, ContentLanguage } from "../types";
 
@@ -59,18 +59,18 @@ export function LandingPage({ locale, authError, onAuthenticated }: LandingPageP
       <section className="hero-grid personal-landing-grid">
         <div className="landing-copy">
           <div className="badge"><span className="badge-dot" />{id ? "WORKFLOW VIDEO PRIBADI" : "PERSONAL VIDEO WORKFLOW"}</div>
-          <h1>{id ? "Analisa video." : "Analyze video."}<br /><span>{id ? "Buat voice sendiri." : "Create your own voice."}</span></h1>
+          <h1>{id ? "Analisa video." : "Analyze video."}<br /><span>{id ? "Siapkan konten lebih cepat." : "Prepare content faster."}</span></h1>
           <p className="landing-copy-lead">
             {id
-              ? "Dapatkan Scene, Sample Context, dan naskah siap AI Studio. Upload voice hasilnya, lalu gabungkan ke video langsung di browser."
-              : "Get Scene, Sample Context, and an AI Studio-ready script. Upload the generated voice and merge it locally in your browser."}
+              ? "Dapatkan analisis visual, Scene, Sample Context, naskah, caption, dan hashtag dalam satu alur. Pengguna baru dapat mencoba analisis secara gratis."
+              : "Get visual analysis, Scene, Sample Context, script, caption, and hashtags in one flow. New users can try the analysis for free."}
           </p>
           <div className="feature-grid personal-feature-grid">
             <article className="feature-step"><Sparkles size={20} /><div><h3>1. {id ? "Analisa" : "Analyze"}</h3><p>{id ? "Dua tahap AI menghasilkan paket naskah." : "Two AI stages create the script package."}</p></div></article>
-            <article className="feature-step"><FileAudio size={20} /><div><h3>2. AI Studio</h3><p>{id ? "Generate voice sesuai durasi video." : "Generate voice for the video duration."}</p></div></article>
-            <article className="feature-step"><Film size={20} /><div><h3>3. {id ? "Gabungkan" : "Merge"}</h3><p>{id ? "Render dan simpan MP4 secara lokal." : "Render and save the MP4 locally."}</p></div></article>
+            <article className="feature-step"><FileText size={20} /><div><h3>2. {id ? "Naskah" : "Script"}</h3><p>{id ? "Salin naskah dan arahan suara yang siap digunakan." : "Copy the ready-to-use script and voice direction."}</p></div></article>
+            <article className="feature-step"><Hash size={20} /><div><h3>3. {id ? "Publikasi" : "Publish"}</h3><p>{id ? "Gunakan caption, hashtag, dan CTA yang sudah disiapkan." : "Use the prepared caption, hashtags, and CTA."}</p></div></article>
           </div>
-          <p className="auth-security"><span><ShieldCheck size={14} />{id ? "File media tetap di perangkat" : "Media files stay on your device"}</span></p>
+          <p className="auth-security"><span><ShieldCheck size={14} />{id ? "Video sumber tidak disimpan oleh aplikasi" : "Source videos are not stored by the app"}</span></p>
         </div>
 
         <aside className="auth-card landing-auth-card" id="masuk">

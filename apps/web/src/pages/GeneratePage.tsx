@@ -1,30 +1,16 @@
 import { useEffect, useState, type FormEvent } from "react";
-import {
-  CheckCircle2, Clipboard, Download, ExternalLink, FileAudio, FolderClock,
-  Link2, LoaderCircle, Sparkles, UploadCloud, Video
-} from "lucide-react";
-import {
-  completeGenerationSession, createGenerationSession, failGenerationSession,
-  fetchGenerationSession
-} from "../api";
+import { Clipboard, ExternalLink, FolderClock, Link2, LoaderCircle, Sparkles, UploadCloud } from "lucide-react";
+import { createGenerationSession, fetchGenerationSession } from "../api";
 import { extractFramesFromVideo } from "../frame-extractor";
-import { getCachedSessionAssets, upsertCachedSessionAssets } from "../generation-cache";
 import {
   getContentLabel, getPlatformLabel, getToneLabel, PLATFORM_OPTIONS, TONE_OPTIONS
 } from "../job-form-options";
-import { renderFinalVideoLocally } from "../local-render";
-import { readBlobDuration } from "../media-utils";
-import type {
-  ContentLanguage, ContentType, GenerationSessionRecord, SocialPlatform
-} from "../types";
+import type { ContentLanguage, ContentType, GenerationSessionRecord, SocialPlatform } from "../types";
 import { CONTENT_TYPES } from "../types";
 import { readVideoDuration } from "../video-duration";
 import { formatVideoDuration } from "../utils/billing";
-import { calculateAudioFit } from "../shared/speech-timing";
 
 const AI_STUDIO_URL = "https://aistudio.google.com/generate-speech";
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
-const AUDIO_ACCEPT = ".wav,.mp3,.m4a,.mp4,.ogg,audio/wav,audio/mpeg,audio/mp4,audio/ogg";
 
 interface GeneratePageProps {
   locale: ContentLanguage;
@@ -56,63 +42,26 @@ const initialForm: FormState = {
   referenceLink: ""
 };
 
-function downloadBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function audioFileSupported(file: File): boolean {
-  const extension = file.name.toLowerCase().split(".").pop();
-  return file.type.startsWith("audio/") || ["wav", "mp3", "m4a", "mp4", "ogg"].includes(extension || "");
-}
-
 export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePageProps) {
   const [form, setForm] = useState<FormState>(initialForm);
   const [session, setSession] = useState<GenerationSessionRecord | null>(null);
-  const [voiceFile, setVoiceFile] = useState<File | Blob | null>(null);
-  const [voiceName, setVoiceName] = useState("");
-  const [voiceDurationSec, setVoiceDurationSec] = useState<number | null>(null);
-  const [finalVideo, setFinalVideo] = useState<Blob | null>(null);
-  const [finalName, setFinalName] = useState("voiceover-final.mp4");
-  const [busy, setBusy] = useState<"" | "video" | "analysis" | "audio" | "render">("");
+  const [busy, setBusy] = useState<"" | "video" | "analysis">("");
   const [progress, setProgress] = useState(0);
-  const [renderPhase, setRenderPhase] = useState<"" | "loading" | "fast_mux" | "fallback_encode">("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
     if (!resumeSessionId) return;
     let cancelled = false;
-    void Promise.all([
-      fetchGenerationSession(resumeSessionId),
-      getCachedSessionAssets(resumeSessionId).catch(() => undefined)
-    ]).then(([nextSession, cache]) => {
-      if (cancelled) return;
-      setSession(nextSession);
-      if (cache?.audioBlob && cache.audioScriptText === nextSession.scriptText) {
-        setVoiceFile(cache.audioBlob);
-        setVoiceName("Voice tersimpan di perangkat");
-        void readBlobDuration(cache.audioBlob, "audio").then(setVoiceDurationSec).catch(() => undefined);
-      }
-      if (cache?.renderedVideoBlob) {
-        setFinalVideo(cache.renderedVideoBlob);
-        setFinalName(cache.renderFileName || `${nextSession.title}-final.mp4`);
-      }
-      if (!cache?.sourceVideoBlob) {
-        setNotice("Video sumber tidak tersedia di perangkat ini. Upload ulang video untuk melanjutkan.");
-      }
-    }).catch((loadError) => setError((loadError as Error).message));
+    void fetchGenerationSession(resumeSessionId)
+      .then((nextSession) => { if (!cancelled) setSession(nextSession); })
+      .catch((loadError) => { if (!cancelled) setError((loadError as Error).message); });
     return () => { cancelled = true; };
   }, [resumeSessionId]);
 
   const selectVideo = async (file: File | null) => {
     setError("");
     setSession(null);
-    setFinalVideo(null);
     if (!file) {
       setForm((current) => ({ ...current, video: null, videoDurationSec: null }));
       return;
@@ -161,101 +110,11 @@ export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePa
       });
       setProgress(100);
       setSession(result.session);
-      setVoiceFile(null);
-      setVoiceName("");
-      setVoiceDurationSec(null);
-      await upsertCachedSessionAssets({
-        sessionId: result.session.sessionId,
-        sourceVideoName: form.video.name,
-        sourceVideoType: form.video.type || "video/mp4",
-        sourceVideoBlob: form.video,
-        updatedAt: new Date().toISOString()
-      });
-      setNotice("Analisis selesai. Salin tiga field ke Google AI Studio, lalu upload hasil voice di bawah.");
+      setNotice("Analisis selesai. Semua teks siap disalin dan digunakan.");
     } catch (analysisError) {
       setError((analysisError as Error).message);
     } finally {
       setBusy("");
-    }
-  };
-
-  const selectVoice = async (file: File | null) => {
-    setError("");
-    if (!file || !session) return;
-    if (file.size > MAX_AUDIO_BYTES) {
-      setError("Ukuran voice maksimal 25 MB.");
-      return;
-    }
-    if (!audioFileSupported(file)) {
-      setError("Format voice harus WAV, MP3, M4A, MP4 audio, atau OGG.");
-      return;
-    }
-    setBusy("audio");
-    try {
-      const duration = await readBlobDuration(file, "audio");
-      const cache = await getCachedSessionAssets(session.sessionId);
-      if (!cache?.sourceVideoBlob) throw new Error("Video sumber lokal tidak ditemukan.");
-      setVoiceFile(file);
-      setVoiceName(file.name);
-      setVoiceDurationSec(duration);
-      await upsertCachedSessionAssets({
-        ...cache,
-        audioBlob: file,
-        audioMimeType: file.type || "audio/wav",
-        audioScriptText: session.scriptText,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (audioError) {
-      setError((audioError as Error).message || "File voice tidak dapat dibaca.");
-    } finally {
-      setBusy("");
-    }
-  };
-
-  const merge = async () => {
-    if (!session || !voiceFile) return;
-    setBusy("render");
-    setError("");
-    setProgress(0);
-    try {
-      const cache = await getCachedSessionAssets(session.sessionId);
-      if (!cache?.sourceVideoBlob) throw new Error("Video sumber lokal tidak ditemukan. Upload ulang video.");
-      const output = await renderFinalVideoLocally({
-        sourceVideo: cache.sourceVideoBlob,
-        sourceVideoName: cache.sourceVideoName,
-        audioWavBlob: voiceFile,
-        audioFileName: voiceFile instanceof File ? voiceFile.name : undefined,
-        onPhase: setRenderPhase,
-        onProgress: (ratio) => setProgress(Math.round(ratio * 100))
-      });
-      const name = `${session.title.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "voiceover"}-final.mp4`;
-      const completed = await completeGenerationSession(session.sessionId, {
-        finalDurationSec: session.videoDurationSec,
-        finalSizeBytes: output.size,
-        localFileName: name
-      });
-      await upsertCachedSessionAssets({
-        ...cache,
-        audioBlob: voiceFile,
-        audioMimeType: voiceFile.type || "audio/wav",
-        audioScriptText: session.scriptText,
-        renderedVideoBlob: output,
-        renderFileName: name,
-        updatedAt: new Date().toISOString()
-      });
-      setSession(completed);
-      setFinalVideo(output);
-      setFinalName(name);
-      setNotice("Video final siap. Caption, hashtag, dan link sekarang dapat disalin.");
-    } catch (renderError) {
-      await failGenerationSession(session.sessionId, {
-        reason: (renderError as Error).message,
-        retryable: true
-      }).catch(() => undefined);
-      setError((renderError as Error).message);
-    } finally {
-      setBusy("");
-      setRenderPhase("");
     }
   };
 
@@ -267,23 +126,18 @@ export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePa
   const copyAll = async () => {
     if (!session) return;
     await copyText(
-      `SCENE\n${session.sceneText}\n\nSAMPLE CONTEXT\n${session.sampleContextText}\n\nSCRIPT\n${session.scriptText}`,
-      "Paket AI Studio"
+      `SCENE\n${session.sceneText}\n\nSAMPLE CONTEXT\n${session.sampleContextText}\n\nSCRIPT\n${session.scriptText}\n\nCAPTION\n${session.captionText}\n\nHASHTAG\n${session.hashtags.join(" ")}`,
+      "Semua hasil analisis"
     );
   };
-
-  const completed = session?.status === "completed";
-  const audioFit = session && voiceDurationSec
-    ? calculateAudioFit(voiceDurationSec, session.videoDurationSec)
-    : null;
 
   return (
     <section className="personal-workspace">
       <header className="personal-workspace-head">
         <div>
           <span className="eyebrow">PERSONAL VIDEO WORKFLOW</span>
-          <h1>Analisis, buat voice, lalu gabungkan.</h1>
-          <p>AI hanya menyiapkan naskah. Voice dibuat sendiri di Google AI Studio dan diproses lokal.</p>
+          <h1>Analisis video dan siapkan naskah.</h1>
+          <p>AI menganalisis visual lalu menyiapkan naskah, arahan suara, caption, dan hashtag.</p>
         </div>
         <button type="button" className="secondary-button" onClick={() => onViewJobs(session?.sessionId)}>
           <FolderClock size={17} /> Riwayat
@@ -317,79 +171,38 @@ export function GeneratePage({ locale, onViewJobs, resumeSessionId }: GeneratePa
       </form>
 
       {session ? (
-        <section className="personal-step-card">
+        <section className="personal-step-card completed-card">
           <div className="personal-step-number">02</div>
           <div className="personal-step-content">
             <div className="personal-result-head">
-              <div><h2>Paket Google AI Studio</h2><p>Salin setiap field ke form Generate Speech.</p></div>
+              <div><h2>Hasil analisis</h2><p>Naskah, arahan suara, caption, dan hashtag langsung siap digunakan.</p></div>
               <div className="personal-actions">
                 <button type="button" onClick={() => void copyAll()}><Clipboard size={16} /> Salin Semua</button>
                 <a href={AI_STUDIO_URL} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Buka AI Studio</a>
               </div>
             </div>
-            {([
-              ["Scene", session.sceneText],
-              ["Sample Context", session.sampleContextText],
-              ["Naskah", session.scriptText]
-            ] as const).map(([label, value]) => (
+            {([[
+              "Scene", session.sceneText
+            ], [
+              "Sample Context", session.sampleContextText
+            ], [
+              "Naskah", session.scriptText
+            ], [
+              "Caption", session.captionText
+            ], [
+              "Hashtag", session.hashtags.join(" ")
+            ]] as const).map(([label, value]) => (
               <article className="copy-result-card" key={label}>
                 <header><strong>{label}</strong><button type="button" onClick={() => void copyText(value, label)}><Clipboard size={15} /> Salin</button></header>
                 <p>{value}</p>
               </article>
             ))}
-          </div>
-        </section>
-      ) : null}
-
-      {session ? (
-        <section className="personal-step-card">
-          <div className="personal-step-number">03</div>
-          <div className="personal-step-content">
-            <h2>Upload voice dan gabungkan</h2>
-            <label className="personal-dropzone audio-dropzone">
-              <FileAudio size={28} />
-              <strong>{voiceName || "Upload hasil voice dari AI Studio"}</strong>
-              <span>{voiceDurationSec ? `${voiceDurationSec.toFixed(2)} detik voice / ${session.videoDurationSec.toFixed(2)} detik video` : "WAV, MP3, M4A, MP4 audio, atau OGG. Maksimal 25 MB."}</span>
-              <input type="file" accept={AUDIO_ACCEPT} onChange={(event) => void selectVoice(event.target.files?.[0] || null)} />
-            </label>
-            {audioFit ? (
-              <div className={audioFit.hasQualityWarning ? "tempo-fit-note warning" : "tempo-fit-note"}>
-                <strong>
-                  {audioFit.tempoFactor > 1.001
-                    ? `Voice akan dipercepat ${audioFit.tempoFactor.toFixed(3)}x`
-                    : audioFit.tempoFactor < 0.999
-                      ? `Voice akan diperlambat ${audioFit.tempoFactor.toFixed(3)}x`
-                      : "Tempo voice sudah sesuai"}
-                </strong>
-                <span>
-                  Semua kata dipertahankan dan selesai pada {audioFit.speechTargetSec.toFixed(2)} detik tanpa memotong kata.
-                </span>
-                {audioFit.hasQualityWarning ? <span>Kualitas ucapan dapat menurun karena penyesuaian melebihi 1.25x.</span> : null}
-              </div>
+            {session.referenceLink ? (
+              <article className="copy-result-card">
+                <header><strong>Link</strong><button type="button" onClick={() => void copyText(session.referenceLink || "", "Link")}><Link2 size={15} /> Salin</button></header>
+                <p>{session.referenceLink}</p>
+              </article>
             ) : null}
-            <button type="button" className="primary-action" disabled={!voiceFile || Boolean(busy)} onClick={() => void merge()}>
-              {busy === "render" ? <LoaderCircle className="spin" size={18} /> : <Video size={18} />}
-              {busy === "render"
-                ? renderPhase === "fallback_encode"
-                  ? `Menyesuaikan format video ${progress}%`
-                  : renderPhase === "fast_mux"
-                    ? `Menggabungkan cepat ${progress}%`
-                    : "Menyiapkan mesin video..."
-                : "Gabungkan Voice dengan Video"}
-            </button>
-          </div>
-        </section>
-      ) : null}
-
-      {completed && finalVideo && session ? (
-        <section className="personal-step-card completed-card">
-          <div className="personal-step-number"><CheckCircle2 size={20} /></div>
-          <div className="personal-step-content">
-            <h2>Video siap digunakan</h2>
-            <button type="button" className="primary-action" onClick={() => downloadBlob(finalVideo, finalName)}><Download size={18} /> Download MP4</button>
-            <article className="copy-result-card"><header><strong>Caption</strong><button type="button" onClick={() => void copyText(session.captionText, "Caption")}><Clipboard size={15} /> Salin</button></header><p>{session.captionText}</p></article>
-            <article className="copy-result-card"><header><strong>Hashtag</strong><button type="button" onClick={() => void copyText(session.hashtags.join(" "), "Hashtag")}><Clipboard size={15} /> Salin</button></header><p>{session.hashtags.join(" ")}</p></article>
-            {session.referenceLink ? <article className="copy-result-card"><header><strong>Link</strong><button type="button" onClick={() => void copyText(session.referenceLink || "", "Link")}><Link2 size={15} /> Salin</button></header><p>{session.referenceLink}</p></article> : null}
           </div>
         </section>
       ) : null}

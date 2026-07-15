@@ -51,7 +51,7 @@ function buildDb(
                   ...payload,
                   created_at: "2026-07-13T10:00:00Z",
                   updated_at: "2026-07-13T10:00:00Z",
-                  completed_at: null
+                  completed_at: payload.completed_at ?? null
                 },
                 error: null
               }))
@@ -132,7 +132,7 @@ describe("generation session Worker workflow", () => {
     expect(response.status).toBe(201);
     const body = await response.json() as { session: Record<string, unknown> };
     expect(body.session).toMatchObject({
-      status: "ready_for_voice_upload", chargedAmountIdr: 0,
+      status: "completed", chargedAmountIdr: 0,
       sceneText: "Narator Indonesia dengan pace natural; akhiri tepat 42.00 detik.",
       sampleContextText: "Ikuti visual dan jangan menambah intro atau outro.",
       captionText: "Rutinitas praktis setiap hari.", hashtags: ["#produk", "#praktis"]
@@ -140,11 +140,12 @@ describe("generation session Worker workflow", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.every(([url]) => String(url) === "https://api.aivene.com/v1/chat/completions")).toBe(true);
     const aiBodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
-    expect(aiBodies.every((payload) => payload.model === "qwen3.7-plus")).toBe(true);
+    expect(aiBodies.every((payload) => payload.model === "qwen3.5-flash")).toBe(true);
     expect(aiBodies.every((payload) => payload.reasoning_effort === "medium")).toBe(true);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("audio/speech"))).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
-    expect(inserted[0]).toMatchObject({ status: "ready_for_voice_upload", charged_amount_idr: 0 });
+    expect(inserted[0]).toMatchObject({ status: "completed", charged_amount_idr: 0 });
+    expect(inserted[0]).toHaveProperty("completed_at");
     expect(inserted[0]).not.toHaveProperty("voice_name");
     expect(inserted[0]).not.toHaveProperty("speech_rate");
     expect(inserted[0]).not.toHaveProperty("include_subtitles");

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Save, ShieldCheck } from "lucide-react";
 import { fetchSettings, updateSettings } from "../api";
-import { AIVENE_SCRIPT_MODELS } from "../shared/constants";
+import { AIVENE_SCRIPT_MODELS, FREE_USER_AIVENE_SCRIPT_MODEL } from "../shared/constants";
 import type { AppSettings } from "../types";
 
 const MODEL_LABELS: Record<(typeof AIVENE_SCRIPT_MODELS)[number], string> = {
@@ -85,6 +85,10 @@ export function AdminSettingsPage() {
           <p><strong>Fallback:</strong> Z.AI direct · GLM-5V Turbo</p>
           <p><strong>Reasoning utama:</strong> Medium</p>
         </div>
+
+        <p className="settings-hint">
+          Pengguna biasa memakai {FREE_USER_AIVENE_SCRIPT_MODEL} dari Aivene tanpa potongan saldo. Pilihan model di atas dipakai untuk akun superadmin.
+        </p>
 
         {error ? <p className="err-text">{error}</p> : null}
         <button type="submit" className="primary-button" disabled={saving}>

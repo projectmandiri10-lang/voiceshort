@@ -3,7 +3,6 @@ import type {
   AdminUserRecord,
   AppSettings,
   AuthUser,
-  GenerationSessionCompleteInput,
   GenerationSessionCreateInput,
   GenerationSessionCreateResult,
   GenerationSessionRecord
@@ -634,40 +633,6 @@ export async function fetchGenerationSessions(): Promise<GenerationSessionRecord
 export async function fetchGenerationSession(sessionId: string): Promise<GenerationSessionRecord> {
   const result = await apiFetch<{ session: GenerationSessionRecord }>(
     `/api/generation-sessions/${encodeURIComponent(sessionId)}`
-  );
-  return result.session;
-}
-
-export async function completeGenerationSession(
-  sessionId: string,
-  input: GenerationSessionCompleteInput
-): Promise<GenerationSessionRecord> {
-  const result = await apiFetch<{ session: GenerationSessionRecord }>(
-    `/api/generation-sessions/${encodeURIComponent(sessionId)}/complete`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(input)
-    }
-  );
-  return result.session;
-}
-
-export async function failGenerationSession(
-  sessionId: string,
-  input: { reason: string; retryable?: boolean }
-): Promise<GenerationSessionRecord> {
-  const result = await apiFetch<{ session: GenerationSessionRecord }>(
-    `/api/generation-sessions/${encodeURIComponent(sessionId)}/fail`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(input)
-    }
   );
   return result.session;
 }

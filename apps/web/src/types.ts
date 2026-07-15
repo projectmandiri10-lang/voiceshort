@@ -47,7 +47,7 @@ export interface AdminUserRecord extends AuthUser {
   createdAt: string; updatedAt: string; googleLinked: boolean; hasPassword: boolean;
 }
 
-export type GenerationSessionStatus = "creating" | "ready_for_voice_upload" | "completed" | "failed";
+export type GenerationSessionStatus = "creating" | "completed" | "failed";
 
 export interface GenerationSessionRenderSummary {
   finalDurationSec?: number; finalSizeBytes?: number; renderedAt?: string;
@@ -93,14 +93,6 @@ export interface GenerationSessionCreateInput {
   frames: Array<{ timestampSec: number; mimeType: "image/jpeg"; base64Data: string; width: number; height: number }>;
 }
 export interface GenerationSessionCreateResult { session: GenerationSessionRecord; }
-export interface GenerationSessionCompleteInput { finalDurationSec: number; finalSizeBytes: number; localFileName?: string; }
-
-export interface CachedGenerationSessionRecord {
-  sessionId: string; sourceVideoName: string; sourceVideoType: string; sourceVideoBlob: Blob;
-  audioBlob?: Blob; audioMimeType?: string; audioScriptText?: string;
-  renderedVideoBlob?: Blob; renderFileName?: string; updatedAt: string;
-}
-
 export interface DepositPackage {
   code: "10_video" | "50_video" | "100_video"; label: string; payAmountIdr: number;
   creditAmountIdr: number; bonusAmountIdr: number; generateCredits: number;

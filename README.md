@@ -1,24 +1,24 @@
 # VoiceShort Personal
 
-Workspace pribadi untuk menganalisis video pendek, menyiapkan paket teks Google AI Studio, lalu menggabungkan voice yang diunggah pengguna secara lokal di browser.
+Workspace untuk menganalisis video pendek dan menyiapkan paket teks Google AI Studio, naskah, caption, serta hashtag.
 
 ## Workflow
 
 1. Upload video maksimal 60 detik dan isi judul, deskripsi, kategori, platform, tone, CTA, serta link referensi opsional.
 2. Worker melakukan tepat dua request AI: visual brief, lalu paket `Scene`, `Sample Context`, naskah, caption, dan hashtag.
-3. Salin tiga field ke Google AI Studio dan generate voice dengan instruksi durasi yang sudah disertakan.
-4. Upload WAV, MP3, M4A/MP4 audio, atau OGG maksimal 25 MB.
-5. Browser menggabungkan audio dan video dengan FFmpeg tanpa mengubah FPS sumber, lalu menampilkan hasil download, caption, hashtag, dan link. Subtitle dibuat melalui platform tujuan setelah upload.
+3. Hasil analisis langsung berstatus selesai dan seluruh teks dapat disalin dari halaman Generate atau Riwayat.
 
-File video, audio upload, dan video final disimpan di IndexedDB perangkat. Media tidak dikirim ke Worker atau Supabase.
+Video sumber tidak disimpan oleh Worker atau Supabase. Hanya frame terpilih yang dikirim ke Worker untuk dianalisis.
 
 ## Runtime
 
 - Frontend dan API aktif: `apps/web` di Cloudflare Worker + Static Assets.
 - Analisis utama: Aivene melalui `/chat/completions`.
+- Pengguna biasa: Aivene `qwen3.5-flash` tanpa potongan saldo aplikasi.
+- Superadmin: model Aivene yang dipilih dari halaman Pengaturan AI.
 - Fallback analisis: GLM-5V Turbo melalui API Z.AI direct.
 - `apps/server` hanya server kompatibilitas; create/retry job lama merespons `410 Gone`.
-- Generate session tidak memotong saldo dan menyimpan `charged_amount_idr = 0`.
+- Generate session pengguna biasa maupun superadmin tidak memotong saldo dan menyimpan `charged_amount_idr = 0`.
 
 ## Environment
 

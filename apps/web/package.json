@@ -12,8 +12,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ffmpeg/ffmpeg": "^0.12.15",
-    "@ffmpeg/util": "^0.12.2",
     "@supabase/supabase-js": "^2.104.1",
     "@tailwindcss/vite": "^4.2.4",
     "lucide-react": "^1.14.0",
