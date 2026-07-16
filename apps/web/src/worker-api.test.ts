@@ -173,7 +173,7 @@ describe("generation session Worker workflow", () => {
     });
   });
 
-  it("skips Gemini polish when enabled but the package does not show under-run risk", async () => {
+  it("runs a third text-only Gemini polish step whenever polish is enabled", async () => {
     const inserted: unknown[] = [];
     const rpcMock = analysisRpcMock();
     createClientMock.mockReturnValue(buildDb(inserted, rpcMock));
@@ -193,6 +193,13 @@ describe("generation session Worker workflow", () => {
         scriptText: "Produk ini membantu rutinitas harian terasa lebih praktis dan nyaman dipakai, jadi langkah pagi sampai malam tetap rapi, ringan, dan enak diikuti tanpa terasa buru-buru saat dipakai setiap hari di rumah sendiri juga tanpa ribet tambahan.",
         captionText: "Rutinitas praktis setiap hari.",
         hashtags: ["#produk", "#praktis"]
+      }))
+      .mockResolvedValueOnce(chatResponse({
+        sceneText: "Narator Indonesia natural dan lebih rapi; selesai tepat 16.00 detik.",
+        sampleContextText: "Ikuti visual utama, jaga ritme natural, dan jangan tambah intro.",
+        scriptText: "Produk ini membantu rutinitas harian terasa lebih praktis dan nyaman dipakai, jadi langkah pagi sampai malam tetap rapi, ringan, dan enak diikuti tanpa terasa buru-buru setiap hari.",
+        captionText: "Rutinitas harian terasa lebih praktis.",
+        hashtags: ["#produk", "#praktis", "#harian"]
       }));
     vi.stubGlobal("fetch", fetchMock);
     const { handleApiRequest } = await import("./worker-api");
@@ -216,35 +223,38 @@ describe("generation session Worker workflow", () => {
     expect(response.status).toBe(201);
     const body = await response.json() as { session: Record<string, unknown> };
     expect(body.session).toMatchObject({
-      sceneText: "Narator Indonesia natural; selesai tepat 16.00 detik.",
-      captionText: "Rutinitas praktis setiap hari.",
-      hashtags: ["#produk", "#praktis"],
+      sceneText: "Narator Indonesia natural dan lebih rapi; selesai tepat 16.00 detik.",
+      captionText: "Rutinitas harian terasa lebih praktis.",
+      hashtags: ["#produk", "#praktis", "#harian"],
       metadata: {
         polish: {
-          attempted: false,
+          attempted: true,
           model: "gemini-3-flash",
-          status: "skipped",
-          fallbackUsed: false,
-          skipReason: "noUnderRunRisk"
+          status: "completed",
+          fallbackUsed: false
         }
       }
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const aiBodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+    expect(aiBodies[2]).toMatchObject({ model: "gemini-3-flash", reasoning_effort: "medium" });
+    const thirdMessage = (aiBodies[2]?.messages as Array<Record<string, unknown>> | undefined)?.[0];
+    const thirdContent = Array.isArray(thirdMessage?.content) ? thirdMessage.content as Array<Record<string, unknown>> : [];
+    expect(thirdContent.some((part) => part.type === "image_url")).toBe(false);
     expect(inserted[0]).toMatchObject({
-      scene_text: "Narator Indonesia natural; selesai tepat 16.00 detik.",
+      scene_text: "Narator Indonesia natural dan lebih rapi; selesai tepat 16.00 detik.",
       metadata: {
         polish: {
-          attempted: false,
+          attempted: true,
           model: "gemini-3-flash",
-          status: "skipped",
-          fallbackUsed: false,
-          skipReason: "noUnderRunRisk"
+          status: "completed",
+          fallbackUsed: false
         }
       }
     });
   });
 
-  it("runs a third text-only Gemini polish step when the package shows under-run risk", async () => {
+  it("keeps the text-only Gemini polish path for short-duration packages", async () => {
     const inserted: unknown[] = [];
     const rpcMock = analysisRpcMock();
     createClientMock.mockReturnValue(buildDb(inserted, rpcMock));
@@ -302,8 +312,7 @@ describe("generation session Worker workflow", () => {
           attempted: true,
           model: "gemini-3-flash",
           status: "completed",
-          fallbackUsed: false,
-          reason: "underRunRisk"
+          fallbackUsed: false
         }
       }
     });
@@ -320,8 +329,7 @@ describe("generation session Worker workflow", () => {
           attempted: true,
           model: "gemini-3-flash",
           status: "completed",
-          fallbackUsed: false,
-          reason: "underRunRisk"
+          fallbackUsed: false
         }
       }
     });
@@ -379,7 +387,6 @@ describe("generation session Worker workflow", () => {
           model: "gemini-3-flash",
           status: "fallback",
           fallbackUsed: true,
-          reason: "underRunRisk",
           errorMessage: "Gemini polish unavailable"
         }
       }
@@ -393,7 +400,6 @@ describe("generation session Worker workflow", () => {
           model: "gemini-3-flash",
           status: "fallback",
           fallbackUsed: true,
-          reason: "underRunRisk",
           errorMessage: "Gemini polish unavailable"
         }
       }

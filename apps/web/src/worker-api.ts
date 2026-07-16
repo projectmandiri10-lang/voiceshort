@@ -13,7 +13,6 @@ import {
   buildAiStudioPackagePrompt,
   buildVisualBriefPrompt
 } from "./shared/prompt-builder";
-import { calculateScriptWordBudget, countSpokenWords } from "./shared/speech-timing";
 import {
   extractAiStudioPackage,
   extractVisualBrief
@@ -1141,25 +1140,6 @@ async function maybePolishAiStudioPackage(
     };
   }
 
-  const wordBudget = calculateScriptWordBudget(promptBase.videoDurationSec);
-  const scriptWordCount = countSpokenWords(aiPackage.scriptText);
-  const hasUnderRunRisk =
-    promptBase.videoDurationSec <= 12 ||
-    scriptWordCount <= wordBudget.underRunRiskWordCount;
-
-  if (!hasUnderRunRisk) {
-    return {
-      aiPackage,
-      metadata: {
-        attempted: false,
-        model,
-        status: "skipped",
-        fallbackUsed: false,
-        skipReason: "noUnderRunRisk"
-      }
-    };
-  }
-
   try {
     const response = await withRetry(() =>
       callAiveneText(
@@ -1177,8 +1157,7 @@ async function maybePolishAiStudioPackage(
         attempted: true,
         model,
         status: "completed",
-        fallbackUsed: false,
-        reason: "underRunRisk"
+        fallbackUsed: false
       }
     };
   } catch (error) {
@@ -1189,7 +1168,6 @@ async function maybePolishAiStudioPackage(
         model,
         status: "fallback",
         fallbackUsed: true,
-        reason: "underRunRisk",
         errorMessage: error instanceof Error ? error.message : "Gemini polish gagal."
       }
     };
