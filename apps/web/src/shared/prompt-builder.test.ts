@@ -6,6 +6,8 @@ import {
   buildVisualBriefPrompt,
   getCaptionCharacterLimit,
   normalizeCaptionTextForPlatform,
+  normalizeScriptTextForTiming,
+  resolveExactCtaText,
   type PromptInput
 } from "./prompt-builder";
 import type { VisualBrief } from "../types";
@@ -84,6 +86,36 @@ describe("AI Studio package prompt", () => {
       contentType: "affiliate", socialPlatform: "tiktok",
       ctaText: "Cek produknya sekarang."
     })).toContain('"Cek produknya sekarang."');
+  });
+
+  it("locks the CTA as the final sentence and reserves room for it", () => {
+    const prompt = buildAiStudioPackagePrompt({
+      ...baseInput,
+      socialPlatform: "instagram",
+      visualBrief
+    });
+
+    expect(prompt).toContain('scriptText must end with this exact CTA as the final spoken sentence: "Cek di keranjang sekarang"');
+    expect(prompt).toContain("Reserve enough room for the CTA");
+    expect(prompt).toContain("No words may appear after the CTA");
+    expect(resolveExactCtaText({
+      contentType: "affiliate",
+      socialPlatform: "instagram"
+    })).toBe("Cek di keranjang sekarang");
+  });
+
+  it("trims long scripts while preserving the CTA at the end", () => {
+    const normalized = normalizeScriptTextForTiming(
+      "Produk ini membantu rutinitas harian menjadi lebih praktis, nyaman, ringan, mudah dipakai, dan tetap enak diikuti dari pagi sampai malam tanpa jeda yang membingungkan. Cek di keranjang sekarang tambahan lagi",
+      {
+        contentType: "affiliate",
+        socialPlatform: "instagram",
+        videoDurationSec: 10
+      }
+    );
+
+    expect(normalized.endsWith("Cek di keranjang sekarang")).toBe(true);
+    expect(normalized.includes("tambahan lagi")).toBe(false);
   });
 
   it("uses the requested exact platform CTA only for affiliate and marketing", () => {

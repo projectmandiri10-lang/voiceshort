@@ -460,6 +460,60 @@ describe("generation session Worker workflow", () => {
     expect(String((inserted[0] as Record<string, unknown>).caption_text || "").length).toBeLessThanOrEqual(150);
   });
 
+  it("keeps the CTA intact at the end when a long polished script would otherwise cut it off", async () => {
+    const inserted: unknown[] = [];
+    const rpcMock = analysisRpcMock();
+    createClientMock.mockReturnValue(buildDb(inserted, rpcMock));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(chatResponse({
+        summary: "Produk terlihat jelas",
+        hook: { startSec: 0, endSec: 3, reason: "Perubahan visual" },
+        timeline: [{
+          startSec: 0, endSec: 10, primaryVisual: "Produk", action: "Digunakan",
+          onScreenText: [], narrationFocus: "Manfaat produk", avoidClaims: []
+        }],
+        mustMention: ["manfaat"], mustAvoid: ["klaim berlebihan"], uncertainties: []
+      }))
+      .mockResolvedValueOnce(chatResponse({
+        sceneText: "Narator Indonesia natural; selesai tepat 10.00 detik.",
+        sampleContextText: "Ikuti visual utama dan jangan tambah intro.",
+        scriptText: "Produk ini praktis dipakai setiap hari, nyaman, ringan, dan mudah masuk ke rutinitas.",
+        captionText: "Praktis dipakai harian.",
+        hashtags: ["#produk", "#praktis"]
+      }))
+      .mockResolvedValueOnce(chatResponse({
+        sceneText: "Narator Indonesia natural dan rapi; selesai tepat 10.00 detik.",
+        sampleContextText: "Ikuti visual utama, jaga ritme natural, dan jangan tambah intro.",
+        scriptText: "Produk ini praktis dipakai setiap hari, nyaman, ringan, mudah masuk ke rutinitas, enak diikuti dari pagi sampai malam, dan terasa simpel untuk digunakan terus. Cek di keranjang sekarang tambahan lagi",
+        captionText: "Rutinitas harian terasa lebih rapi.",
+        hashtags: ["#produk", "#praktis", "#harian"]
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { handleApiRequest } = await import("./worker-api");
+
+    const response = await handleApiRequest(new Request("https://app.test/api/generation-sessions", {
+      method: "POST",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Produk", description: "Deskripsi produk", contentType: "affiliate",
+        socialPlatform: "instagram", contentLanguage: "id-ID",
+        tone: "natural", referenceLink: "https://example.com/produk", videoDurationSec: 10,
+        frames: [{ timestampSec: 0, mimeType: "image/jpeg", base64Data: "frame", width: 448, height: 252 }]
+      })
+    }), {
+      ...env,
+      AIVENE_POLISH_ENABLED: "true",
+      AIVENE_POLISH_MODEL: "gemini-3-flash",
+      AIVENE_POLISH_REASONING_EFFORT: "medium"
+    });
+
+    expect(response.status).toBe(201);
+    const body = await response.json() as { session: Record<string, unknown> };
+    expect(String(body.session.scriptText || "").endsWith("Cek di keranjang sekarang")).toBe(true);
+    expect(String(body.session.scriptText || "").includes("tambahan lagi")).toBe(false);
+    expect(String((inserted[0] as Record<string, unknown>).script_text || "").endsWith("Cek di keranjang sekarang")).toBe(true);
+  });
+
   it("uses wallet credit after 10 free analyses are exhausted", async () => {
     const inserted: unknown[] = [];
     const rpcMock = vi.fn(async (name: string) => {

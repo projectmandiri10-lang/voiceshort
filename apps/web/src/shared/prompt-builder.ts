@@ -1,6 +1,6 @@
 import { getContentLabel, getPlatformLabel, getToneLabel } from "../job-form-options";
 import type { AiStudioPackage, AppSettings, ContentLanguage, ContentType, SocialPlatform, VisualBrief } from "../types";
-import { calculateScriptWordBudget, calculateSpeechTarget } from "./speech-timing";
+import { calculateScriptWordBudget, calculateSpeechTarget, countSpokenWords } from "./speech-timing";
 
 export interface PromptInput {
   settings: AppSettings;
@@ -50,21 +50,29 @@ function buildVoiceDeliveryInstruction(input: Pick<PromptInput, "contentType" | 
 }
 
 export function buildCtaInstruction(input: Pick<PromptInput, "contentType" | "socialPlatform" | "ctaText">): string {
+  const exactCtaText = resolveExactCtaText(input);
+  if (!exactCtaText) {
+    return "Do not add a CTA because this category has no custom CTA.";
+  }
+  return `Use this exact CTA as the final spoken sentence without paraphrasing: ${JSON.stringify(exactCtaText)}.`;
+}
+
+export function resolveExactCtaText(input: Pick<PromptInput, "contentType" | "socialPlatform" | "ctaText">): string | null {
   const customCta = input.ctaText?.trim();
   if (customCta) {
-    return `Use this exact CTA as the final spoken sentence without paraphrasing: ${JSON.stringify(customCta)}.`;
+    return customCta;
   }
   if (input.contentType !== "affiliate" && input.contentType !== "video-marketing") {
-    return "Do not add a CTA because this category has no custom CTA.";
+    return null;
   }
 
   if (input.socialPlatform === "shopee" || input.socialPlatform === "tiktok") {
-    return 'Use this exact CTA as the final spoken sentence without paraphrasing: "Cek keranjang kuning sekarang".';
+    return "Cek keranjang kuning sekarang";
   }
   if (["facebook", "instagram", "youtube"].includes(input.socialPlatform)) {
-    return 'Use this exact CTA as the final spoken sentence without paraphrasing: "Cek di keranjang sekarang".';
+    return "Cek di keranjang sekarang";
   }
-  return 'Use this exact CTA as the final spoken sentence without paraphrasing: "Cek produknya sekarang".';
+  return "Cek produknya sekarang";
 }
 
 export function getCaptionCharacterLimit(socialPlatform: SocialPlatform): number {
@@ -84,6 +92,43 @@ export function normalizeCaptionTextForPlatform(captionText: string, socialPlatf
   return lastSpace >= Math.floor(limit * 0.7)
     ? truncated.slice(0, lastSpace).trim()
     : truncated;
+}
+
+function trimToWordLimit(text: string, maxWords: number): string {
+  if (maxWords <= 0) {
+    return "";
+  }
+  const tokens = String(text || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  if (tokens.length <= maxWords) {
+    return tokens.join(" ");
+  }
+  return tokens.slice(0, maxWords).join(" ").trim().replace(/[,:;.!?-]+$/u, "").trim();
+}
+
+export function normalizeScriptTextForTiming(
+  scriptText: string,
+  input: Pick<PromptInput, "contentType" | "socialPlatform" | "ctaText" | "videoDurationSec">
+): string {
+  const normalized = String(scriptText || "").replace(/\s+/g, " ").trim();
+  const { maxWords } = calculateScriptWordBudget(input.videoDurationSec);
+  const exactCtaText = resolveExactCtaText(input);
+
+  if (!exactCtaText) {
+    return trimToWordLimit(normalized, maxWords);
+  }
+
+  const ctaWordCount = Math.max(1, countSpokenWords(exactCtaText));
+  const bodyWordLimit = Math.max(1, maxWords - ctaWordCount);
+  const escapedCta = exactCtaText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const bodyWithoutCta = normalized
+    .replace(new RegExp(escapedCta, "igu"), " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[,:;.!?-]+$/u, "")
+    .trim();
+  const trimmedBody = trimToWordLimit(bodyWithoutCta, bodyWordLimit);
+
+  return trimmedBody ? `${trimmedBody}. ${exactCtaText}` : exactCtaText;
 }
 
 export function buildVisualBriefPrompt(input: PromptInput): string {
@@ -110,6 +155,9 @@ export function buildAiStudioPackagePrompt(input: PromptInput & { visualBrief: V
   const timing = calculateSpeechTarget(input.videoDurationSec);
   const languageName = input.contentLanguage === "en-US" ? "natural English" : "Bahasa Indonesia natural";
   const captionCharacterLimit = getCaptionCharacterLimit(input.socialPlatform);
+  const exactCtaText = resolveExactCtaText(input);
+  const ctaWordCount = exactCtaText ? countSpokenWords(exactCtaText) : 0;
+  const nonCtaMaxWords = exactCtaText ? Math.max(1, maxWords - ctaWordCount) : maxWords;
   return [
     "Create a complete Google AI Studio Generate Speech package and social posting copy from the verified visual brief.",
     "Return valid JSON only. Do not use markdown or code fences.",
@@ -131,6 +179,13 @@ export function buildAiStudioPackagePrompt(input: PromptInput & { visualBrief: V
     `- scriptText must contain ${minWords}-${maxWords} spoken words, including its CTA, and be designed for the final word to land at ${timing.speechTargetSec.toFixed(2)} seconds.`,
     "- scriptText must contain spoken words only: no labels, markdown, brackets, stage directions, timestamps, or audio tags.",
     "- scriptText must fill the duration naturally, with smooth clause-to-clause flow rather than abrupt short phrasing.",
+    ...(exactCtaText
+      ? [
+          `- scriptText must end with this exact CTA as the final spoken sentence: ${JSON.stringify(exactCtaText)}.`,
+          `- Reserve enough room for the CTA: all narration before the CTA must stay within ${nonCtaMaxWords} spoken words.`,
+          "- No words may appear after the CTA, and the CTA must not be shortened, merged, or cut off."
+        ]
+      : []),
     ...(prefersUpperHalf
       ? ["- For this short video, scriptText should aim for the upper half of the word budget so the narration does not end too early."]
       : []),
@@ -151,6 +206,9 @@ export function buildAiStudioPolishPrompt(
   const timing = calculateSpeechTarget(input.videoDurationSec);
   const languageName = input.contentLanguage === "en-US" ? "natural English" : "Bahasa Indonesia natural";
   const captionCharacterLimit = getCaptionCharacterLimit(input.socialPlatform);
+  const exactCtaText = resolveExactCtaText(input);
+  const ctaWordCount = exactCtaText ? countSpokenWords(exactCtaText) : 0;
+  const nonCtaMaxWords = exactCtaText ? Math.max(1, maxWords - ctaWordCount) : maxWords;
 
   return [
     "Polish the supplied Google AI Studio Generate Speech package and social posting copy.",
@@ -178,6 +236,13 @@ export function buildAiStudioPolishPrompt(
     `- sampleContextText must still state the exact ${input.videoDurationSec.toFixed(2)} second duration, the ${timing.speechTargetSec.toFixed(2)} second final-word deadline, the ${minWords}-${maxWords} word budget, and the strict no-paraphrase rule for speech generation.`,
     "- sampleContextText must still warn the speech model not to finish too early or rush the delivery.",
     `- scriptText must stay within ${minWords}-${maxWords} spoken words, fill the duration more naturally, and keep the final CTA sentence requirement intact.`,
+    ...(exactCtaText
+      ? [
+          `- scriptText must still end with this exact CTA as the final spoken sentence: ${JSON.stringify(exactCtaText)}.`,
+          `- All narration before the CTA must stay within ${nonCtaMaxWords} spoken words so the CTA is not cut off.`,
+          "- If the package is too long, shorten the earlier narration first and keep the CTA intact at the end."
+        ]
+      : []),
     `- ${buildCtaInstruction(input)}`,
     `- captionText must remain concise, must not include hashtags, and must stay within ${captionCharacterLimit} characters for this platform.`,
     "- hashtags must contain 3-8 safe, relevant tags.",

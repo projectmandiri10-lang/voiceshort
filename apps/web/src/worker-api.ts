@@ -12,6 +12,7 @@ import {
   buildAiStudioPolishPrompt,
   buildAiStudioPackagePrompt,
   normalizeCaptionTextForPlatform,
+  normalizeScriptTextForTiming,
   buildVisualBriefPrompt
 } from "./shared/prompt-builder";
 import {
@@ -1155,7 +1156,12 @@ async function maybePolishAiStudioPackage(
     return {
       aiPackage: sanitizeAiStudioPackage(
         extractAiStudioPackage(chatPayloadToGeminiLike(response)),
-        promptBase.socialPlatform
+        {
+          contentType: promptBase.contentType,
+          socialPlatform: promptBase.socialPlatform,
+          ctaText: promptBase.ctaText,
+          videoDurationSec: promptBase.videoDurationSec
+        }
       ),
       metadata: {
         attempted: true,
@@ -1185,10 +1191,14 @@ interface AnalysisAccessReservation {
   chargedAmountIdr: number;
 }
 
-function sanitizeAiStudioPackage(aiPackage: AiStudioPackage, socialPlatform: SocialPlatform): AiStudioPackage {
+function sanitizeAiStudioPackage(
+  aiPackage: AiStudioPackage,
+  input: Pick<GenerationSessionCreateInput, "contentType" | "socialPlatform" | "ctaText" | "videoDurationSec">
+): AiStudioPackage {
   return {
     ...aiPackage,
-    captionText: normalizeCaptionTextForPlatform(aiPackage.captionText, socialPlatform)
+    scriptText: normalizeScriptTextForTiming(aiPackage.scriptText, input),
+    captionText: normalizeCaptionTextForPlatform(aiPackage.captionText, input.socialPlatform)
   };
 }
 
@@ -1325,7 +1335,12 @@ async function createGenerationSession(
       withRetry(() =>
         generateTextWithProvider(env, provider, settings.scriptModel, {
           prompt: buildAiStudioPackagePrompt({ ...promptBase, visualBrief })
-        }).then(extractAiStudioPackage).then((result) => sanitizeAiStudioPackage(result, input.socialPlatform))
+        }).then(extractAiStudioPackage).then((result) => sanitizeAiStudioPackage(result, {
+          contentType: input.contentType,
+          socialPlatform: input.socialPlatform,
+          ctaText: input.ctaText,
+          videoDurationSec: input.videoDurationSec
+        }))
       )
   });
 
