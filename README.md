@@ -14,7 +14,7 @@ Video sumber tidak disimpan oleh Worker atau Supabase. Hanya frame terpilih yang
 
 - Frontend dan API aktif: `apps/web` di Cloudflare Worker + Static Assets.
 - Analisis utama: Aivene melalui `/chat/completions`.
-- Setiap pengguna mendapat 10 analisis gratis dengan Aivene `qwen3.5-flash`.
+- Setiap pengguna mendapat 10 analisis gratis dengan Aivene `gpt-5.4-nano`.
 - Setelah 10 gratis habis, pengguna melanjutkan dengan top up credit wallet dan tetap memakai model Aivene yang dipilih dari halaman Pengaturan AI.
 - Fallback GLM-5V Turbo melalui API Z.AI direct hanya tersedia untuk superadmin.
 - `apps/server` hanya server kompatibilitas; create/retry job lama merespons `410 Gone`.
@@ -25,7 +25,7 @@ Video sumber tidak disimpan oleh Worker atau Supabase. Hanya frame terpilih yang
 ```env
 AIVENE_API_KEY=your_aivene_api_key
 AIVENE_BASE_URL=https://api.aivene.com/v1
-AIVENE_SCRIPT_MODEL=qwen3.5-flash
+AIVENE_SCRIPT_MODEL=gpt-5.4-nano
 AIVENE_REASONING_EFFORT=medium
 ZAI_API_KEY=your_zai_api_key
 ZAI_BASE_URL=https://api.z.ai/api/paas/v4

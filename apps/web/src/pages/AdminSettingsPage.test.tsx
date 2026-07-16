@@ -66,12 +66,12 @@ describe("AdminSettingsPage", () => {
     render(<AdminSettingsPage />);
 
     const select = await screen.findByLabelText("Model utama");
-    fireEvent.change(select, { target: { value: "qwen3.5-flash" } });
+    fireEvent.change(select, { target: { value: "gpt-5.4-nano" } });
     fireEvent.click(screen.getByRole("button", { name: "Simpan pengaturan" }));
 
     await waitFor(() => expect(updateSettingsMock).toHaveBeenCalledWith({
       ...settings,
-      scriptModel: "qwen3.5-flash"
+      scriptModel: "gpt-5.4-nano"
     }));
     expect(window.alert).toHaveBeenCalledWith("Pengaturan AI dan top up berhasil disimpan.");
     expect(screen.getByText(/Fallback superadmin:/)).toBeTruthy();

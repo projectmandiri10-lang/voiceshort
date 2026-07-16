@@ -9,7 +9,7 @@ set
   script_provider = 'aivene',
   script_fallback_provider = 'zai',
   script_model = case
-    when script_model in ('qwen3.5-flash', 'qwen3.6-plus', 'gpt-5.4-nano') then script_model
+    when script_model in ('gpt-5.4-nano') then script_model
     else 'gpt-5.4-nano'
   end;
 

@@ -155,7 +155,7 @@ describe("generation session Worker workflow", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.every(([url]) => String(url) === "https://api.aivene.com/v1/chat/completions")).toBe(true);
     const aiBodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
-    expect(aiBodies.every((payload) => payload.model === "qwen3.5-flash")).toBe(true);
+    expect(aiBodies.every((payload) => payload.model === "gpt-5.4-nano")).toBe(true);
     expect(aiBodies.every((payload) => payload.reasoning_effort === "medium")).toBe(true);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("audio/speech"))).toBe(false);
     expect(rpcMock.mock.calls.map(([name]) => name)).toEqual(["reserve_analysis_access", "complete_analysis_access"]);
@@ -406,7 +406,7 @@ describe("generation session Worker workflow", () => {
     const payload = {
       scriptProvider: "aivene",
       scriptFallbackProvider: "zai",
-      scriptModel: "qwen3.5-flash",
+      scriptModel: "gpt-5.4-nano",
       taxRatePercent: 0,
       language: "id-ID",
       maxVideoSeconds: 60,
@@ -424,12 +424,12 @@ describe("generation session Worker workflow", () => {
     await expect(response.json()).resolves.toMatchObject({
       scriptProvider: "aivene",
       scriptFallbackProvider: "zai",
-      scriptModel: "qwen3.5-flash"
+      scriptModel: "gpt-5.4-nano"
     });
 
     const getResponse = await handleApiRequest(new Request("https://app.test/api/settings", {
       headers: { Authorization: "Bearer token" }
     }), env);
-    await expect(getResponse.json()).resolves.toMatchObject({ scriptModel: "qwen3.5-flash" });
+    await expect(getResponse.json()).resolves.toMatchObject({ scriptModel: "gpt-5.4-nano" });
   });
 });
