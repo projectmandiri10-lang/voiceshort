@@ -331,7 +331,7 @@ function resolveAivenePolishEnabled(env: WorkerEnv): boolean {
 
 function resolveAivenePolishModel(env: WorkerEnv): string {
   const raw = String(env.AIVENE_POLISH_MODEL || "").trim();
-  return normalizeScriptModel(raw || "gemini-3-flash-preview", "aivene");
+  return normalizeScriptModel(raw || "gemini-3-flash", "aivene");
 }
 
 function resolveAivenePolishReasoningEffort(env: WorkerEnv): "low" | "medium" | "high" {

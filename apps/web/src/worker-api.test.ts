@@ -164,7 +164,7 @@ describe("generation session Worker workflow", () => {
       metadata: {
         polish: {
           attempted: false,
-          model: "gemini-3-flash-preview",
+          model: "gemini-3-flash",
           status: "disabled",
           fallbackUsed: false
         }
@@ -215,7 +215,7 @@ describe("generation session Worker workflow", () => {
     }), {
       ...env,
       AIVENE_POLISH_ENABLED: "true",
-      AIVENE_POLISH_MODEL: "gemini-3-flash-preview",
+      AIVENE_POLISH_MODEL: "gemini-3-flash",
       AIVENE_POLISH_REASONING_EFFORT: "medium"
     });
 
@@ -228,7 +228,7 @@ describe("generation session Worker workflow", () => {
       metadata: {
         polish: {
           attempted: true,
-          model: "gemini-3-flash-preview",
+          model: "gemini-3-flash",
           status: "completed",
           fallbackUsed: false
         }
@@ -236,7 +236,7 @@ describe("generation session Worker workflow", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     const aiBodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
-    expect(aiBodies[2]).toMatchObject({ model: "gemini-3-flash-preview", reasoning_effort: "medium" });
+    expect(aiBodies[2]).toMatchObject({ model: "gemini-3-flash", reasoning_effort: "medium" });
     const thirdMessage = (aiBodies[2]?.messages as Array<Record<string, unknown>> | undefined)?.[0];
     const thirdContent = Array.isArray(thirdMessage?.content) ? thirdMessage.content as Array<Record<string, unknown>> : [];
     expect(thirdContent.some((part) => part.type === "image_url")).toBe(false);
@@ -245,7 +245,7 @@ describe("generation session Worker workflow", () => {
       metadata: {
         polish: {
           attempted: true,
-          model: "gemini-3-flash-preview",
+          model: "gemini-3-flash",
           status: "completed",
           fallbackUsed: false
         }
@@ -292,7 +292,7 @@ describe("generation session Worker workflow", () => {
     }), {
       ...env,
       AIVENE_POLISH_ENABLED: "true",
-      AIVENE_POLISH_MODEL: "gemini-3-flash-preview"
+      AIVENE_POLISH_MODEL: "gemini-3-flash"
     });
 
     expect(response.status).toBe(201);
@@ -302,7 +302,7 @@ describe("generation session Worker workflow", () => {
       metadata: {
         polish: {
           attempted: true,
-          model: "gemini-3-flash-preview",
+          model: "gemini-3-flash",
           status: "fallback",
           fallbackUsed: true,
           errorMessage: "Gemini polish unavailable"
@@ -315,7 +315,7 @@ describe("generation session Worker workflow", () => {
       metadata: {
         polish: {
           attempted: true,
-          model: "gemini-3-flash-preview",
+          model: "gemini-3-flash",
           status: "fallback",
           fallbackUsed: true,
           errorMessage: "Gemini polish unavailable"

@@ -17,7 +17,7 @@ Video sumber tidak disimpan oleh Worker atau Supabase. Hanya frame terpilih yang
 - Analisis utama: Aivene melalui `/chat/completions`.
 - Setiap pengguna mendapat 10 analisis gratis dengan Aivene `gpt-4o-mini`.
 - Setelah 10 gratis habis, pengguna melanjutkan dengan top up credit wallet dan tetap memakai `gpt-4o-mini`.
-- Jalur polish opsional memakai `Gemini 3 Flash Preview` secara text-only setelah paket awal selesai dibuat.
+- Jalur polish opsional memakai `Gemini 3 Flash` secara text-only setelah paket awal selesai dibuat.
 - `apps/server` hanya server kompatibilitas; create/retry job lama merespons `410 Gone`.
 - Generate session gratis menyimpan `charged_amount_idr = 0`, sedangkan generate berbayar memotong credit wallet sesuai `GENERATE_PRICE_IDR`.
 
@@ -27,7 +27,7 @@ Video sumber tidak disimpan oleh Worker atau Supabase. Hanya frame terpilih yang
 AIVENE_API_KEY=your_aivene_api_key
 AIVENE_BASE_URL=https://api.aivene.com/v1
 AIVENE_POLISH_ENABLED=true
-AIVENE_POLISH_MODEL=gemini-3-flash-preview
+AIVENE_POLISH_MODEL=gemini-3-flash
 AIVENE_POLISH_REASONING_EFFORT=medium
 AIVENE_SCRIPT_MODEL=gpt-4o-mini
 AIVENE_REASONING_EFFORT=medium
@@ -48,7 +48,7 @@ VITE_SUPABASE_URL=https://your_project_ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your_anon_key
 ```
 
-`AIVENE_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, dan `INTERACTIVE_QRIS_WEBHOOK_SECRET` harus disimpan sebagai Cloudflare Worker secrets. Variabel non-secret sudah didefinisikan di `apps/web/wrangler.jsonc`. Seluruh user dan admin sekarang memakai model utama Aivene `gpt-4o-mini`, lalu hasil akhirnya bisa dipoles lagi oleh `Gemini 3 Flash Preview` bila toggle polish aktif.
+`AIVENE_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, dan `INTERACTIVE_QRIS_WEBHOOK_SECRET` harus disimpan sebagai Cloudflare Worker secrets. Variabel non-secret sudah didefinisikan di `apps/web/wrangler.jsonc`. Seluruh user dan admin sekarang memakai model utama Aivene `gpt-4o-mini`, lalu hasil akhirnya bisa dipoles lagi oleh `Gemini 3 Flash` bila toggle polish aktif.
 
 ## Top Up QRIS
 
