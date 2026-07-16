@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "./constants";
-import { buildAiStudioPackagePrompt, buildCtaInstruction, buildVisualBriefPrompt, type PromptInput } from "./prompt-builder";
+import {
+  buildAiStudioPackagePrompt,
+  buildCtaInstruction,
+  buildVisualBriefPrompt,
+  getCaptionCharacterLimit,
+  normalizeCaptionTextForPlatform,
+  type PromptInput
+} from "./prompt-builder";
 import type { VisualBrief } from "../types";
 
 const visualBrief: VisualBrief = {
@@ -53,6 +60,23 @@ describe("AI Studio package prompt", () => {
 
     expect(prompt).toContain("21-24 spoken words");
     expect(prompt).toContain("upper half of the word budget");
+  });
+
+  it("uses platform-specific caption character limits", () => {
+    const instagramPrompt = buildAiStudioPackagePrompt({ ...baseInput, socialPlatform: "instagram", visualBrief });
+    const shopeePrompt = buildAiStudioPackagePrompt({ ...baseInput, socialPlatform: "shopee", visualBrief });
+
+    expect(instagramPrompt).toContain("within 1000 characters for this platform");
+    expect(shopeePrompt).toContain("within 150 characters for this platform");
+    expect(getCaptionCharacterLimit("instagram")).toBe(1000);
+    expect(getCaptionCharacterLimit("shopee")).toBe(150);
+  });
+
+  it("trims captions to each platform limit", () => {
+    const longCaption = `  ${"kata ".repeat(80).trim()}  `;
+
+    expect(normalizeCaptionTextForPlatform(longCaption, "shopee").length).toBeLessThanOrEqual(150);
+    expect(normalizeCaptionTextForPlatform(longCaption, "instagram").length).toBeLessThanOrEqual(1000);
   });
 
   it("preserves a custom CTA verbatim", () => {

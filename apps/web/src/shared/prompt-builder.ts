@@ -67,6 +67,25 @@ export function buildCtaInstruction(input: Pick<PromptInput, "contentType" | "so
   return 'Use this exact CTA as the final spoken sentence without paraphrasing: "Cek produknya sekarang".';
 }
 
+export function getCaptionCharacterLimit(socialPlatform: SocialPlatform): number {
+  return socialPlatform === "shopee" ? 150 : 1000;
+}
+
+export function normalizeCaptionTextForPlatform(captionText: string, socialPlatform: SocialPlatform): string {
+  const normalized = String(captionText || "").replace(/\s+/g, " ").trim();
+  const limit = getCaptionCharacterLimit(socialPlatform);
+  const chars = Array.from(normalized);
+  if (chars.length <= limit) {
+    return normalized;
+  }
+
+  const truncated = chars.slice(0, limit).join("").trim();
+  const lastSpace = truncated.lastIndexOf(" ");
+  return lastSpace >= Math.floor(limit * 0.7)
+    ? truncated.slice(0, lastSpace).trim()
+    : truncated;
+}
+
 export function buildVisualBriefPrompt(input: PromptInput): string {
   return [
     "Analyze the supplied video frames in chronological order.",
@@ -90,6 +109,7 @@ export function buildAiStudioPackagePrompt(input: PromptInput & { visualBrief: V
   const { minWords, maxWords, prefersUpperHalf } = calculateScriptWordBudget(input.videoDurationSec);
   const timing = calculateSpeechTarget(input.videoDurationSec);
   const languageName = input.contentLanguage === "en-US" ? "natural English" : "Bahasa Indonesia natural";
+  const captionCharacterLimit = getCaptionCharacterLimit(input.socialPlatform);
   return [
     "Create a complete Google AI Studio Generate Speech package and social posting copy from the verified visual brief.",
     "Return valid JSON only. Do not use markdown or code fences.",
@@ -116,7 +136,7 @@ export function buildAiStudioPackagePrompt(input: PromptInput & { visualBrief: V
       : []),
     "- Preserve visual order and use only facts supported by the visual brief.",
     `- ${buildCtaInstruction(input)}`,
-    "- captionText must be concise and must not include hashtags.",
+    `- captionText must be concise, must not include hashtags, and must stay within ${captionCharacterLimit} characters for this platform.`,
     "- hashtags must contain 3-8 safe, relevant tags.",
     ...contextLines(input),
     "Verified visual brief:",
@@ -130,6 +150,7 @@ export function buildAiStudioPolishPrompt(
   const { minWords, maxWords } = calculateScriptWordBudget(input.videoDurationSec);
   const timing = calculateSpeechTarget(input.videoDurationSec);
   const languageName = input.contentLanguage === "en-US" ? "natural English" : "Bahasa Indonesia natural";
+  const captionCharacterLimit = getCaptionCharacterLimit(input.socialPlatform);
 
   return [
     "Polish the supplied Google AI Studio Generate Speech package and social posting copy.",
@@ -158,7 +179,7 @@ export function buildAiStudioPolishPrompt(
     "- sampleContextText must still warn the speech model not to finish too early or rush the delivery.",
     `- scriptText must stay within ${minWords}-${maxWords} spoken words, fill the duration more naturally, and keep the final CTA sentence requirement intact.`,
     `- ${buildCtaInstruction(input)}`,
-    "- captionText must remain concise and must not include hashtags.",
+    `- captionText must remain concise, must not include hashtags, and must stay within ${captionCharacterLimit} characters for this platform.`,
     "- hashtags must contain 3-8 safe, relevant tags.",
     "- If the current package already satisfies the rules, keep it very close and only make small quality improvements.",
     ...contextLines(input),

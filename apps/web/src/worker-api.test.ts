@@ -406,6 +406,60 @@ describe("generation session Worker workflow", () => {
     });
   });
 
+  it("enforces the Shopee caption limit on the final polished package", async () => {
+    const inserted: unknown[] = [];
+    const rpcMock = analysisRpcMock();
+    createClientMock.mockReturnValue(buildDb(inserted, rpcMock));
+    const longCaption = "Shopee " + "hemat banget ".repeat(20);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(chatResponse({
+        summary: "Produk terlihat jelas",
+        hook: { startSec: 0, endSec: 3, reason: "Perubahan visual" },
+        timeline: [{
+          startSec: 0, endSec: 20, primaryVisual: "Produk", action: "Digunakan",
+          onScreenText: [], narrationFocus: "Manfaat produk", avoidClaims: []
+        }],
+        mustMention: ["manfaat"], mustAvoid: ["klaim berlebihan"], uncertainties: []
+      }))
+      .mockResolvedValueOnce(chatResponse({
+        sceneText: "Narator Indonesia natural; selesai tepat 20.00 detik.",
+        sampleContextText: "Ikuti visual utama dan jangan tambah intro.",
+        scriptText: "Produk ini membantu rutinitas harian terasa lebih praktis dan nyaman dipakai setiap hari.",
+        captionText: longCaption,
+        hashtags: ["#produk", "#praktis"]
+      }))
+      .mockResolvedValueOnce(chatResponse({
+        sceneText: "Narator Indonesia natural dan rapi; selesai tepat 20.00 detik.",
+        sampleContextText: "Ikuti visual utama, jaga ritme natural, dan jangan tambah intro.",
+        scriptText: "Produk ini membantu rutinitas harian terasa lebih praktis dan nyaman dipakai setiap hari.",
+        captionText: longCaption,
+        hashtags: ["#produk", "#praktis", "#shopee"]
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { handleApiRequest } = await import("./worker-api");
+
+    const response = await handleApiRequest(new Request("https://app.test/api/generation-sessions", {
+      method: "POST",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Produk", description: "Deskripsi produk", contentType: "affiliate",
+        socialPlatform: "shopee", contentLanguage: "id-ID",
+        tone: "natural", referenceLink: "https://example.com/produk", videoDurationSec: 20,
+        frames: [{ timestampSec: 0, mimeType: "image/jpeg", base64Data: "frame", width: 448, height: 252 }]
+      })
+    }), {
+      ...env,
+      AIVENE_POLISH_ENABLED: "true",
+      AIVENE_POLISH_MODEL: "gemini-3-flash",
+      AIVENE_POLISH_REASONING_EFFORT: "medium"
+    });
+
+    expect(response.status).toBe(201);
+    const body = await response.json() as { session: Record<string, unknown> };
+    expect(String(body.session.captionText || "").length).toBeLessThanOrEqual(150);
+    expect(String((inserted[0] as Record<string, unknown>).caption_text || "").length).toBeLessThanOrEqual(150);
+  });
+
   it("uses wallet credit after 10 free analyses are exhausted", async () => {
     const inserted: unknown[] = [];
     const rpcMock = vi.fn(async (name: string) => {

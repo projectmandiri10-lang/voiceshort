@@ -11,6 +11,7 @@ import {
 import {
   buildAiStudioPolishPrompt,
   buildAiStudioPackagePrompt,
+  normalizeCaptionTextForPlatform,
   buildVisualBriefPrompt
 } from "./shared/prompt-builder";
 import {
@@ -1152,7 +1153,10 @@ async function maybePolishAiStudioPackage(
     );
 
     return {
-      aiPackage: extractAiStudioPackage(chatPayloadToGeminiLike(response)),
+      aiPackage: sanitizeAiStudioPackage(
+        extractAiStudioPackage(chatPayloadToGeminiLike(response)),
+        promptBase.socialPlatform
+      ),
       metadata: {
         attempted: true,
         model,
@@ -1179,6 +1183,13 @@ interface AnalysisAccessReservation {
   freeAnalysisUsed: number;
   freeAnalysisRemaining: number;
   chargedAmountIdr: number;
+}
+
+function sanitizeAiStudioPackage(aiPackage: AiStudioPackage, socialPlatform: SocialPlatform): AiStudioPackage {
+  return {
+    ...aiPackage,
+    captionText: normalizeCaptionTextForPlatform(aiPackage.captionText, socialPlatform)
+  };
 }
 
 async function reserveAnalysisAccess(
@@ -1314,7 +1325,7 @@ async function createGenerationSession(
       withRetry(() =>
         generateTextWithProvider(env, provider, settings.scriptModel, {
           prompt: buildAiStudioPackagePrompt({ ...promptBase, visualBrief })
-        }).then(extractAiStudioPackage)
+        }).then(extractAiStudioPackage).then((result) => sanitizeAiStudioPackage(result, input.socialPlatform))
       )
   });
 
