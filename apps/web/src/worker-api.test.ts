@@ -166,13 +166,14 @@ describe("generation session Worker workflow", () => {
           attempted: false,
           model: "gemini-3-flash",
           status: "disabled",
-          fallbackUsed: false
+          fallbackUsed: false,
+          skipReason: "envDisabled"
         }
       }
     });
   });
 
-  it("runs a third text-only Gemini polish step when enabled", async () => {
+  it("skips Gemini polish when enabled but the package does not show under-run risk", async () => {
     const inserted: unknown[] = [];
     const rpcMock = analysisRpcMock();
     createClientMock.mockReturnValue(buildDb(inserted, rpcMock));
@@ -181,24 +182,17 @@ describe("generation session Worker workflow", () => {
         summary: "Produk terlihat jelas",
         hook: { startSec: 0, endSec: 3, reason: "Perubahan visual" },
         timeline: [{
-          startSec: 0, endSec: 42, primaryVisual: "Produk", action: "Digunakan",
+          startSec: 0, endSec: 16, primaryVisual: "Produk", action: "Digunakan",
           onScreenText: [], narrationFocus: "Manfaat produk", avoidClaims: []
         }],
         mustMention: ["manfaat"], mustAvoid: ["klaim berlebihan"], uncertainties: []
       }))
       .mockResolvedValueOnce(chatResponse({
-        sceneText: "Narator Indonesia natural; selesai tepat 42.00 detik.",
+        sceneText: "Narator Indonesia natural; selesai tepat 16.00 detik.",
         sampleContextText: "Ikuti visual utama dan jangan tambah intro.",
-        scriptText: "Produk ini membantu rutinitas harian menjadi lebih praktis.",
+        scriptText: "Produk ini membantu rutinitas harian terasa lebih praktis dan nyaman dipakai, jadi langkah pagi sampai malam tetap rapi, ringan, dan enak diikuti tanpa terasa buru-buru saat dipakai setiap hari di rumah sendiri juga tanpa ribet tambahan.",
         captionText: "Rutinitas praktis setiap hari.",
         hashtags: ["#produk", "#praktis"]
-      }))
-      .mockResolvedValueOnce(chatResponse({
-        sceneText: "Narator Indonesia yang natural dan rapi; akhiri tepat 42.00 detik.",
-        sampleContextText: "Ikuti urutan visual, jaga ritme natural, dan jangan menambah intro atau outro.",
-        scriptText: "Produk ini membantu rutinitas harian terasa lebih praktis setiap hari.",
-        captionText: "Rutinitas terasa lebih praktis setiap hari.",
-        hashtags: ["#produk", "#rutinitaspraktis", "#harian"]
       }));
     vi.stubGlobal("fetch", fetchMock);
     const { handleApiRequest } = await import("./worker-api");
@@ -209,7 +203,7 @@ describe("generation session Worker workflow", () => {
       body: JSON.stringify({
         title: "Produk", description: "Deskripsi produk", contentType: "affiliate",
         socialPlatform: "instagram", contentLanguage: "id-ID",
-        tone: "natural", referenceLink: "https://example.com/produk", videoDurationSec: 42,
+        tone: "natural", referenceLink: "https://example.com/produk", videoDurationSec: 16,
         frames: [{ timestampSec: 0, mimeType: "image/jpeg", base64Data: "frame", width: 448, height: 252 }]
       })
     }), {
@@ -222,15 +216,94 @@ describe("generation session Worker workflow", () => {
     expect(response.status).toBe(201);
     const body = await response.json() as { session: Record<string, unknown> };
     expect(body.session).toMatchObject({
-      sceneText: "Narator Indonesia yang natural dan rapi; akhiri tepat 42.00 detik.",
-      captionText: "Rutinitas terasa lebih praktis setiap hari.",
-      hashtags: ["#produk", "#rutinitaspraktis", "#harian"],
+      sceneText: "Narator Indonesia natural; selesai tepat 16.00 detik.",
+      captionText: "Rutinitas praktis setiap hari.",
+      hashtags: ["#produk", "#praktis"],
+      metadata: {
+        polish: {
+          attempted: false,
+          model: "gemini-3-flash",
+          status: "skipped",
+          fallbackUsed: false,
+          skipReason: "noUnderRunRisk"
+        }
+      }
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(inserted[0]).toMatchObject({
+      scene_text: "Narator Indonesia natural; selesai tepat 16.00 detik.",
+      metadata: {
+        polish: {
+          attempted: false,
+          model: "gemini-3-flash",
+          status: "skipped",
+          fallbackUsed: false,
+          skipReason: "noUnderRunRisk"
+        }
+      }
+    });
+  });
+
+  it("runs a third text-only Gemini polish step when the package shows under-run risk", async () => {
+    const inserted: unknown[] = [];
+    const rpcMock = analysisRpcMock();
+    createClientMock.mockReturnValue(buildDb(inserted, rpcMock));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(chatResponse({
+        summary: "Produk terlihat jelas",
+        hook: { startSec: 0, endSec: 2, reason: "Perubahan visual" },
+        timeline: [{
+          startSec: 0, endSec: 10, primaryVisual: "Produk", action: "Digunakan",
+          onScreenText: [], narrationFocus: "Manfaat produk", avoidClaims: []
+        }],
+        mustMention: ["manfaat"], mustAvoid: ["klaim berlebihan"], uncertainties: []
+      }))
+      .mockResolvedValueOnce(chatResponse({
+        sceneText: "Narator Indonesia natural; selesai tepat 10.00 detik.",
+        sampleContextText: "Ikuti visual utama dan jangan tambah intro.",
+        scriptText: "Produk ini praktis dipakai setiap hari.",
+        captionText: "Praktis dipakai harian.",
+        hashtags: ["#produk", "#praktis"]
+      }))
+      .mockResolvedValueOnce(chatResponse({
+        sceneText: "Narator Indonesia natural dengan ritme lebih tertahan; selesai tepat 10.00 detik.",
+        sampleContextText: "Ikuti visual utama, isi durasi penuh secara natural, dan jangan tambah intro.",
+        scriptText: "Produk ini praktis dipakai setiap hari, jadi rutinitas terasa lebih rapi dan nyaman dijalani.",
+        captionText: "Rutinitas harian terasa lebih rapi.",
+        hashtags: ["#produk", "#praktis", "#harian"]
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { handleApiRequest } = await import("./worker-api");
+
+    const response = await handleApiRequest(new Request("https://app.test/api/generation-sessions", {
+      method: "POST",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Produk", description: "Deskripsi produk", contentType: "affiliate",
+        socialPlatform: "instagram", contentLanguage: "id-ID",
+        tone: "natural", referenceLink: "https://example.com/produk", videoDurationSec: 10,
+        frames: [{ timestampSec: 0, mimeType: "image/jpeg", base64Data: "frame", width: 448, height: 252 }]
+      })
+    }), {
+      ...env,
+      AIVENE_POLISH_ENABLED: "true",
+      AIVENE_POLISH_MODEL: "gemini-3-flash",
+      AIVENE_POLISH_REASONING_EFFORT: "medium"
+    });
+
+    expect(response.status).toBe(201);
+    const body = await response.json() as { session: Record<string, unknown> };
+    expect(body.session).toMatchObject({
+      sceneText: "Narator Indonesia natural dengan ritme lebih tertahan; selesai tepat 10.00 detik.",
+      captionText: "Rutinitas harian terasa lebih rapi.",
+      hashtags: ["#produk", "#praktis", "#harian"],
       metadata: {
         polish: {
           attempted: true,
           model: "gemini-3-flash",
           status: "completed",
-          fallbackUsed: false
+          fallbackUsed: false,
+          reason: "underRunRisk"
         }
       }
     });
@@ -241,13 +314,14 @@ describe("generation session Worker workflow", () => {
     const thirdContent = Array.isArray(thirdMessage?.content) ? thirdMessage.content as Array<Record<string, unknown>> : [];
     expect(thirdContent.some((part) => part.type === "image_url")).toBe(false);
     expect(inserted[0]).toMatchObject({
-      scene_text: "Narator Indonesia yang natural dan rapi; akhiri tepat 42.00 detik.",
+      scene_text: "Narator Indonesia natural dengan ritme lebih tertahan; selesai tepat 10.00 detik.",
       metadata: {
         polish: {
           attempted: true,
           model: "gemini-3-flash",
           status: "completed",
-          fallbackUsed: false
+          fallbackUsed: false,
+          reason: "underRunRisk"
         }
       }
     });
@@ -286,7 +360,7 @@ describe("generation session Worker workflow", () => {
       body: JSON.stringify({
         title: "Produk", description: "Deskripsi produk", contentType: "affiliate",
         socialPlatform: "instagram", contentLanguage: "id-ID",
-        tone: "natural", referenceLink: "https://example.com/produk", videoDurationSec: 42,
+        tone: "natural", referenceLink: "https://example.com/produk", videoDurationSec: 10,
         frames: [{ timestampSec: 0, mimeType: "image/jpeg", base64Data: "frame", width: 448, height: 252 }]
       })
     }), {
@@ -305,6 +379,7 @@ describe("generation session Worker workflow", () => {
           model: "gemini-3-flash",
           status: "fallback",
           fallbackUsed: true,
+          reason: "underRunRisk",
           errorMessage: "Gemini polish unavailable"
         }
       }
@@ -318,6 +393,7 @@ describe("generation session Worker workflow", () => {
           model: "gemini-3-flash",
           status: "fallback",
           fallbackUsed: true,
+          reason: "underRunRisk",
           errorMessage: "Gemini polish unavailable"
         }
       }

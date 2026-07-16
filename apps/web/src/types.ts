@@ -85,8 +85,10 @@ export interface AiStudioPackage {
 export interface GenerationSessionPolishMetadata {
   attempted: boolean;
   model: string;
-  status: "disabled" | "completed" | "fallback";
+  status: "disabled" | "skipped" | "completed" | "fallback";
   fallbackUsed: boolean;
+  reason?: "underRunRisk";
+  skipReason?: "envDisabled" | "noUnderRunRisk";
   errorMessage?: string;
 }
 

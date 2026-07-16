@@ -13,6 +13,7 @@ import {
   buildAiStudioPackagePrompt,
   buildVisualBriefPrompt
 } from "./shared/prompt-builder";
+import { calculateScriptWordBudget, countSpokenWords } from "./shared/speech-timing";
 import {
   extractAiStudioPackage,
   extractVisualBrief
@@ -605,10 +606,15 @@ function mapGenerationSession(row: GenerationSessionRow): GenerationSessionRecor
                 attempted: Boolean(rawPolish.attempted),
                 model: typeof rawPolish.model === "string" ? rawPolish.model : "",
                 status:
-                  rawPolish.status === "completed" || rawPolish.status === "fallback"
+                  rawPolish.status === "completed" || rawPolish.status === "fallback" || rawPolish.status === "skipped"
                     ? rawPolish.status
                     : "disabled",
                 fallbackUsed: Boolean(rawPolish.fallbackUsed),
+                reason: rawPolish.reason === "underRunRisk" ? rawPolish.reason : undefined,
+                skipReason:
+                  rawPolish.skipReason === "envDisabled" || rawPolish.skipReason === "noUnderRunRisk"
+                    ? rawPolish.skipReason
+                    : undefined,
                 errorMessage:
                   typeof rawPolish.errorMessage === "string" && rawPolish.errorMessage.trim()
                     ? rawPolish.errorMessage
@@ -1129,7 +1135,27 @@ async function maybePolishAiStudioPackage(
         attempted: false,
         model,
         status: "disabled",
-        fallbackUsed: false
+        fallbackUsed: false,
+        skipReason: "envDisabled"
+      }
+    };
+  }
+
+  const wordBudget = calculateScriptWordBudget(promptBase.videoDurationSec);
+  const scriptWordCount = countSpokenWords(aiPackage.scriptText);
+  const hasUnderRunRisk =
+    promptBase.videoDurationSec <= 12 ||
+    scriptWordCount <= wordBudget.underRunRiskWordCount;
+
+  if (!hasUnderRunRisk) {
+    return {
+      aiPackage,
+      metadata: {
+        attempted: false,
+        model,
+        status: "skipped",
+        fallbackUsed: false,
+        skipReason: "noUnderRunRisk"
       }
     };
   }
@@ -1151,7 +1177,8 @@ async function maybePolishAiStudioPackage(
         attempted: true,
         model,
         status: "completed",
-        fallbackUsed: false
+        fallbackUsed: false,
+        reason: "underRunRisk"
       }
     };
   } catch (error) {
@@ -1162,6 +1189,7 @@ async function maybePolishAiStudioPackage(
         model,
         status: "fallback",
         fallbackUsed: true,
+        reason: "underRunRisk",
         errorMessage: error instanceof Error ? error.message : "Gemini polish gagal."
       }
     };

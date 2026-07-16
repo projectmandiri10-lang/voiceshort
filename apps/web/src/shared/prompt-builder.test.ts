@@ -39,6 +39,20 @@ describe("AI Studio package prompt", () => {
     expect(prompt).toContain("0.20 seconds of silence");
     expect(prompt).toContain("totals exactly 36.00 seconds");
     expect(prompt).toContain("without adding, repeating, paraphrasing, or omitting anything");
+    expect(prompt).toContain("slightly held natural pace");
+    expect(prompt).toContain("not to finish too early");
+    expect(prompt).toContain("fill the duration naturally");
+  });
+
+  it("biases short videos toward the upper half of the word budget", () => {
+    const prompt = buildAiStudioPackagePrompt({
+      ...baseInput,
+      videoDurationSec: 10,
+      visualBrief
+    });
+
+    expect(prompt).toContain("21-24 spoken words");
+    expect(prompt).toContain("upper half of the word budget");
   });
 
   it("preserves a custom CTA verbatim", () => {

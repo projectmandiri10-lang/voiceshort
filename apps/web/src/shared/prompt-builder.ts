@@ -1,8 +1,6 @@
 import { getContentLabel, getPlatformLabel, getToneLabel } from "../job-form-options";
 import type { AiStudioPackage, AppSettings, ContentLanguage, ContentType, SocialPlatform, VisualBrief } from "../types";
-import { calculateSpeechTarget } from "./speech-timing";
-
-const SCRIPT_WORDS_PER_SECOND = 2;
+import { calculateScriptWordBudget, calculateSpeechTarget } from "./speech-timing";
 
 export interface PromptInput {
   settings: AppSettings;
@@ -89,9 +87,7 @@ export function buildVisualBriefPrompt(input: PromptInput): string {
 }
 
 export function buildAiStudioPackagePrompt(input: PromptInput & { visualBrief: VisualBrief }): string {
-  const targetWords = Math.max(10, Math.round(input.videoDurationSec * SCRIPT_WORDS_PER_SECOND));
-  const minWords = Math.max(8, targetWords - 2);
-  const maxWords = targetWords + 2;
+  const { minWords, maxWords, prefersUpperHalf } = calculateScriptWordBudget(input.videoDurationSec);
   const timing = calculateSpeechTarget(input.videoDurationSec);
   const languageName = input.contentLanguage === "en-US" ? "natural English" : "Bahasa Indonesia natural";
   return [
@@ -109,10 +105,15 @@ export function buildAiStudioPackagePrompt(input: PromptInput & { visualBrief: V
     `- sceneText must request a single-speaker ${languageName} spoken delivery with the requested tone. It must command the speaker to read every script word exactly once, without adding, repeating, paraphrasing, or omitting anything.`,
     `- sceneText and sampleContextText must preserve this voice-direction rule exactly: ${buildVoiceDeliveryInstruction(input)}`,
     `- sceneText must command the final spoken word to finish at ${timing.speechTargetSec.toFixed(2)} seconds, followed by ${timing.safetyMarginSec.toFixed(2)} seconds of silence, so the audio totals exactly ${input.videoDurationSec.toFixed(2)} seconds.`,
-    "- sceneText must tell the speech model to adjust speaking pace and natural pauses, with no intro, outro, audio tags, or long opening/closing silence.",
+    "- sceneText must tell the speech model to use a slightly held natural pace, brief clause pauses, and no rushed delivery, while avoiding intro, outro, audio tags, or long opening/closing silence.",
     `- sampleContextText must state the exact ${input.videoDurationSec.toFixed(2)} second duration, the ${timing.speechTargetSec.toFixed(2)} second final-word deadline, the ${minWords}-${maxWords} word budget, verified visual order, audience, narrative intent, safety limits, and a strict no-paraphrase rule.`,
+    "- sampleContextText must warn the speech model not to finish too early and to fill the full duration naturally with brief pauses between clauses.",
     `- scriptText must contain ${minWords}-${maxWords} spoken words, including its CTA, and be designed for the final word to land at ${timing.speechTargetSec.toFixed(2)} seconds.`,
     "- scriptText must contain spoken words only: no labels, markdown, brackets, stage directions, timestamps, or audio tags.",
+    "- scriptText must fill the duration naturally, with smooth clause-to-clause flow rather than abrupt short phrasing.",
+    ...(prefersUpperHalf
+      ? ["- For this short video, scriptText should aim for the upper half of the word budget so the narration does not end too early."]
+      : []),
     "- Preserve visual order and use only facts supported by the visual brief.",
     `- ${buildCtaInstruction(input)}`,
     "- captionText must be concise and must not include hashtags.",
@@ -126,9 +127,7 @@ export function buildAiStudioPackagePrompt(input: PromptInput & { visualBrief: V
 export function buildAiStudioPolishPrompt(
   input: PromptInput & { visualBrief: VisualBrief; aiPackage: AiStudioPackage }
 ): string {
-  const targetWords = Math.max(10, Math.round(input.videoDurationSec * SCRIPT_WORDS_PER_SECOND));
-  const minWords = Math.max(8, targetWords - 2);
-  const maxWords = targetWords + 2;
+  const { minWords, maxWords } = calculateScriptWordBudget(input.videoDurationSec);
   const timing = calculateSpeechTarget(input.videoDurationSec);
   const languageName = input.contentLanguage === "en-US" ? "natural English" : "Bahasa Indonesia natural";
 
@@ -146,6 +145,9 @@ export function buildAiStudioPolishPrompt(
     "Polish goals:",
     "- Improve clarity, wording, rhythm, and flow.",
     "- Keep the writing natural, concise, and ready to use.",
+    "- This package was selected because it may end too early for the available duration.",
+    "- Add only a small amount of natural connective wording or rhythmic phrasing when needed so the narration fills time more naturally.",
+    "- Prefer short transitions and gentle clause expansion over new claims, new facts, or heavy rewriting.",
     "Hard rules:",
     "- Do not add, remove, rename, or reorder fields.",
     "- Do not invent facts, visuals, claims, identities, benefits, locations, or outcomes.",
@@ -153,7 +155,8 @@ export function buildAiStudioPolishPrompt(
     `- sceneText must still request a single-speaker ${languageName} spoken delivery and preserve this voice-direction rule exactly: ${buildVoiceDeliveryInstruction(input)}`,
     `- sceneText must still command the final spoken word to finish at ${timing.speechTargetSec.toFixed(2)} seconds, followed by ${timing.safetyMarginSec.toFixed(2)} seconds of silence, so the audio totals exactly ${input.videoDurationSec.toFixed(2)} seconds.`,
     `- sampleContextText must still state the exact ${input.videoDurationSec.toFixed(2)} second duration, the ${timing.speechTargetSec.toFixed(2)} second final-word deadline, the ${minWords}-${maxWords} word budget, and the strict no-paraphrase rule for speech generation.`,
-    `- scriptText must stay within ${minWords}-${maxWords} spoken words and keep the final CTA sentence requirement intact.`,
+    "- sampleContextText must still warn the speech model not to finish too early or rush the delivery.",
+    `- scriptText must stay within ${minWords}-${maxWords} spoken words, fill the duration more naturally, and keep the final CTA sentence requirement intact.`,
     `- ${buildCtaInstruction(input)}`,
     "- captionText must remain concise and must not include hashtags.",
     "- hashtags must contain 3-8 safe, relevant tags.",
