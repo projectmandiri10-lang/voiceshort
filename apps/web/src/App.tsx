@@ -14,7 +14,7 @@ import { resolveBrowserLocale } from "./user-locale";
 type PersonalView = "generate" | "jobs" | "subscription" | "admin";
 
 const personalTabs: DashboardTabDefinition<PersonalView>[] = [
-  { id: "generate", label: "Generate", icon: Sparkles },
+  { id: "generate", label: "Naskah", icon: Sparkles },
   { id: "jobs", label: "Riwayat", icon: FolderClock },
   { id: "subscription", label: "Top Up", icon: CreditCard }
 ];

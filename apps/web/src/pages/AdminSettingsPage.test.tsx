@@ -16,8 +16,8 @@ vi.mock("../api", () => ({
 
 const settings = {
   scriptProvider: "aivene" as const,
-  scriptFallbackProvider: "zai" as const,
-  scriptModel: "gpt-5.4-nano",
+  scriptFallbackProvider: "aivene" as const,
+  scriptModel: "gpt-4o-mini",
   taxRatePercent: 0,
   language: "id-ID" as const,
   maxVideoSeconds: 60,
@@ -66,17 +66,17 @@ describe("AdminSettingsPage", () => {
     render(<AdminSettingsPage />);
 
     const select = await screen.findByLabelText("Model utama");
-    fireEvent.change(select, { target: { value: "gpt-5.4-nano" } });
+    fireEvent.change(select, { target: { value: "gpt-4o-mini" } });
     fireEvent.click(screen.getByRole("button", { name: "Simpan pengaturan" }));
 
     await waitFor(() => expect(updateSettingsMock).toHaveBeenCalledWith({
       ...settings,
-      scriptModel: "gpt-5.4-nano"
+      scriptModel: "gpt-4o-mini"
     }));
     expect(window.alert).toHaveBeenCalledWith("Pengaturan AI dan top up berhasil disimpan.");
-    expect(screen.getByText(/Fallback superadmin:/)).toBeTruthy();
+    expect(screen.getByText(/Model aktif:/)).toBeTruthy();
     expect(screen.getByText(/User gratis & top up:/)).toBeTruthy();
-    expect(screen.getByText(/tanpa Z\.AI direct/)).toBeTruthy();
+    expect(screen.getAllByText(/gpt-4o-mini/).length).toBeGreaterThan(0);
     expect(screen.getByText(/Top up QRIS statis/)).toBeTruthy();
   });
 

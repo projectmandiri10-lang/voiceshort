@@ -17,15 +17,13 @@ export const AI_PROVIDER_LABEL: Record<AiProvider, string> = {
 };
 
 export const DEFAULT_AIVENE_BASE_URL = "https://api.aivene.com/v1";
-export const DEFAULT_AIVENE_SCRIPT_MODEL = "gpt-5.4-nano";
-export const FREE_USER_AIVENE_SCRIPT_MODEL = "gpt-5.4-nano";
-export const AIVENE_SCRIPT_MODELS = ["gpt-5.4-nano"] as const;
-export const DEFAULT_ZAI_BASE_URL = "https://api.z.ai/api/paas/v4";
-export const DEFAULT_ZAI_SCRIPT_MODEL = "glm-5v-turbo";
+export const DEFAULT_AIVENE_SCRIPT_MODEL = "gpt-4o-mini";
+export const FREE_USER_AIVENE_SCRIPT_MODEL = "gpt-4o-mini";
+export const AIVENE_SCRIPT_MODELS = ["gpt-4o-mini"] as const;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   scriptProvider: "aivene",
-  scriptFallbackProvider: "zai",
+  scriptFallbackProvider: "aivene",
   scriptModel: DEFAULT_AIVENE_SCRIPT_MODEL,
   taxRatePercent: 0,
   language: "id-ID",
@@ -72,12 +70,10 @@ function stripGatewayGeminiPrefix(model: string): string {
   return normalized.startsWith("gemini/gemini-") ? normalized.slice("gemini/".length) : normalized;
 }
 
-export function normalizeScriptModel(model: string, provider = DEFAULT_SETTINGS.scriptProvider): string {
+export function normalizeScriptModel(model: string, _provider = DEFAULT_SETTINGS.scriptProvider): string {
   const trimmed = model.trim();
   if (!trimmed) {
-    return provider === "zai" ? DEFAULT_ZAI_SCRIPT_MODEL : DEFAULT_AIVENE_SCRIPT_MODEL;
+    return DEFAULT_AIVENE_SCRIPT_MODEL;
   }
-  return provider === "zai"
-    ? trimmed
-    : stripGatewayGeminiPrefix(stripGoogleGeminiPrefix(trimmed));
+  return stripGatewayGeminiPrefix(stripGoogleGeminiPrefix(trimmed));
 }

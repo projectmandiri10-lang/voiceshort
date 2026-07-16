@@ -33,7 +33,7 @@ const completedSession: GenerationSessionRecord = {
 const user: AuthUser = {
   id: "user-1", email: "user@test.dev", displayName: "User", role: "user",
   subscriptionStatus: "inactive", videoQuotaTotal: 0, videoQuotaUsed: 0,
-  videoQuotaRemaining: 0, walletBalanceIdr: 0, generatePriceIdr: 2000,
+  videoQuotaRemaining: 0, walletBalanceIdr: 0, generatePriceIdr: 1000,
   generateCreditsRemaining: 0, isUnlimited: false, assignedPackageCode: null,
   freeAnalysisLimit: 10, freeAnalysisUsed: 0, freeAnalysisRemaining: 10,
   subscriptionExpiresAt: null, hasAnalysisAccess: true
@@ -56,7 +56,7 @@ describe("analysis-only workflow", () => {
     fireEvent.change(screen.getByLabelText("Judul"), { target: { value: "Produk" } });
     fireEvent.change(screen.getByLabelText("Deskripsi"), { target: { value: "Deskripsi produk" } });
     await waitFor(() => expect(screen.getByText("42 detik")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Analisa Video" }));
+    fireEvent.click(screen.getByRole("button", { name: "Buat Naskah Voiceover" }));
 
     await screen.findByText(completedSession.sceneText);
     expect(screen.getByText(completedSession.sampleContextText)).toBeTruthy();

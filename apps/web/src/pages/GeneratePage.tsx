@@ -11,6 +11,7 @@ import { readVideoDuration } from "../video-duration";
 import { formatVideoDuration } from "../utils/billing";
 
 const AI_STUDIO_URL = "https://aistudio.google.com/generate-speech";
+const AI_STUDIO_VOICEOVER_NOTE = "Tempel Scene, Sample Context, dan Naskah ini ke AI Studio pada bagian The Ad Voiceover.";
 
 interface GeneratePageProps {
   locale: ContentLanguage;
@@ -119,7 +120,7 @@ export function GeneratePage({ locale, user, onViewJobs, onSubscribe, onUserUpda
       setSession(result.session);
       const nextUser = await fetchSession();
       if (nextUser) onUserUpdated(nextUser);
-      setNotice("Analisis selesai. Semua teks siap disalin dan digunakan.");
+      setNotice("Naskah voiceover selesai dibuat. Semua teks siap disalin dan dipakai.");
     } catch (analysisError) {
       setError((analysisError as Error).message);
     } finally {
@@ -136,7 +137,7 @@ export function GeneratePage({ locale, user, onViewJobs, onSubscribe, onUserUpda
     if (!session) return;
     await copyText(
       `SCENE\n${session.sceneText}\n\nSAMPLE CONTEXT\n${session.sampleContextText}\n\nSCRIPT\n${session.scriptText}\n\nCAPTION\n${session.captionText}\n\nHASHTAG\n${session.hashtags.join(" ")}`,
-      "Semua hasil analisis"
+      "Semua hasil naskah"
     );
   };
 
@@ -145,8 +146,8 @@ export function GeneratePage({ locale, user, onViewJobs, onSubscribe, onUserUpda
       <header className="personal-workspace-head">
         <div>
           <span className="eyebrow">PERSONAL VIDEO WORKFLOW</span>
-          <h1>Analisis video dan siapkan naskah.</h1>
-          <p>AI menganalisis visual lalu menyiapkan naskah, arahan suara, caption, dan hashtag.</p>
+          <h1>Pembuat naskah video untuk pengisi suara.</h1>
+          <p>Upload video singkat, lalu dapatkan Scene, Sample Context, dan naskah siap tempel ke AI Studio untuk voiceover.</p>
         </div>
         <button type="button" className="secondary-button" onClick={() => onViewJobs(session?.sessionId)}>
           <FolderClock size={17} /> Riwayat
@@ -156,15 +157,15 @@ export function GeneratePage({ locale, user, onViewJobs, onSubscribe, onUserUpda
       <form className="personal-step-card" onSubmit={analyze}>
         <div className="personal-step-number">01</div>
         <div className="personal-step-content">
-          <h2>Upload dan analisa video</h2>
+          <h2>Upload video dan buat naskah</h2>
           <div className={user.hasAnalysisAccess ? "analysis-access-note" : "analysis-access-note exhausted"}>
             {user.subscriptionStatus === "active" || user.isUnlimited
-              ? "Akses premium aktif · model mengikuti pengaturan admin."
+              ? "Akses premium aktif - model mengikuti pengaturan admin."
               : user.hasAnalysisAccess
                 ? user.freeAnalysisRemaining > 0
-                  ? `Gratis tersisa ${user.freeAnalysisRemaining} dari ${user.freeAnalysisLimit} analisis.`
-                  : `Saldo aktif ${rupiah(user.walletBalanceIdr)} · siap untuk ${user.generateCreditsRemaining ?? 0} analisis lagi.`
-                : "10 analisis gratis sudah habis. Top up credit untuk melanjutkan."}
+                  ? `Gratis tersisa ${user.freeAnalysisRemaining} dari ${user.freeAnalysisLimit} naskah video.`
+                  : `Saldo aktif ${rupiah(user.walletBalanceIdr)} - siap untuk ${user.generateCreditsRemaining ?? 0} naskah lagi.`
+                : "10 naskah gratis sudah habis. Top up credit untuk melanjutkan."}
             {!user.hasAnalysisAccess ? <button type="button" onClick={onSubscribe}>Top Up</button> : null}
           </div>
           <label className="personal-dropzone">
@@ -184,7 +185,7 @@ export function GeneratePage({ locale, user, onViewJobs, onSubscribe, onUserUpda
           </div>
           <button className="primary-action" disabled={Boolean(busy) || !user.hasAnalysisAccess}>
             {busy === "analysis" ? <LoaderCircle className="spin" size={18} /> : <Sparkles size={18} />}
-            {busy === "analysis" ? `Menganalisa ${progress}%` : "Analisa Video"}
+            {busy === "analysis" ? `Menyusun naskah ${progress}%` : "Buat Naskah Voiceover"}
           </button>
         </div>
       </form>
@@ -194,12 +195,16 @@ export function GeneratePage({ locale, user, onViewJobs, onSubscribe, onUserUpda
           <div className="personal-step-number">02</div>
           <div className="personal-step-content">
             <div className="personal-result-head">
-              <div><h2>Hasil analisis</h2><p>Naskah, arahan suara, caption, dan hashtag langsung siap digunakan.</p></div>
+              <div><h2>Hasil naskah voiceover</h2><p>Scene, Sample Context, naskah, caption, dan hashtag langsung siap dipakai.</p></div>
               <div className="personal-actions">
                 <button type="button" onClick={() => void copyAll()}><Clipboard size={16} /> Salin Semua</button>
                 <a href={AI_STUDIO_URL} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Buka AI Studio</a>
               </div>
             </div>
+            <article className="copy-result-card ai-studio-guide-card">
+              <header><strong>AI Studio · The Ad Voiceover</strong></header>
+              <p>{AI_STUDIO_VOICEOVER_NOTE}</p>
+            </article>
             {([[
               "Scene", session.sceneText
             ], [

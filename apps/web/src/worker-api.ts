@@ -4,14 +4,12 @@ import {
   AIVENE_SCRIPT_MODELS,
   DEFAULT_SETTINGS,
   DEFAULT_AIVENE_BASE_URL,
-  DEFAULT_ZAI_BASE_URL,
-  DEFAULT_ZAI_SCRIPT_MODEL,
   FREE_ANALYSIS_LIMIT,
   FREE_USER_AIVENE_SCRIPT_MODEL,
-  normalizeScriptModel,
-  normalizeScriptProvider
+  normalizeScriptModel
 } from "./shared/constants";
 import {
+  buildAiStudioPolishPrompt,
   buildAiStudioPackagePrompt,
   buildVisualBriefPrompt
 } from "./shared/prompt-builder";
@@ -25,6 +23,7 @@ import {
   SOCIAL_PLATFORMS,
   type AdminTransactionRecord,
   type AdminUserRecord,
+  type AiStudioPackage,
   type AiProvider,
   type AppSettings,
   type AssignedPackageCode,
@@ -32,6 +31,8 @@ import {
   type ContentLanguage,
   type ContentType,
   type GenerationSessionCreateInput,
+  type GenerationSessionMetadata,
+  type GenerationSessionPolishMetadata,
   type GenerationSessionRecord,
   type GenerationSessionStatus,
   type QrisManualOverrideMode,
@@ -42,35 +43,28 @@ import {
 } from "./types";
 
 const SUPERADMIN_WHITELIST_EMAIL = "jho.j80@gmail.com";
-const DEFAULT_GENERATE_PRICE_IDR = 2000;
+const DEFAULT_GENERATE_PRICE_IDR = 1000;
 const DEPOSIT_PACKAGES = [
   {
     code: "1_video",
-    label: "1 generate",
-    payAmountIdr: 2_000,
-    creditAmountIdr: 2_000,
+    label: "Paket Rp1.000",
+    payAmountIdr: 1_000,
+    creditAmountIdr: 1_000,
+    bonusAmountIdr: 0
+  },
+  {
+    code: "5_video",
+    label: "Paket Rp5.000",
+    payAmountIdr: 5_000,
+    creditAmountIdr: 5_000,
     bonusAmountIdr: 0
   },
   {
     code: "10_video",
-    label: "10 generate",
-    payAmountIdr: 20_000,
-    creditAmountIdr: 20_000,
+    label: "Paket Rp10.000",
+    payAmountIdr: 10_000,
+    creditAmountIdr: 10_000,
     bonusAmountIdr: 0
-  },
-  {
-    code: "50_video",
-    label: "50 generate",
-    payAmountIdr: 90_000,
-    creditAmountIdr: 100_000,
-    bonusAmountIdr: 10_000
-  },
-  {
-    code: "100_video",
-    label: "100 generate",
-    payAmountIdr: 170_000,
-    creditAmountIdr: 200_000,
-    bonusAmountIdr: 30_000
   }
 ] as const;
 
@@ -84,11 +78,11 @@ export interface WorkerEnv {
   AI_PROVIDER?: string;
   AIVENE_API_KEY?: string;
   AIVENE_BASE_URL?: string;
+  AIVENE_POLISH_ENABLED?: string;
+  AIVENE_POLISH_MODEL?: string;
+  AIVENE_POLISH_REASONING_EFFORT?: string;
   AIVENE_SCRIPT_MODEL?: string;
   AIVENE_REASONING_EFFORT?: string;
-  ZAI_API_KEY?: string;
-  ZAI_BASE_URL?: string;
-  ZAI_SCRIPT_MODEL?: string;
   SCRIPT_PROVIDER?: string;
   SCRIPT_FALLBACK_PROVIDER?: string;
   SUPABASE_URL?: string;
@@ -187,6 +181,7 @@ interface GenerationSessionRow {
   script_text: string | null;
   caption_text: string | null;
   hashtags: string[] | null;
+  metadata: Record<string, unknown> | null;
   charged_amount_idr: number;
   error_message: string | null;
   render_summary: Record<string, unknown> | null;
@@ -329,16 +324,19 @@ function resolveAiveneReasoningEffort(env: WorkerEnv): "low" | "medium" | "high"
   return value === "low" || value === "high" ? value : "medium";
 }
 
-function getZaiApiKey(env: WorkerEnv): string {
-  const value = String(env.ZAI_API_KEY || "").trim();
-  if (!value) {
-    throw createHttpError(500, "ZAI_API_KEY belum dikonfigurasi di sistem backend.");
-  }
-  return value;
+function resolveAivenePolishEnabled(env: WorkerEnv): boolean {
+  const value = String(env.AIVENE_POLISH_ENABLED || "").trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "on";
 }
 
-function resolveZaiBaseUrl(env: WorkerEnv): string {
-  return trimTrailingSlash(String(env.ZAI_BASE_URL || DEFAULT_ZAI_BASE_URL).trim() || DEFAULT_ZAI_BASE_URL);
+function resolveAivenePolishModel(env: WorkerEnv): string {
+  const raw = String(env.AIVENE_POLISH_MODEL || "").trim();
+  return normalizeScriptModel(raw || "gemini-3-flash-preview", "aivene");
+}
+
+function resolveAivenePolishReasoningEffort(env: WorkerEnv): "low" | "medium" | "high" {
+  const value = String(env.AIVENE_POLISH_REASONING_EFFORT || env.AIVENE_REASONING_EFFORT || "medium").trim().toLowerCase();
+  return value === "low" || value === "high" ? value : "medium";
 }
 
 function resolveAiveneChatUrl(baseUrl: string): string {
@@ -356,6 +354,33 @@ function getGeneratePriceIdr(env: WorkerEnv): number {
   const raw = String(env.GENERATE_PRICE_IDR || "").trim();
   const parsed = raw ? Number(raw) : DEFAULT_GENERATE_PRICE_IDR;
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : DEFAULT_GENERATE_PRICE_IDR;
+}
+
+function buildAiveneTextRequestBody(
+  env: WorkerEnv,
+  model: string,
+  input: {
+    prompt: string;
+    frames?: GenerationSessionCreateInput["frames"];
+    reasoningEffort?: "low" | "medium" | "high";
+  }
+): Record<string, unknown> {
+  const normalizedModel = normalizeScriptModel(model, "aivene");
+  return {
+    model: normalizedModel,
+    ...(normalizedModel.startsWith("gpt")
+      ? {}
+      : { reasoning_effort: input.reasoningEffort || resolveAiveneReasoningEffort(env) }),
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: input.prompt },
+          ...buildOpenAiStyleFrameParts(input.frames || [])
+        ]
+      }
+    ]
+  };
 }
 
 function normalizeTaxRatePercent(value: unknown): number {
@@ -472,11 +497,6 @@ function mapProfileToAdminUser(profile: ProfileRow, generatePriceIdr: number): A
 function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
   const source = row
     ? {
-        scriptProvider: normalizeScriptProvider(row.script_provider, DEFAULT_SETTINGS.scriptProvider),
-        scriptFallbackProvider: normalizeScriptProvider(
-          row.script_fallback_provider,
-          DEFAULT_SETTINGS.scriptFallbackProvider
-        ),
         scriptModel: row.script_model,
         taxRatePercent: normalizeTaxRatePercent(row.tax_rate_percent),
         language: row.language,
@@ -493,9 +513,9 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
       }
     : DEFAULT_SETTINGS;
 
-  const scriptProvider = normalizeScriptProvider(source.scriptProvider, DEFAULT_SETTINGS.scriptProvider);
+  const scriptProvider = DEFAULT_SETTINGS.scriptProvider;
   const rawScriptModel = String(source.scriptModel || DEFAULT_SETTINGS.scriptModel).trim() || DEFAULT_SETTINGS.scriptModel;
-  const scriptModel = scriptProvider === "aivene" && !AIVENE_SCRIPT_MODELS.includes(rawScriptModel as (typeof AIVENE_SCRIPT_MODELS)[number])
+  const scriptModel = !AIVENE_SCRIPT_MODELS.includes(rawScriptModel as (typeof AIVENE_SCRIPT_MODELS)[number])
     ? DEFAULT_SETTINGS.scriptModel
     : rawScriptModel;
   const qrisManualOverride = source.qrisManualOverride === "open" || source.qrisManualOverride === "closed"
@@ -509,10 +529,7 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
 
   return {
     scriptProvider,
-    scriptFallbackProvider: normalizeScriptProvider(
-      source.scriptFallbackProvider,
-      DEFAULT_SETTINGS.scriptFallbackProvider
-    ),
+    scriptFallbackProvider: scriptProvider,
     scriptModel: normalizeScriptModel(scriptModel, scriptProvider),
     taxRatePercent: normalizeTaxRatePercent(source.taxRatePercent ?? DEFAULT_SETTINGS.taxRatePercent),
     language: "id-ID",
@@ -529,44 +546,18 @@ function normalizeSettings(row?: AppSettingsRow | null): AppSettings {
   };
 }
 
-function resolveZaiChatUrl(baseUrl: string): string {
-  const normalized = trimTrailingSlash(baseUrl);
-  if (normalized.endsWith("/chat/completions")) {
-    return normalized;
-  }
-  if (normalized.endsWith("/v4")) {
-    return `${normalized}/chat/completions`;
-  }
-  return `${normalized}/api/paas/v4/chat/completions`;
-}
-
 function applyRuntimeSettingsEnvOverrides(
   settings: AppSettings,
   env: WorkerEnv,
   useEnvModelDefault = false
 ): AppSettings {
-  const aiProvider = String(env.AI_PROVIDER || "").trim();
-  const scriptProvider = normalizeScriptProvider(
-    String(env.SCRIPT_PROVIDER || aiProvider || "").trim(),
-    settings.scriptProvider
-  );
-  const scriptFallbackProvider = normalizeScriptProvider(
-    String(env.SCRIPT_FALLBACK_PROVIDER || (scriptProvider === "aivene" ? "zai" : "aivene")).trim(),
-    settings.scriptFallbackProvider === scriptProvider
-      ? scriptProvider === "zai" ? "aivene" : "zai"
-      : settings.scriptFallbackProvider
-  );
-  const scriptModelDefault = scriptProvider === "zai"
-    ? String(env.ZAI_SCRIPT_MODEL || DEFAULT_ZAI_SCRIPT_MODEL).trim()
-    : String(env.AIVENE_SCRIPT_MODEL || DEFAULT_SETTINGS.scriptModel).trim();
+  const scriptProvider = DEFAULT_SETTINGS.scriptProvider;
+  const scriptModelDefault = String(env.AIVENE_SCRIPT_MODEL || DEFAULT_SETTINGS.scriptModel).trim();
   const selectedModel = useEnvModelDefault ? scriptModelDefault : settings.scriptModel;
   return {
     ...settings,
     scriptProvider,
-    scriptFallbackProvider:
-      scriptFallbackProvider === scriptProvider
-        ? scriptProvider === "zai" ? "aivene" : "zai"
-        : scriptFallbackProvider,
+    scriptFallbackProvider: scriptProvider,
     scriptModel: normalizeScriptModel(selectedModel, scriptProvider)
   };
 }
@@ -597,6 +588,37 @@ function settingsUpsertRow(nextSettings: AppSettings) {
 }
 
 function mapGenerationSession(row: GenerationSessionRow): GenerationSessionRecord {
+  const rawMetadata =
+    row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+      ? row.metadata
+      : null;
+  const rawPolish =
+    rawMetadata?.polish && typeof rawMetadata.polish === "object" && !Array.isArray(rawMetadata.polish)
+      ? rawMetadata.polish as Record<string, unknown>
+      : null;
+  const metadata: GenerationSessionMetadata | undefined = rawMetadata
+    ? {
+        ...rawMetadata,
+        ...(rawPolish
+          ? {
+              polish: {
+                attempted: Boolean(rawPolish.attempted),
+                model: typeof rawPolish.model === "string" ? rawPolish.model : "",
+                status:
+                  rawPolish.status === "completed" || rawPolish.status === "fallback"
+                    ? rawPolish.status
+                    : "disabled",
+                fallbackUsed: Boolean(rawPolish.fallbackUsed),
+                errorMessage:
+                  typeof rawPolish.errorMessage === "string" && rawPolish.errorMessage.trim()
+                    ? rawPolish.errorMessage
+                    : undefined
+              } satisfies GenerationSessionPolishMetadata
+            }
+          : {})
+      }
+    : undefined;
+
   return {
     sessionId: row.session_id,
     createdAt: row.created_at,
@@ -620,6 +642,7 @@ function mapGenerationSession(row: GenerationSessionRow): GenerationSessionRecor
     scriptText: row.script_text || "",
     captionText: row.caption_text || "",
     hashtags: Array.isArray(row.hashtags) ? row.hashtags : [],
+    metadata,
     chargedAmountIdr: Math.max(0, Math.trunc(row.charged_amount_idr || 0)),
     errorMessage: row.error_message || undefined,
     renderSummary: row.render_summary
@@ -741,19 +764,10 @@ function parseSettingsInput(input: unknown): AppSettings {
     throw createHttpError(400, "Payload pengaturan tidak valid.");
   }
   const body = input as Record<string, unknown>;
-  const scriptProvider = normalizeScriptProvider(
-    String(body.scriptProvider || "").trim(),
-    DEFAULT_SETTINGS.scriptProvider
-  );
-  const scriptFallbackProvider = normalizeScriptProvider(
-    String(body.scriptFallbackProvider || "").trim(),
-    DEFAULT_SETTINGS.scriptFallbackProvider
-  );
-  if (scriptProvider === scriptFallbackProvider) {
-    throw createHttpError(400, "Fallback provider script harus berbeda dari provider utama.");
-  }
+  const scriptProvider = DEFAULT_SETTINGS.scriptProvider;
+  const scriptFallbackProvider = scriptProvider;
   const requestedModel = assertString(body.scriptModel, "Script model") || DEFAULT_SETTINGS.scriptModel;
-  if (scriptProvider === "aivene" && !AIVENE_SCRIPT_MODELS.includes(requestedModel as (typeof AIVENE_SCRIPT_MODELS)[number])) {
+  if (!AIVENE_SCRIPT_MODELS.includes(requestedModel as (typeof AIVENE_SCRIPT_MODELS)[number])) {
     throw createHttpError(400, "Model analisis Aivene tidak didukung.");
   }
   return {
@@ -973,33 +987,6 @@ async function callAiveneText(
   return payload;
 }
 
-async function callZaiText(
-  env: WorkerEnv,
-  body: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const response = await fetch(resolveZaiChatUrl(resolveZaiBaseUrl(env)), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getZaiApiKey(env)}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
-  });
-
-  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok) {
-    const message =
-      typeof (payload.error as { message?: unknown } | undefined)?.message === "string"
-        ? String((payload.error as { message?: unknown }).message)
-        : typeof payload.message === "string"
-          ? payload.message
-          : `Z.AI text request gagal (${response.status}).`;
-    throw createHttpError(response.status === 429 ? 503 : response.status, message, payload);
-  }
-
-  return payload;
-}
-
 async function withRetry<T>(task: () => Promise<T>, attempts = 3): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -1108,37 +1095,77 @@ async function generateTextWithProvider(
     frames?: GenerationSessionCreateInput["frames"];
   }
 ): Promise<Record<string, unknown>> {
-  if (provider === "zai") {
-    const payload = await callZaiText(env, {
-      model: normalizeScriptModel(String(env.ZAI_SCRIPT_MODEL || DEFAULT_ZAI_SCRIPT_MODEL), provider),
-      thinking: { type: "enabled" },
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: input.prompt },
-            ...buildOpenAiStyleFrameParts(input.frames || [])
-          ]
-        }
-      ]
-    });
-    return chatPayloadToGeminiLike(payload);
+  if (provider !== "aivene") {
+    throw createHttpError(400, "Provider analisis selain Aivene sudah dinonaktifkan.");
   }
 
-  const payload = await callAiveneText(env, {
-    model: normalizeScriptModel(model, provider),
-    ...(normalizeScriptModel(model, provider).startsWith("gpt") ? {} : { reasoning_effort: resolveAiveneReasoningEffort(env) }),
-    messages: [
-      {
-        role: "user",
-        content: [
-          { type: "text", text: input.prompt },
-          ...buildOpenAiStyleFrameParts(input.frames || [])
-        ]
-      }
-    ]
-  });
+  const payload = await callAiveneText(env, buildAiveneTextRequestBody(env, model, input));
   return chatPayloadToGeminiLike(payload);
+}
+
+async function maybePolishAiStudioPackage(
+  env: WorkerEnv,
+  promptBase: {
+    settings: AppSettings;
+    title: string;
+    description: string;
+    contentType: ContentType;
+    socialPlatform: SocialPlatform;
+    contentLanguage: ContentLanguage;
+    tone: string;
+    videoDurationSec: number;
+    frameCount: number;
+    ctaText?: string;
+    referenceLink?: string;
+  },
+  visualBrief: VisualBrief,
+  aiPackage: AiStudioPackage
+): Promise<{ aiPackage: AiStudioPackage; metadata: GenerationSessionPolishMetadata }> {
+  const model = resolveAivenePolishModel(env);
+  if (!resolveAivenePolishEnabled(env)) {
+    return {
+      aiPackage,
+      metadata: {
+        attempted: false,
+        model,
+        status: "disabled",
+        fallbackUsed: false
+      }
+    };
+  }
+
+  try {
+    const response = await withRetry(() =>
+      callAiveneText(
+        env,
+        buildAiveneTextRequestBody(env, model, {
+          prompt: buildAiStudioPolishPrompt({ ...promptBase, visualBrief, aiPackage }),
+          reasoningEffort: resolveAivenePolishReasoningEffort(env)
+        })
+      )
+    );
+
+    return {
+      aiPackage: extractAiStudioPackage(chatPayloadToGeminiLike(response)),
+      metadata: {
+        attempted: true,
+        model,
+        status: "completed",
+        fallbackUsed: false
+      }
+    };
+  } catch (error) {
+    return {
+      aiPackage,
+      metadata: {
+        attempted: true,
+        model,
+        status: "fallback",
+        fallbackUsed: true,
+        errorMessage: error instanceof Error ? error.message : "Gemini polish gagal."
+      }
+    };
+  }
 }
 
 interface AnalysisAccessReservation {
@@ -1170,7 +1197,7 @@ async function reserveAnalysisAccess(
         video_duration_sec: videoDurationSec
       });
       if (walletCharge.error) {
-        throw createHttpError(402, "10 analisis gratis sudah habis. Top up credit terlebih dahulu untuk melanjutkan.");
+        throw createHttpError(402, "10 naskah gratis sudah habis. Top up credit untuk lanjut membuat naskah video.");
       }
       return {
         accessType: "wallet",
@@ -1285,6 +1312,8 @@ async function createGenerationSession(
       )
   });
 
+  const polishedPackage = await maybePolishAiStudioPackage(env, promptBase, visualBrief, aiPackage);
+
   const insertPayload = {
     session_id: sessionId,
     owner_user_id: context.user.id,
@@ -1302,11 +1331,14 @@ async function createGenerationSession(
     status: "completed",
     completed_at: nowIso(),
     visual_brief: visualBrief,
-    scene_text: aiPackage.sceneText,
-    sample_context_text: aiPackage.sampleContextText,
-    script_text: aiPackage.scriptText,
-    caption_text: aiPackage.captionText,
-    hashtags: aiPackage.hashtags,
+    scene_text: polishedPackage.aiPackage.sceneText,
+    sample_context_text: polishedPackage.aiPackage.sampleContextText,
+    script_text: polishedPackage.aiPackage.scriptText,
+    caption_text: polishedPackage.aiPackage.captionText,
+    hashtags: polishedPackage.aiPackage.hashtags,
+    metadata: {
+      polish: polishedPackage.metadata
+    },
     charged_amount_idr: access.chargedAmountIdr,
     error_message: null,
     render_summary: {}
@@ -2184,7 +2216,7 @@ async function grantAdminPackage(
 ) {
   requireSuperadmin(context);
   const packageCode = String(input.packageCode || "").trim() as AssignedPackageCode;
-  if (!["10_video", "50_video", "100_video", "custom"].includes(packageCode)) {
+  if (!["1_video", "5_video", "10_video", "50_video", "100_video", "custom"].includes(packageCode)) {
     throw createHttpError(400, "Kode paket tidak valid.");
   }
   const packageInfo = packageCode === "custom" ? undefined : getDepositPackage(packageCode);

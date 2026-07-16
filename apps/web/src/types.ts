@@ -13,7 +13,7 @@ export type ScriptAiProvider = (typeof SCRIPT_AI_PROVIDERS)[number];
 export type AiProvider = ScriptAiProvider;
 export type UserRole = "user" | "superadmin";
 export type SubscriptionStatus = "active" | "inactive";
-export type AssignedPackageCode = "10_video" | "50_video" | "100_video" | "custom";
+export type AssignedPackageCode = "1_video" | "5_video" | "10_video" | "50_video" | "100_video" | "custom";
 export type QrisManualOverrideMode = "auto" | "open" | "closed";
 
 export interface AppSettings {
@@ -82,6 +82,18 @@ export interface AiStudioPackage {
   hashtags: string[];
 }
 
+export interface GenerationSessionPolishMetadata {
+  attempted: boolean;
+  model: string;
+  status: "disabled" | "completed" | "fallback";
+  fallbackUsed: boolean;
+  errorMessage?: string;
+}
+
+export type GenerationSessionMetadata = {
+  polish?: GenerationSessionPolishMetadata;
+} & Record<string, unknown>;
+
 export interface GenerationSessionRecord extends AiStudioPackage {
   sessionId: string; createdAt: string; updatedAt: string; completedAt?: string | null;
   ownerEmail?: string; title: string; description: string; contentType: ContentType;
@@ -89,6 +101,7 @@ export interface GenerationSessionRecord extends AiStudioPackage {
   tone: string; ctaText?: string; referenceLink?: string; videoDurationSec: number;
   frameCount: number; status: GenerationSessionStatus; visualBrief?: VisualBrief;
   chargedAmountIdr: number; errorMessage?: string; renderSummary?: GenerationSessionRenderSummary;
+  metadata?: GenerationSessionMetadata;
 }
 
 export interface ExtractedFrame {
@@ -145,7 +158,7 @@ export interface TopupConfig {
   };
 }
 export interface DepositPackage {
-  code: "1_video" | "10_video" | "50_video" | "100_video"; label: string; payAmountIdr: number;
+  code: "1_video" | "5_video" | "10_video" | "50_video" | "100_video"; label: string; payAmountIdr: number;
   creditAmountIdr: number; bonusAmountIdr: number; generateCredits: number;
 }
 export interface PaymentOrder {

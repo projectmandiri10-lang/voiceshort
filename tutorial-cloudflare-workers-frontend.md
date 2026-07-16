@@ -7,12 +7,9 @@ Runtime aktif berada di `apps/web` dan memakai Cloudflare Worker dengan Static A
 `apps/web/wrangler.jsonc` menyimpan:
 
 - `SCRIPT_PROVIDER=aivene`
-- `SCRIPT_FALLBACK_PROVIDER=zai`
 - `AIVENE_BASE_URL=https://api.aivene.com/v1`
-- `AIVENE_SCRIPT_MODEL=gpt-5.4-nano`
+- `AIVENE_SCRIPT_MODEL=gpt-4o-mini`
 - `AIVENE_REASONING_EFFORT=medium`
-- `ZAI_BASE_URL=https://api.z.ai/api/paas/v4`
-- `ZAI_SCRIPT_MODEL=glm-5v-turbo`
 - `SUPABASE_URL`
 
 ## Secrets
@@ -22,7 +19,6 @@ Atur secrets berikut di Cloudflare Worker:
 ```bash
 cd apps/web
 npx wrangler secret put AIVENE_API_KEY
-npx wrangler secret put ZAI_API_KEY
 npx wrangler secret put SUPABASE_ANON_KEY
 npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 ```

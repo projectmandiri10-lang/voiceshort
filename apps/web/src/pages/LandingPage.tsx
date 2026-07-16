@@ -25,7 +25,9 @@ export function LandingPage({ locale, authError, onAuthenticated }: LandingPageP
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setLoading(true); setError(""); setMessage("");
+    setLoading(true);
+    setError("");
+    setMessage("");
     try {
       const result = mode === "login"
         ? await login({ email: email.trim(), password })
@@ -34,16 +36,20 @@ export function LandingPage({ locale, authError, onAuthenticated }: LandingPageP
       if (result.user) onAuthenticated(result.user);
     } catch (submitError) {
       setError((submitError as Error).message);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const onGoogleLogin = async () => {
-    setLoading(true); setError("");
+    setLoading(true);
+    setError("");
     try {
       if (!isAuthReady()) throw new Error(id ? "Autentikasi belum dikonfigurasi." : "Authentication is not configured.");
       await startGoogleLogin("/?view=generate");
     } catch (loginError) {
-      setError((loginError as Error).message); setLoading(false);
+      setError((loginError as Error).message);
+      setLoading(false);
     }
   };
 
@@ -61,32 +67,32 @@ export function LandingPage({ locale, authError, onAuthenticated }: LandingPageP
 
       <section className="hero-grid personal-landing-grid">
         <div className="landing-copy">
-          <div className="badge"><span className="badge-dot" />{id ? "ANALISIS VIDEO PENDEK · 10 GRATIS" : "SHORT VIDEO ANALYSIS · 10 FREE"}</div>
-          <h1>{id ? "Ubah video pendek." : "Turn short videos."}<br /><span>{id ? "Jadi paket konten siap pakai." : "Into ready-to-use content."}</span></h1>
+          <div className="badge"><span className="badge-dot" />{id ? "PEMBUAT NASKAH VIDEO - 10 GRATIS" : "VIDEO SCRIPT WRITER - 10 FREE"}</div>
+          <h1>{id ? "Ubah video pendek." : "Turn short videos."}<br /><span>{id ? "Jadi naskah voiceover siap pakai." : "Into ready-to-use voiceover scripts."}</span></h1>
           <p className="landing-copy-lead">
             {id
-              ? "Upload video maksimal 60 detik dan dapatkan analisis visual, hook, Scene, Sample Context, naskah, caption, hashtag, serta CTA. Setiap akun mendapat 10 analisis gratis, lalu dapat melanjutkan dengan top up credit."
-              : "Upload a video up to 60 seconds and get visual analysis, hooks, Scene, Sample Context, scripts, captions, hashtags, and CTAs. Every account gets 10 free analyses, then continues with wallet credits."}
+              ? "Upload video maksimal 60 detik lalu dapatkan Scene, Sample Context, dan naskah video untuk pengisi suara. Hasilnya siap ditempel ke AI Studio bagian The Ad Voiceover, lengkap dengan caption dan hashtag."
+              : "Upload a video up to 60 seconds and get Scene, Sample Context, and voiceover-ready scripts for AI Studio The Ad Voiceover, plus captions and hashtags."}
           </p>
           <div className="hero-actions landing-hero-actions">
-            <a className="primary-btn" href="#masuk" onClick={() => setMode("register")}><Sparkles size={17} />{id ? "Coba 10 Analisis Gratis" : "Try 10 Free Analyses"}</a>
-            <a className="ghost-button" href="#cara-kerja">{id ? "Lihat Alur Analisis" : "See How It Works"}<ArrowRight size={17} /></a>
+            <a className="primary-btn" href="#masuk" onClick={() => setMode("register")}><Sparkles size={17} />{id ? "Coba 10 Naskah Gratis" : "Try 10 Free Scripts"}</a>
+            <a className="ghost-button" href="#cara-kerja">{id ? "Lihat Alur Naskah" : "See the Script Workflow"}<ArrowRight size={17} /></a>
           </div>
           <div className="feature-grid personal-feature-grid" id="cara-kerja">
-            <article className="feature-step"><Sparkles size={20} /><div><h3>1. {id ? "Upload & Analisis" : "Upload & Analyze"}</h3><p>{id ? "Pilih video MP4 atau MOV maksimal 60 detik." : "Choose an MP4 or MOV video up to 60 seconds."}</p></div></article>
-            <article className="feature-step"><FileText size={20} /><div><h3>2. {id ? "Paket Konten" : "Content Package"}</h3><p>{id ? "Dapatkan naskah, Scene, Sample Context, dan analisis visual." : "Get scripts, Scene, Sample Context, and visual analysis."}</p></div></article>
-            <article className="feature-step"><Hash size={20} /><div><h3>3. {id ? "Salin & Publikasikan" : "Copy & Publish"}</h3><p>{id ? "Salin caption, hashtag, CTA, atau buka Google AI Studio." : "Copy captions, hashtags, CTAs, or open Google AI Studio."}</p></div></article>
+            <article className="feature-step"><Sparkles size={20} /><div><h3>1. {id ? "Upload & Baca Visual" : "Upload & Read the Visuals"}</h3><p>{id ? "Pilih video MP4 atau MOV maksimal 60 detik." : "Choose an MP4 or MOV video up to 60 seconds."}</p></div></article>
+            <article className="feature-step"><FileText size={20} /><div><h3>2. {id ? "Paket Naskah" : "Script Package"}</h3><p>{id ? "Dapatkan Scene, Sample Context, dan naskah untuk pengisi suara." : "Get Scene, Sample Context, and the script for your voiceover talent."}</p></div></article>
+            <article className="feature-step"><Hash size={20} /><div><h3>3. {id ? "Tempel ke AI Studio" : "Paste into AI Studio"}</h3><p>{id ? "Tempel ke The Ad Voiceover lalu lanjutkan caption dan hashtag." : "Paste into The Ad Voiceover, then finish with captions and hashtags."}</p></div></article>
           </div>
           <p className="auth-security">
             <span><ShieldCheck size={14} />{id ? "Video sumber tidak disimpan" : "Source videos are not stored"}</span>
-            <span>{id ? "Analisis teks saja · tanpa TTS" : "Text analysis only · no TTS"}</span>
+            <span>{id ? "Naskah teks saja - tanpa TTS" : "Script text only - no TTS"}</span>
           </p>
         </div>
 
         <aside className="auth-card landing-auth-card" id="masuk">
           <div className="auth-head">
-            <h2>{mode === "register" ? (id ? "Mulai 10 analisis gratis" : "Start 10 free analyses") : (id ? "Lanjutkan analisis Anda" : "Continue your analyses")}</h2>
-            <p>{mode === "register" ? (id ? "Buat akun dan langsung analisis video pertama." : "Create an account and analyze your first video.") : (id ? "Masuk untuk membuka Generate dan Riwayat." : "Sign in to access Generate and History.")}</p>
+            <h2>{mode === "register" ? (id ? "Mulai 10 naskah gratis" : "Start 10 free scripts") : (id ? "Lanjutkan buat naskah" : "Continue writing scripts")}</h2>
+            <p>{mode === "register" ? (id ? "Buat akun dan langsung buat naskah video pertama." : "Create an account and generate your first video script.") : (id ? "Masuk untuk membuka workspace naskah dan riwayat." : "Sign in to access your script workspace and history.")}</p>
           </div>
           <button className="google-btn" type="button" disabled={loading} onClick={() => void onGoogleLogin()}><LogIn size={19} />Google</button>
           <div className="auth-divider"><span>{id ? "atau email" : "or email"}</span></div>

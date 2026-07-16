@@ -1,5 +1,5 @@
 import { getContentLabel, getPlatformLabel, getToneLabel } from "../job-form-options";
-import type { AppSettings, ContentLanguage, ContentType, SocialPlatform, VisualBrief } from "../types";
+import type { AiStudioPackage, AppSettings, ContentLanguage, ContentType, SocialPlatform, VisualBrief } from "../types";
 import { calculateSpeechTarget } from "./speech-timing";
 
 const SCRIPT_WORDS_PER_SECOND = 2;
@@ -120,5 +120,48 @@ export function buildAiStudioPackagePrompt(input: PromptInput & { visualBrief: V
     ...contextLines(input),
     "Verified visual brief:",
     JSON.stringify(input.visualBrief)
+  ].join("\n");
+}
+
+export function buildAiStudioPolishPrompt(
+  input: PromptInput & { visualBrief: VisualBrief; aiPackage: AiStudioPackage }
+): string {
+  const targetWords = Math.max(10, Math.round(input.videoDurationSec * SCRIPT_WORDS_PER_SECOND));
+  const minWords = Math.max(8, targetWords - 2);
+  const maxWords = targetWords + 2;
+  const timing = calculateSpeechTarget(input.videoDurationSec);
+  const languageName = input.contentLanguage === "en-US" ? "natural English" : "Bahasa Indonesia natural";
+
+  return [
+    "Polish the supplied Google AI Studio Generate Speech package and social posting copy.",
+    "Return valid JSON only with the exact same schema. Do not use markdown or code fences.",
+    "Required JSON schema:",
+    JSON.stringify({
+      sceneText: "text ready for the AI Studio Scene field",
+      sampleContextText: "text ready for the AI Studio Sample Context field",
+      scriptText: "clean spoken narration only",
+      captionText: "social caption without hashtags",
+      hashtags: ["#tag"]
+    }),
+    "Polish goals:",
+    "- Improve clarity, wording, rhythm, and flow.",
+    "- Keep the writing natural, concise, and ready to use.",
+    "Hard rules:",
+    "- Do not add, remove, rename, or reorder fields.",
+    "- Do not invent facts, visuals, claims, identities, benefits, locations, or outcomes.",
+    "- Preserve the verified visual order and all factual constraints from the visual brief.",
+    `- sceneText must still request a single-speaker ${languageName} spoken delivery and preserve this voice-direction rule exactly: ${buildVoiceDeliveryInstruction(input)}`,
+    `- sceneText must still command the final spoken word to finish at ${timing.speechTargetSec.toFixed(2)} seconds, followed by ${timing.safetyMarginSec.toFixed(2)} seconds of silence, so the audio totals exactly ${input.videoDurationSec.toFixed(2)} seconds.`,
+    `- sampleContextText must still state the exact ${input.videoDurationSec.toFixed(2)} second duration, the ${timing.speechTargetSec.toFixed(2)} second final-word deadline, the ${minWords}-${maxWords} word budget, and the strict no-paraphrase rule for speech generation.`,
+    `- scriptText must stay within ${minWords}-${maxWords} spoken words and keep the final CTA sentence requirement intact.`,
+    `- ${buildCtaInstruction(input)}`,
+    "- captionText must remain concise and must not include hashtags.",
+    "- hashtags must contain 3-8 safe, relevant tags.",
+    "- If the current package already satisfies the rules, keep it very close and only make small quality improvements.",
+    ...contextLines(input),
+    "Verified visual brief:",
+    JSON.stringify(input.visualBrief),
+    "Current package to polish:",
+    JSON.stringify(input.aiPackage)
   ].join("\n");
 }

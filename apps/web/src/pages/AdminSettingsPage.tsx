@@ -5,7 +5,7 @@ import { AIVENE_SCRIPT_MODELS, FREE_USER_AIVENE_SCRIPT_MODEL } from "../shared/c
 import type { AppSettings, QrisManualOverrideMode, TopupConfig } from "../types";
 
 const MODEL_LABELS: Record<(typeof AIVENE_SCRIPT_MODELS)[number], string> = {
-  "gpt-5.4-nano": "gpt-5.4-nano - paling hemat"
+  "gpt-4o-mini": "gpt-4o-mini - paling hemat"
 };
 
 export function AdminSettingsPage() {
@@ -47,7 +47,7 @@ export function AdminSettingsPage() {
       const saved = await updateSettings({
         ...settings,
         scriptProvider: "aivene",
-        scriptFallbackProvider: "zai"
+        scriptFallbackProvider: "aivene"
       });
       setSettings(saved);
       window.alert("Pengaturan AI dan top up berhasil disimpan.");
@@ -102,7 +102,7 @@ export function AdminSettingsPage() {
         <div>
           <span className="eyebrow"><ShieldCheck size={15} /> Superadmin</span>
           <h2>Model analisis video</h2>
-          <p>Pilih model utama Aivene. Fallback Z.AI direct hanya tersedia untuk superadmin.</p>
+          <p>VoiceShort sekarang dikunci ke satu model Aivene untuk seluruh analisis video.</p>
         </div>
       </header>
 
@@ -122,13 +122,13 @@ export function AdminSettingsPage() {
 
         <div className="settings-provider-summary">
           <p><strong>Provider utama:</strong> Aivene</p>
-          <p><strong>Fallback superadmin:</strong> Z.AI direct - GLM-5V Turbo</p>
-          <p><strong>User gratis & top up:</strong> Aivene saja - tanpa Z.AI direct</p>
-          <p><strong>Reasoning utama:</strong> Medium</p>
+          <p><strong>Model aktif:</strong> gpt-4o-mini</p>
+          <p><strong>User gratis & top up:</strong> Aivene saja</p>
+          <p><strong>Reasoning utama:</strong> Nonaktif untuk model GPT ini</p>
         </div>
 
         <p className="settings-hint">
-          Sepuluh analisis gratis memakai {FREE_USER_AIVENE_SCRIPT_MODEL}. User yang sudah top up memakai model Aivene yang dipilih di atas. Hanya superadmin yang boleh memakai fallback Z.AI direct.
+          Sepuluh analisis gratis memakai {FREE_USER_AIVENE_SCRIPT_MODEL}. User yang sudah top up juga tetap memakai model yang sama supaya hasil admin dan runtime selalu sinkron.
         </p>
 
         <div className="settings-section-divider">

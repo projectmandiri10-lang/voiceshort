@@ -49,7 +49,7 @@ export function JobsPage({ locale, selectedJobId, onSelectJob }: JobsPageProps) 
   return (
     <section className="personal-history">
       <header className="personal-workspace-head">
-        <div><span className="eyebrow">RIWAYAT PERSONAL</span><h1>Riwayat analisis</h1><p>Buka kembali naskah, caption, dan hashtag dari setiap analisis.</p></div>
+        <div><span className="eyebrow">RIWAYAT PERSONAL</span><h1>Riwayat naskah</h1><p>Buka kembali Scene, Sample Context, naskah, caption, dan hashtag dari setiap hasil generate.</p></div>
         <button type="button" className="secondary-button" onClick={() => void load()}><RefreshCw size={16} /> Refresh</button>
       </header>
       <div className="split-layout">
@@ -62,13 +62,17 @@ export function JobsPage({ locale, selectedJobId, onSelectJob }: JobsPageProps) 
                 <span className="small">{item.status === "failed" ? "Gagal" : "Selesai"}</span>
               </button>
             ))}
-            {!sessions.length ? <p>Belum ada analisis.</p> : null}
+            {!sessions.length ? <p>Belum ada naskah.</p> : null}
           </div>
         </aside>
         <div className="detail-box">
           {selected ? (
             <div className="personal-step-content">
-              <div className="personal-result-head"><div><h2>{selected.title}</h2><p>{formatDurationSeconds(selected.videoDurationSec, locale)} · {selected.status === "failed" ? "Gagal" : "Selesai"}</p></div><Sparkles size={22} /></div>
+              <div className="personal-result-head"><div><h2>{selected.title}</h2><p>{formatDurationSeconds(selected.videoDurationSec, locale)} - {selected.status === "failed" ? "Gagal" : "Selesai"}</p></div><Sparkles size={22} /></div>
+              <article className="copy-result-card ai-studio-guide-card">
+                <header><strong>AI Studio - The Ad Voiceover</strong></header>
+                <p>Tempel Scene, Sample Context, dan Naskah ini ke AI Studio pada bagian The Ad Voiceover.</p>
+              </article>
               {([[
                 "Scene", selected.sceneText
               ], [
@@ -84,7 +88,7 @@ export function JobsPage({ locale, selectedJobId, onSelectJob }: JobsPageProps) 
               ))}
               {selected.referenceLink ? <a href={selected.referenceLink} target="_blank" rel="noreferrer"><ExternalLink size={15} /> {selected.referenceLink}</a> : null}
             </div>
-          ) : <p>Pilih analisis.</p>}
+          ) : <p>Pilih naskah.</p>}
         </div>
       </div>
       {message ? <p className="success-text">{message}</p> : null}

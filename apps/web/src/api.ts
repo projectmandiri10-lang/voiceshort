@@ -71,7 +71,7 @@ export interface AuthResult {
 }
 
 export interface DepositPackage {
-  code: "1_video" | "10_video" | "50_video" | "100_video";
+  code: "1_video" | "5_video" | "10_video" | "50_video" | "100_video";
   label: string;
   payAmountIdr: number;
   creditAmountIdr: number;
@@ -528,7 +528,7 @@ export async function updateAdminUser(
     isUnlimited?: boolean;
     disabled?: boolean;
     disabledReason?: string;
-    assignedPackageCode?: "10_video" | "50_video" | "100_video" | "custom" | null;
+    assignedPackageCode?: "1_video" | "5_video" | "10_video" | "50_video" | "100_video" | "custom" | null;
     videoQuotaTotal?: number;
     videoQuotaUsed?: number;
   }
@@ -568,7 +568,7 @@ export async function disableAdminUser(email: string): Promise<AdminUserRecord> 
 export async function grantAdminUserPackage(
   email: string,
   input: {
-    packageCode: "10_video" | "50_video" | "100_video" | "custom";
+    packageCode: "1_video" | "5_video" | "10_video" | "50_video" | "100_video" | "custom";
     customAmountIdr?: number;
     description?: string;
   }

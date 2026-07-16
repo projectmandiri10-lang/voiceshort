@@ -1,7 +1,7 @@
 {
   "scriptProvider": "aivene",
-  "scriptFallbackProvider": "zai",
-  "scriptModel": "gpt-5.4-nano",
+  "scriptFallbackProvider": "aivene",
+  "scriptModel": "gpt-4o-mini",
   "language": "id-ID",
   "maxVideoSeconds": 60,
   "safetyMode": "safe_marketing",

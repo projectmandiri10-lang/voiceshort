@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Clipboard, LoaderCircle, QrCode, RefreshCw, Sparkles, Wallet } from "lucide-react";
+import { CheckCircle2, Clipboard, LoaderCircle, RefreshCw, Sparkles, Wallet } from "lucide-react";
 import {
   createTopup,
   fetchSession,
@@ -79,7 +79,7 @@ export function SubscriptionPage({ user, onUserUpdated, onGenerate }: Subscripti
       refreshWallet()
     ]);
     if (nextUser) onUserUpdated(nextUser);
-    setNotice("Pembayaran berhasil diverifikasi. Credit sudah masuk dan Anda diarahkan ke halaman Generate...");
+    setNotice("Pembayaran berhasil diverifikasi. Credit sudah masuk dan Anda diarahkan ke workspace naskah...");
     if (redirectTimerRef.current) window.clearTimeout(redirectTimerRef.current);
     redirectTimerRef.current = window.setTimeout(() => {
       onGenerate();
@@ -151,30 +151,30 @@ export function SubscriptionPage({ user, onUserUpdated, onGenerate }: Subscripti
       <header className="personal-workspace-head">
         <div>
           <span className="eyebrow"><Sparkles size={15} /> TOP UP CREDIT</span>
-          <h1>Isi saldo untuk lanjut analisis video.</h1>
-          <p>Setelah 10 analisis gratis habis, setiap analisis memakai credit wallet. Pembayaran dilakukan dengan QRIS statis dan nominal unik.</p>
+          <h1>Isi saldo untuk lanjut buat naskah video.</h1>
+          <p>Setelah 10 naskah gratis habis, setiap naskah video voiceover memakai credit wallet. Pembayaran dilakukan dengan QRIS statis dan nominal unik.</p>
         </div>
       </header>
 
       <section className="card subscription-summary-card">
         <div>
           <span>Gratis tersisa</span>
-          <strong>{user.freeAnalysisRemaining} dari {user.freeAnalysisLimit}</strong>
+          <strong>{user.freeAnalysisRemaining} dari {user.freeAnalysisLimit} naskah</strong>
         </div>
         <div>
           <span>Saldo saat ini</span>
           <strong>{rupiah(wallet?.walletBalanceIdr || 0)}</strong>
         </div>
         <div>
-          <span>Sisa analisis dari saldo</span>
-          <strong>{wallet?.generateCreditsRemaining ?? "Unlimited"}</strong>
+          <span>Sisa naskah dari saldo</span>
+          <strong>{wallet?.generateCreditsRemaining ?? "Unlimited"} naskah</strong>
         </div>
       </section>
 
       <section className="card subscription-checkout-card">
         <div className="subscription-plan-copy">
-          <h2>Pilih paket top up</h2>
-          <p>Harga per analisis mengikuti credit wallet. Admin tetap mengatur model utama Aivene yang dipakai user berbayar.</p>
+          <h2>Pilih paket naskah video</h2>
+          <p>Biaya sekarang sederhana: Rp1.000 untuk 1 naskah video voiceover. Pilih paket kecil yang paling nyaman lalu lanjut generate kapan saja.</p>
           <p className={paymentOpen ? "payment-window-open" : "payment-window-closed"}>
             Jam pembayaran normal: 05.00-22.00 WIB. Invoice berlaku 60 menit.
             {config?.paymentWindow.mode === "manual_open" && config.paymentWindow.manualOverrideUntil
@@ -201,7 +201,7 @@ export function SubscriptionPage({ user, onUserUpdated, onGenerate }: Subscripti
                 <strong>{item.label}</strong>
                 <p>{rupiah(item.payAmountIdr)}</p>
                 <span>Masuk saldo {rupiah(item.creditAmountIdr)}</span>
-                <span>{item.generateCredits} analisis</span>
+                <span>{item.generateCredits} naskah video</span>
                 {item.bonusAmountIdr > 0 ? <span>Bonus {rupiah(item.bonusAmountIdr)}</span> : null}
               </button>
             ))}
@@ -222,6 +222,7 @@ export function SubscriptionPage({ user, onUserUpdated, onGenerate }: Subscripti
                 <strong>{selectedPackage ? rupiah(selectedPackage.creditAmountIdr) : "-"}</strong>
               </div>
             </div>
+            <p>Setiap Rp1.000 saldo setara dengan 1 naskah video voiceover.</p>
 
             {!order || order.status === "expired" || order.status === "failed" || order.status === "canceled" ? (
               <button
@@ -251,7 +252,7 @@ export function SubscriptionPage({ user, onUserUpdated, onGenerate }: Subscripti
               <strong className="subscription-total">{rupiah(order.totalAmountIdr || 0)}</strong>
               <button className="secondary-button" onClick={() => void copyAmount()}><Clipboard size={15} /> Salin nominal</button>
               <p>Harga {rupiah(order.payAmountIdr)} + pajak {rupiah(order.taxAmountIdr)} + kode unik <strong>{String(order.uniqueCode || "").padStart(2, "0")}</strong>.</p>
-              <p>Credit yang masuk: <strong>{rupiah(order.creditAmountIdr)}</strong>.</p>
+              <p>Credit yang masuk: <strong>{rupiah(order.creditAmountIdr)}</strong> atau {Math.floor(order.creditAmountIdr / 1000)} naskah video.</p>
               <p>{config.instructions}</p>
               <p>Invoice berlaku sampai {order.expiredAt ? new Date(order.expiredAt).toLocaleString("id-ID") : "-" }.</p>
               <button className="secondary-button" onClick={() => void refreshOrder().catch((cause) => setError((cause as Error).message))}><RefreshCw size={15} /> Periksa Pembayaran</button>
@@ -262,8 +263,8 @@ export function SubscriptionPage({ user, onUserUpdated, onGenerate }: Subscripti
         {order?.status === "paid" ? (
           <section className="subscription-active-card">
             <CheckCircle2 size={32} />
-            <div><h2>Top up berhasil</h2><p>Saldo sudah bertambah dan analisis bisa dilanjutkan.</p></div>
-            <button className="primary-button" onClick={onGenerate}>Mulai Analisis</button>
+            <div><h2>Top up berhasil</h2><p>Saldo sudah bertambah dan pembuatan naskah bisa langsung dilanjutkan.</p></div>
+            <button className="primary-button" onClick={onGenerate}>Mulai Buat Naskah</button>
           </section>
         ) : null}
       </section>

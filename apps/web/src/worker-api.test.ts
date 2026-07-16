@@ -91,13 +91,9 @@ const env = {
   SUPABASE_SERVICE_ROLE_KEY: "service",
   AIVENE_API_KEY: "aivene-key",
   AIVENE_BASE_URL: "https://api.aivene.com/v1",
-  AIVENE_SCRIPT_MODEL: "gpt-5.4-nano",
+  AIVENE_SCRIPT_MODEL: "gpt-4o-mini",
   AIVENE_REASONING_EFFORT: "medium",
-  ZAI_API_KEY: "zai-key",
-  ZAI_BASE_URL: "https://api.z.ai/api/paas/v4",
-  ZAI_SCRIPT_MODEL: "glm-5v-turbo",
-  SCRIPT_PROVIDER: "aivene",
-  SCRIPT_FALLBACK_PROVIDER: "zai"
+  SCRIPT_PROVIDER: "aivene"
 };
 
 describe("generation session Worker workflow", () => {
@@ -155,8 +151,8 @@ describe("generation session Worker workflow", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.every(([url]) => String(url) === "https://api.aivene.com/v1/chat/completions")).toBe(true);
     const aiBodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
-    expect(aiBodies.every((payload) => payload.model === "gpt-5.4-nano")).toBe(true);
-    expect(aiBodies.every((payload) => payload.reasoning_effort === "medium")).toBe(true);
+    expect(aiBodies.every((payload) => payload.model === "gpt-4o-mini")).toBe(true);
+    expect(aiBodies.every((payload) => !("reasoning_effort" in payload))).toBe(true);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("audio/speech"))).toBe(false);
     expect(rpcMock.mock.calls.map(([name]) => name)).toEqual(["reserve_analysis_access", "complete_analysis_access"]);
     expect(inserted[0]).toMatchObject({ status: "completed", charged_amount_idr: 0 });
@@ -164,6 +160,168 @@ describe("generation session Worker workflow", () => {
     expect(inserted[0]).not.toHaveProperty("voice_name");
     expect(inserted[0]).not.toHaveProperty("speech_rate");
     expect(inserted[0]).not.toHaveProperty("include_subtitles");
+    expect(inserted[0]).toMatchObject({
+      metadata: {
+        polish: {
+          attempted: false,
+          model: "gemini-3-flash-preview",
+          status: "disabled",
+          fallbackUsed: false
+        }
+      }
+    });
+  });
+
+  it("runs a third text-only Gemini polish step when enabled", async () => {
+    const inserted: unknown[] = [];
+    const rpcMock = analysisRpcMock();
+    createClientMock.mockReturnValue(buildDb(inserted, rpcMock));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(chatResponse({
+        summary: "Produk terlihat jelas",
+        hook: { startSec: 0, endSec: 3, reason: "Perubahan visual" },
+        timeline: [{
+          startSec: 0, endSec: 42, primaryVisual: "Produk", action: "Digunakan",
+          onScreenText: [], narrationFocus: "Manfaat produk", avoidClaims: []
+        }],
+        mustMention: ["manfaat"], mustAvoid: ["klaim berlebihan"], uncertainties: []
+      }))
+      .mockResolvedValueOnce(chatResponse({
+        sceneText: "Narator Indonesia natural; selesai tepat 42.00 detik.",
+        sampleContextText: "Ikuti visual utama dan jangan tambah intro.",
+        scriptText: "Produk ini membantu rutinitas harian menjadi lebih praktis.",
+        captionText: "Rutinitas praktis setiap hari.",
+        hashtags: ["#produk", "#praktis"]
+      }))
+      .mockResolvedValueOnce(chatResponse({
+        sceneText: "Narator Indonesia yang natural dan rapi; akhiri tepat 42.00 detik.",
+        sampleContextText: "Ikuti urutan visual, jaga ritme natural, dan jangan menambah intro atau outro.",
+        scriptText: "Produk ini membantu rutinitas harian terasa lebih praktis setiap hari.",
+        captionText: "Rutinitas terasa lebih praktis setiap hari.",
+        hashtags: ["#produk", "#rutinitaspraktis", "#harian"]
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { handleApiRequest } = await import("./worker-api");
+
+    const response = await handleApiRequest(new Request("https://app.test/api/generation-sessions", {
+      method: "POST",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Produk", description: "Deskripsi produk", contentType: "affiliate",
+        socialPlatform: "instagram", contentLanguage: "id-ID",
+        tone: "natural", referenceLink: "https://example.com/produk", videoDurationSec: 42,
+        frames: [{ timestampSec: 0, mimeType: "image/jpeg", base64Data: "frame", width: 448, height: 252 }]
+      })
+    }), {
+      ...env,
+      AIVENE_POLISH_ENABLED: "true",
+      AIVENE_POLISH_MODEL: "gemini-3-flash-preview",
+      AIVENE_POLISH_REASONING_EFFORT: "medium"
+    });
+
+    expect(response.status).toBe(201);
+    const body = await response.json() as { session: Record<string, unknown> };
+    expect(body.session).toMatchObject({
+      sceneText: "Narator Indonesia yang natural dan rapi; akhiri tepat 42.00 detik.",
+      captionText: "Rutinitas terasa lebih praktis setiap hari.",
+      hashtags: ["#produk", "#rutinitaspraktis", "#harian"],
+      metadata: {
+        polish: {
+          attempted: true,
+          model: "gemini-3-flash-preview",
+          status: "completed",
+          fallbackUsed: false
+        }
+      }
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const aiBodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+    expect(aiBodies[2]).toMatchObject({ model: "gemini-3-flash-preview", reasoning_effort: "medium" });
+    const thirdMessage = (aiBodies[2]?.messages as Array<Record<string, unknown>> | undefined)?.[0];
+    const thirdContent = Array.isArray(thirdMessage?.content) ? thirdMessage.content as Array<Record<string, unknown>> : [];
+    expect(thirdContent.some((part) => part.type === "image_url")).toBe(false);
+    expect(inserted[0]).toMatchObject({
+      scene_text: "Narator Indonesia yang natural dan rapi; akhiri tepat 42.00 detik.",
+      metadata: {
+        polish: {
+          attempted: true,
+          model: "gemini-3-flash-preview",
+          status: "completed",
+          fallbackUsed: false
+        }
+      }
+    });
+  });
+
+  it("falls back to the original AI Studio package when Gemini polish fails", async () => {
+    const inserted: unknown[] = [];
+    const rpcMock = analysisRpcMock();
+    createClientMock.mockReturnValue(buildDb(inserted, rpcMock));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(chatResponse({
+        summary: "Produk terlihat jelas",
+        hook: { startSec: 0, endSec: 3, reason: "Perubahan visual" },
+        timeline: [{
+          startSec: 0, endSec: 42, primaryVisual: "Produk", action: "Digunakan",
+          onScreenText: [], narrationFocus: "Manfaat produk", avoidClaims: []
+        }],
+        mustMention: ["manfaat"], mustAvoid: ["klaim berlebihan"], uncertainties: []
+      }))
+      .mockResolvedValueOnce(chatResponse({
+        sceneText: "Narator Indonesia natural; selesai tepat 42.00 detik.",
+        sampleContextText: "Ikuti visual utama dan jangan tambah intro.",
+        scriptText: "Produk ini membantu rutinitas harian menjadi lebih praktis.",
+        captionText: "Rutinitas praktis setiap hari.",
+        hashtags: ["#produk", "#praktis"]
+      }))
+      .mockImplementation(async () => new Response(JSON.stringify({
+        error: { message: "Gemini polish unavailable" }
+      }), { status: 503, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { handleApiRequest } = await import("./worker-api");
+
+    const response = await handleApiRequest(new Request("https://app.test/api/generation-sessions", {
+      method: "POST",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Produk", description: "Deskripsi produk", contentType: "affiliate",
+        socialPlatform: "instagram", contentLanguage: "id-ID",
+        tone: "natural", referenceLink: "https://example.com/produk", videoDurationSec: 42,
+        frames: [{ timestampSec: 0, mimeType: "image/jpeg", base64Data: "frame", width: 448, height: 252 }]
+      })
+    }), {
+      ...env,
+      AIVENE_POLISH_ENABLED: "true",
+      AIVENE_POLISH_MODEL: "gemini-3-flash-preview"
+    });
+
+    expect(response.status).toBe(201);
+    const body = await response.json() as { session: Record<string, unknown> };
+    expect(body.session).toMatchObject({
+      sceneText: "Narator Indonesia natural; selesai tepat 42.00 detik.",
+      metadata: {
+        polish: {
+          attempted: true,
+          model: "gemini-3-flash-preview",
+          status: "fallback",
+          fallbackUsed: true,
+          errorMessage: "Gemini polish unavailable"
+        }
+      }
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(inserted[0]).toMatchObject({
+      scene_text: "Narator Indonesia natural; selesai tepat 42.00 detik.",
+      metadata: {
+        polish: {
+          attempted: true,
+          model: "gemini-3-flash-preview",
+          status: "fallback",
+          fallbackUsed: true,
+          errorMessage: "Gemini polish unavailable"
+        }
+      }
+    });
   });
 
   it("uses wallet credit after 10 free analyses are exhausted", async () => {
@@ -189,8 +347,8 @@ describe("generation session Worker workflow", () => {
       settingsRow: {
         settings_key: "default",
         script_provider: "aivene",
-        script_fallback_provider: "zai",
-        script_model: "gpt-5.4-nano",
+        script_fallback_provider: "aivene",
+        script_model: "gpt-4o-mini",
         tax_rate_percent: 0,
         language: "id-ID",
         max_video_seconds: 60,
@@ -232,36 +390,21 @@ describe("generation session Worker workflow", () => {
     expect(response.status).toBe(201);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const aiBodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
-    expect(aiBodies.every((payload) => payload.model === "gpt-5.4-nano")).toBe(true);
+    expect(aiBodies.every((payload) => payload.model === "gpt-4o-mini")).toBe(true);
     expect(rpcMock.mock.calls.map(([name]) => name)).toEqual([
       "reserve_analysis_access",
       "reserve_generate_credit",
       "complete_analysis_access"
     ]);
-    expect(inserted[0]).toMatchObject({ charged_amount_idr: 2000 });
+    expect(inserted[0]).toMatchObject({ charged_amount_idr: 1000 });
   });
 
-  it("allows only a superadmin to fall back directly to Z.AI GLM-5V Turbo", async () => {
+  it("keeps superadmin analysis on Aivene when the primary request fails", async () => {
     const inserted: unknown[] = [];
     createClientMock.mockReturnValue(buildDb(inserted, analysisRpcMock("unlimited"), { superadmin: true }));
-    const visualBrief = {
-      summary: "Produk terlihat jelas",
-      hook: { startSec: 0, endSec: 3, reason: "Produk muncul" },
-      timeline: [{
-        startSec: 0, endSec: 42, primaryVisual: "Produk", action: "Dipakai",
-        onScreenText: [], narrationFocus: "Kegunaan", avoidClaims: []
-      }],
-      mustMention: [], mustAvoid: [], uncertainties: []
-    };
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Aivene unavailable" } }), {
-        status: 400, headers: { "Content-Type": "application/json" }
-      }))
-      .mockResolvedValueOnce(chatResponse(visualBrief))
-      .mockResolvedValueOnce(chatResponse({
-        sceneText: "Natural", sampleContextText: "Ikuti visual", scriptText: "Produk praktis.",
-        captionText: "Produk praktis.", hashtags: ["#produk"]
-      }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: { message: "Aivene unavailable" }
+    }), { status: 400, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const { handleApiRequest } = await import("./worker-api");
 
@@ -276,12 +419,10 @@ describe("generation session Worker workflow", () => {
       })
     }), env);
 
-    expect(response.status).toBe(201);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(response.status).toBe(400);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://api.aivene.com/v1/chat/completions");
-    expect(String(fetchMock.mock.calls[1]?.[0])).toBe("https://api.z.ai/api/paas/v4/chat/completions");
-    const fallbackBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as Record<string, unknown>;
-    expect(fallbackBody).toMatchObject({ model: "glm-5v-turbo", thinking: { type: "enabled" } });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("api.z.ai"))).toBe(false);
   });
 
   it("never sends a subscribed user directly to Z.AI when Aivene fails", async () => {
@@ -289,8 +430,8 @@ describe("generation session Worker workflow", () => {
     const rpcMock = analysisRpcMock("subscription");
     createClientMock.mockReturnValue(buildDb(inserted, rpcMock, {
       settingsRow: {
-        settings_key: "default", script_provider: "aivene", script_fallback_provider: "zai",
-        script_model: "gpt-5.4-nano", language: "id-ID", max_video_seconds: 60,
+        settings_key: "default", script_provider: "aivene", script_fallback_provider: "aivene",
+        script_model: "gpt-4o-mini", language: "id-ID", max_video_seconds: 60,
         safety_mode: "safe_marketing", concurrency: 1
       }
     }));
@@ -321,8 +462,8 @@ describe("generation session Worker workflow", () => {
     const inserted: unknown[] = [];
     createClientMock.mockReturnValue(buildDb(inserted, analysisRpcMock("subscription"), {
       settingsRow: {
-        settings_key: "default", script_provider: "aivene", script_fallback_provider: "zai",
-        script_model: "gpt-5.4-nano", language: "id-ID", max_video_seconds: 60,
+        settings_key: "default", script_provider: "aivene", script_fallback_provider: "aivene",
+        script_model: "gpt-4o-mini", language: "id-ID", max_video_seconds: 60,
         safety_mode: "safe_marketing", concurrency: 1
       }
     }));
@@ -348,7 +489,7 @@ describe("generation session Worker workflow", () => {
     }), env);
     expect(response.status).toBe(201);
     const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
-    expect(bodies.every((body) => body.model === "gpt-5.4-nano")).toBe(true);
+    expect(bodies.every((body) => body.model === "gpt-4o-mini")).toBe(true);
   });
 
   it("blocks the eleventh free analysis before calling a provider", async () => {
@@ -374,7 +515,7 @@ describe("generation session Worker workflow", () => {
       })
     }), env);
     expect(response.status).toBe(402);
-    await expect(response.json()).resolves.toMatchObject({ message: expect.stringContaining("10 analisis gratis") });
+    await expect(response.json()).resolves.toMatchObject({ message: expect.stringContaining("10 naskah gratis") });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -393,8 +534,8 @@ describe("generation session Worker workflow", () => {
     const initialSettings = {
       settings_key: "default",
       script_provider: "aivene",
-      script_fallback_provider: "zai",
-      script_model: "gpt-5.4-nano",
+      script_fallback_provider: "aivene",
+      script_model: "gpt-4o-mini",
       tax_rate_percent: 0,
       language: "id-ID",
       max_video_seconds: 60,
@@ -405,8 +546,8 @@ describe("generation session Worker workflow", () => {
     const { handleApiRequest } = await import("./worker-api");
     const payload = {
       scriptProvider: "aivene",
-      scriptFallbackProvider: "zai",
-      scriptModel: "gpt-5.4-nano",
+      scriptFallbackProvider: "aivene",
+      scriptModel: "gpt-4o-mini",
       taxRatePercent: 0,
       language: "id-ID",
       maxVideoSeconds: 60,
@@ -423,13 +564,13 @@ describe("generation session Worker workflow", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       scriptProvider: "aivene",
-      scriptFallbackProvider: "zai",
-      scriptModel: "gpt-5.4-nano"
+      scriptFallbackProvider: "aivene",
+      scriptModel: "gpt-4o-mini"
     });
 
     const getResponse = await handleApiRequest(new Request("https://app.test/api/settings", {
       headers: { Authorization: "Bearer token" }
     }), env);
-    await expect(getResponse.json()).resolves.toMatchObject({ scriptModel: "gpt-5.4-nano" });
+    await expect(getResponse.json()).resolves.toMatchObject({ scriptModel: "gpt-4o-mini" });
   });
 });

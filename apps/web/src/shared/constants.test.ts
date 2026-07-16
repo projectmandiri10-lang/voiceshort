@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_AIVENE_SCRIPT_MODEL,
-  DEFAULT_ZAI_SCRIPT_MODEL,
   DEFAULT_SETTINGS,
   normalizeScriptModel,
   normalizeScriptProvider
 } from "./constants";
 
 describe("shared constants", () => {
-  it("uses Aivene with direct Z.AI fallback", () => {
+  it("uses Aivene as the only default text provider", () => {
     expect(DEFAULT_SETTINGS).toMatchObject({
       scriptProvider: "aivene",
-      scriptFallbackProvider: "zai",
+      scriptFallbackProvider: "aivene",
       scriptModel: DEFAULT_AIVENE_SCRIPT_MODEL
     });
   });
@@ -19,8 +18,8 @@ describe("shared constants", () => {
   it("normalizes models for each text provider", () => {
     expect(normalizeScriptModel("", "aivene")).toBe(DEFAULT_AIVENE_SCRIPT_MODEL);
     expect(normalizeScriptModel("google/gemini-2.5-flash", "aivene")).toBe("gemini-2.5-flash");
-    expect(normalizeScriptModel("", "zai")).toBe(DEFAULT_ZAI_SCRIPT_MODEL);
-    expect(normalizeScriptModel("glm-5v-turbo", "zai")).toBe("glm-5v-turbo");
+    expect(normalizeScriptModel("", "zai")).toBe(DEFAULT_AIVENE_SCRIPT_MODEL);
+    expect(normalizeScriptModel("custom-text-model", "zai")).toBe("custom-text-model");
   });
 
   it("rejects removed provider names", () => {
