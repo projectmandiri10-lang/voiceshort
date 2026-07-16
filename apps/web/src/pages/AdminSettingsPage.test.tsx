@@ -17,7 +17,7 @@ vi.mock("../api", () => ({
 const settings = {
   scriptProvider: "aivene" as const,
   scriptFallbackProvider: "zai" as const,
-  scriptModel: "qwen3.7-plus",
+  scriptModel: "gpt-5.4-nano",
   taxRatePercent: 0,
   language: "id-ID" as const,
   maxVideoSeconds: 60,

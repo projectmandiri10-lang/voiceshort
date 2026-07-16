@@ -7,7 +7,7 @@
     "SCRIPT_PROVIDER": "aivene",
     "SCRIPT_FALLBACK_PROVIDER": "zai",
     "AIVENE_BASE_URL": "https://api.aivene.com/v1",
-    "AIVENE_SCRIPT_MODEL": "qwen3.5-flash",
+    "AIVENE_SCRIPT_MODEL": "gpt-5.4-nano",
     "AIVENE_REASONING_EFFORT": "medium",
     "ZAI_BASE_URL": "https://api.z.ai/api/paas/v4",
     "ZAI_SCRIPT_MODEL": "glm-5v-turbo",

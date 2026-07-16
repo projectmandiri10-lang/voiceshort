@@ -1,7 +1,7 @@
 {
   "scriptProvider": "aivene",
   "scriptFallbackProvider": "zai",
-  "scriptModel": "qwen3.7-plus",
+  "scriptModel": "gpt-5.4-nano",
   "language": "id-ID",
   "maxVideoSeconds": 60,
   "safetyMode": "safe_marketing",

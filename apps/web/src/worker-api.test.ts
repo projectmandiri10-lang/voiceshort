@@ -91,7 +91,7 @@ const env = {
   SUPABASE_SERVICE_ROLE_KEY: "service",
   AIVENE_API_KEY: "aivene-key",
   AIVENE_BASE_URL: "https://api.aivene.com/v1",
-  AIVENE_SCRIPT_MODEL: "qwen3.7-plus",
+  AIVENE_SCRIPT_MODEL: "gpt-5.4-nano",
   AIVENE_REASONING_EFFORT: "medium",
   ZAI_API_KEY: "zai-key",
   ZAI_BASE_URL: "https://api.z.ai/api/paas/v4",
@@ -190,7 +190,7 @@ describe("generation session Worker workflow", () => {
         settings_key: "default",
         script_provider: "aivene",
         script_fallback_provider: "zai",
-        script_model: "qwen3.7-plus",
+        script_model: "gpt-5.4-nano",
         tax_rate_percent: 0,
         language: "id-ID",
         max_video_seconds: 60,
@@ -232,7 +232,7 @@ describe("generation session Worker workflow", () => {
     expect(response.status).toBe(201);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const aiBodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
-    expect(aiBodies.every((payload) => payload.model === "qwen3.7-plus")).toBe(true);
+    expect(aiBodies.every((payload) => payload.model === "gpt-5.4-nano")).toBe(true);
     expect(rpcMock.mock.calls.map(([name]) => name)).toEqual([
       "reserve_analysis_access",
       "reserve_generate_credit",
@@ -290,7 +290,7 @@ describe("generation session Worker workflow", () => {
     createClientMock.mockReturnValue(buildDb(inserted, rpcMock, {
       settingsRow: {
         settings_key: "default", script_provider: "aivene", script_fallback_provider: "zai",
-        script_model: "qwen3.7-plus", language: "id-ID", max_video_seconds: 60,
+        script_model: "gpt-5.4-nano", language: "id-ID", max_video_seconds: 60,
         safety_mode: "safe_marketing", concurrency: 1
       }
     }));
@@ -322,7 +322,7 @@ describe("generation session Worker workflow", () => {
     createClientMock.mockReturnValue(buildDb(inserted, analysisRpcMock("subscription"), {
       settingsRow: {
         settings_key: "default", script_provider: "aivene", script_fallback_provider: "zai",
-        script_model: "qwen3.7-plus", language: "id-ID", max_video_seconds: 60,
+        script_model: "gpt-5.4-nano", language: "id-ID", max_video_seconds: 60,
         safety_mode: "safe_marketing", concurrency: 1
       }
     }));
@@ -348,7 +348,7 @@ describe("generation session Worker workflow", () => {
     }), env);
     expect(response.status).toBe(201);
     const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
-    expect(bodies.every((body) => body.model === "qwen3.7-plus")).toBe(true);
+    expect(bodies.every((body) => body.model === "gpt-5.4-nano")).toBe(true);
   });
 
   it("blocks the eleventh free analysis before calling a provider", async () => {
@@ -394,7 +394,7 @@ describe("generation session Worker workflow", () => {
       settings_key: "default",
       script_provider: "aivene",
       script_fallback_provider: "zai",
-      script_model: "qwen3.7-plus",
+      script_model: "gpt-5.4-nano",
       tax_rate_percent: 0,
       language: "id-ID",
       max_video_seconds: 60,

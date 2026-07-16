@@ -10,7 +10,7 @@ describe("legacy server environment", () => {
     vi.stubEnv("SCRIPT_FALLBACK_PROVIDER", "zai");
     const { loadEnv } = await import("../src/config.js");
     expect(loadEnv()).toMatchObject({
-      scriptProvider: "aivene", scriptFallbackProvider: "zai", scriptModel: "qwen3.7-plus",
+      scriptProvider: "aivene", scriptFallbackProvider: "zai", scriptModel: "gpt-5.4-nano",
       zaiScriptModel: "glm-5v-turbo"
     });
   });
